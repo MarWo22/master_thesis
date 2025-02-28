@@ -1,0 +1,9 @@
+{
+  "name" : "platetectonics",
+  "version-string" : "1.0.0",
+  "builtin-baseline" : "f63682b9182187131b564c1395e4ac8ecb0c5ea8",
+  "dependencies" : [ {
+    "name" : "stb",
+    "version>=" : "2024-07-29#1"
+  } ]
+}

@@ -1,9 +1,10 @@
 #include <iostream>
 #include "random_texture.h"
+#include <stb_image_write.h>
 
 int main()
 {
-    std::cout << "WTF\n";
+
     generateTexture();
     return 0;
 }
