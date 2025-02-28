@@ -1,27 +1,22 @@
-﻿# CMakeList.txt : CMake project for TestingProj, include source and define
-# project specific logic here.
-#
-cmake_minimum_required (VERSION 3.8)
+cmake_minimum_required(VERSION 3.20)
+project(PlateTectonics CUDA CXX)
 
-# Enable Hot Reload for MSVC compilers if supported.
-if (POLICY CMP0141)
-  cmake_policy(SET CMP0141 NEW)
-  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "$<IF:$<AND:$<C_COMPILER_ID:MSVC>,$<CXX_COMPILER_ID:MSVC>>,$<$<CONFIG:Debug,RelWithDebInfo>:EditAndContinue>,$<$<CONFIG:Debug,RelWithDebInfo>:ProgramDatabase>>")
-endif()
 
-project ("TestingProj")
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CUDA_STANDARD 20)
 
+# Find the package (if stb installed via vcpkg)
 find_package(Stb REQUIRED)
 
+add_executable(PlateTectonics
+        main.cpp
+        random_texture.h
+        random_texture.cu
+)
 
-# Add source to this project's executable.
-add_executable (TestingProj "TestingProj.cpp" "TestingProj.h")
+set_target_properties(PlateTectonics PROPERTIES
+        LINKER_LANGUAGE CXX
+        CUDA_SEPARABLE_COMPILATION ON
+)
 
-if (CMAKE_VERSION VERSION_GREATER 3.12)
-  set_property(TARGET TestingProj PROPERTY CXX_STANDARD 20)
-endif()
-
-target_include_directories(TestingProj PRIVATE ${Stb_INCLUDE_DIR})
-
-
-# TODO: Add tests and install targets if needed.
+target_include_directories(PlateTectonics PRIVATE ${Stb_INCLUDE_DIR})
