@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
-project(PlateTectonics CUDA CXX)
+project(MyCUDAProject LANGUAGES CXX CUDA)
 
+enable_language(CUDA)
+find_package(CUDAToolkit REQUIRED)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CUDA_STANDARD 20)
+
+include_directories("$ENV{CUDA_PATH}/include")
 
 # Find the package (if stb installed via vcpkg)
 find_package(Stb REQUIRED)

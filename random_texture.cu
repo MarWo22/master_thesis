@@ -1,3 +1,6 @@
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+
 #include "random_texture.h"
 #include <curand_kernel.h>
 #include <iostream>
