@@ -29,7 +29,7 @@ __device__ uint2 toCoord(unsigned int index, int height, int width) {
     return make_uint2(fmodf(index, width), index/width);
 }
 
-__device__ float fluxComponentComputation(float *material, float* hydration, float flux, unsigned int threadID, unsigned int neighbor, float deltatime) {
+__device__ float fluxComponentComputation(float *material, float* hydration, float &flux, unsigned int threadID, unsigned int neighbor, float deltatime) {
     float pipe_cross_section = 1;//A
     float pipe_length = 1; //l
     float gravity = 9.81;//g
@@ -44,6 +44,12 @@ __global__ void initErosionKernel(curandState* const rngStates, const unsigned i
     curand_init(seed, threadID, 0, &rngStates[threadID]);
 }
 
+__global__ void rainComputation(float* hydration, curandState* const rngStates, int height, int width, float deltatime)
+{
+    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
+    hydration[threadID] += curand_uniform(&rngStates[threadID]) * deltatime;
+}
+
 __global__ void fluxComputation(float* material, float* hydration, float4* flux, int height, int width, float deltatime)
 {
     unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
@@ -55,6 +61,7 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
     float K = fminf(1, (current_f.x + current_f.y + current_f.z + current_f.w) * deltatime);
 
     float4 intermediate_flux = make_float4(0, 0, 0, 0);
+    
     intermediate_flux.x = fluxComponentComputation(material, hydration, flux[threadID].x, threadID, toIndex(coords.x - 1, coords.y, height, width), deltatime) * K;
     intermediate_flux.y = fluxComponentComputation(material, hydration, flux[threadID].y, threadID, toIndex(coords.x, coords.y + 1, height, width), deltatime) * K;
     intermediate_flux.z = fluxComponentComputation(material, hydration, flux[threadID].z, threadID, toIndex(coords.x + 1, coords.y, height, width), deltatime) * K;
@@ -63,12 +70,28 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
     flux[threadID] = intermediate_flux;
 }
 
-__global__ void hydroComputation(float3* material, float2* velocity, float4* flux, curandState* const rngStates, int height, int width, float deltatime)
+
+
+__global__ void flowComputation(float* material, float* hydration, float4* flux, curandState* const rngStates, int height, int width, float deltatime)
 {
     unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
     uint2 coords = toCoord(threadID, height, width);
 
-    float intermediate_hydration = curand_uniform(&rngStates[threadID]);
+    float flowIn = 0;
+
+    flowIn += flux[toIndex(coords.x + 1, coords.y, height, width)].z;
+    flowIn += flux[toIndex(coords.x, coords.y + 1, height, width)].w;
+    flowIn += flux[toIndex(coords.x - 1, coords.y, height, width)].x;
+    flowIn += flux[toIndex(coords.x, coords.y - 1, height, width)].y;
+
+    float4 localFlux = flux[threadID];
+    float flowOut = localFlux.x + localFlux.y + localFlux.z + localFlux.w;
+
+    float deltaVolume = deltatime * (flowIn - flowOut);
+
+    float pipe_length = 1; //l
+
+    hydration[threadID] += deltaVolume / pipe_length;
 }
 
 FluxVelocityErosion::FluxVelocityErosion(int width, int height)
@@ -116,15 +139,17 @@ void FluxVelocityErosion::simulate(float *input, int iterations) {
 
     initErosionKernel <<<gridDim, blockDim >>> (mRandStates, rand());
 
-    fluxComputation << <gridDim, blockDim >> > (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
 
 
     for (unsigned int i = 0; i < iterations; i++)
     {
-        //cudaMemcpy(d_flux, d_flux_intermediate, size * sizeof(float), cudaMemcpyDeviceToDevice);
+        rainComputation << <gridDim, blockDim >> > (mHydration, mRandStates, mHeight, mWidth, 0.02);
 
+        fluxComputation << <gridDim, blockDim >> > (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
 
-        //hydroComputation << <height, width >>> (d_material, d_velocity, d_flux, r, height, width, 0.02);
+        flowComputation << <gridDim, blockDim >>> (mMaterial, mHydration, mFlux, mRandStates, mHeight, mWidth, 0.02);
+        printf("Completed: %4i/%4i\n", i, iterations);
+
     }
 }
 
