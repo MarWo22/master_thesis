@@ -13,10 +13,14 @@ find_package(PNG REQUIRED)
 
 add_executable(PlateTectonics
         main.cpp
-        random_texture.h
-        random_texture.cu
         texture_save.cpp
         texture_save.h
+        erosion.h
+        erosion.cu
+        particle_erosion.cu
+        particle_erosion.h
+        FastNoiseLite.h
+        vec2.cuh
 )
 
 set_target_properties(PlateTectonics PROPERTIES
