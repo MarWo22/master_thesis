@@ -70,8 +70,6 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
     flux[threadID] = intermediate_flux;
 }
 
-
-
 __global__ void flowComputation(float* material, float* hydration, float4* flux, curandState* const rngStates, int height, int width, float deltatime)
 {
     unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
@@ -143,14 +141,16 @@ void FluxVelocityErosion::simulate(float *input, int iterations) {
 
     for (unsigned int i = 0; i < iterations; i++)
     {
-        rainComputation << <gridDim, blockDim >> > (mHydration, mRandStates, mHeight, mWidth, 0.02);
-
-        fluxComputation << <gridDim, blockDim >> > (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
-
-        flowComputation << <gridDim, blockDim >>> (mMaterial, mHydration, mFlux, mRandStates, mHeight, mWidth, 0.02);
+        rainComputation <<<gridDim, blockDim>>> (mHydration, mRandStates, mHeight, mWidth, 0.02);
+                
+        fluxComputation <<<gridDim, blockDim>>> (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
+        
+        flowComputation <<<gridDim, blockDim>>> (mMaterial, mHydration, mFlux, mRandStates, mHeight, mWidth, 0.02);
+        
+        cudaThreadSynchronize();
         printf("Completed: %4i/%4i\n", i, iterations);
-
     }
+
 }
 
 void FluxVelocityErosion::getHydration(float* output) {
