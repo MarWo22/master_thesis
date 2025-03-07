@@ -6,20 +6,6 @@
 #include <iostream>
 
 
-__global__ void initKernel(curandState *const rngStates, const unsigned int seed) {
-    // Determine thread ID
-    unsigned int threadID = threadIdx.x + blockIdx.x * blockDim.x;
-    // Initialise the RNG
-    curand_init(seed, threadID, 0, &rngStates[threadID]);
-}
-
-__global__ void generateRandomTextureKernel(float *texture, curandState *const rngStates)
-{
-    unsigned int threadID = blockIdx.x * blockIdx.x + threadIdx.x;
-
-    texture[threadID] = curand_uniform(&rngStates[threadID]);
-}
-
 __global__ void convertTextureTo16BitKernel(const float *input_texture, uint16_t *output_texture)
 {
     unsigned int threadID = blockIdx.x * blockIdx.x + threadIdx.x;
@@ -38,16 +24,8 @@ float* generateRandomTexture(int height, int width)
     // Allocate on host memory
     auto h_texture = new float[size];
 
-    curandState *randStates = nullptr;
-    cudaMalloc(&randStates, size*sizeof(curandState));
+    
 
-    initKernel<<<height, width>>>(randStates, rand());
-
-    generateRandomTextureKernel<<<1024, 1024>>>(d_texture, randStates);
-
-    cudaMemcpy(h_texture, d_texture, size * sizeof(float), cudaMemcpyDeviceToHost);
-
-    cudaFree(d_texture);
     return h_texture;
 }
 

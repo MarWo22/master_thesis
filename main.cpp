@@ -1,5 +1,6 @@
 #include <iostream>
 #include "random_texture.h"
+#include "erosion.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
@@ -20,7 +21,7 @@ void save16BitGreyscalePng(const char *filename, uint16_t *image_data, int width
 int main()
 {
 
-    auto randomTexture = generateRandomTexture(1024, 1024);
+    auto randomTexture = run_erosion(1024, 1024);
     auto texture16Bit = convertFloatTextureTo16Bit(randomTexture, 1024, 1024);
 
     save16BitGreyscalePng("random_texture.png", texture16Bit, 1024, 1024);

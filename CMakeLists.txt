@@ -16,7 +16,8 @@ add_executable(PlateTectonics
         main.cpp
         random_texture.h
         random_texture.cu
-)
+        erosion.h
+        erosion.cu)
 
 set_target_properties(PlateTectonics PROPERTIES
         LINKER_LANGUAGE CXX
