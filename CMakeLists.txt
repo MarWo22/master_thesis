@@ -15,8 +15,8 @@ add_executable(PlateTectonics
         main.cpp
         random_texture.h
         random_texture.cu
-        erosion.h
-        erosion.cu
+        flux_erosion.h
+        flux_erosion.cu
         texture_save.cpp
         texture_save.h
 )
