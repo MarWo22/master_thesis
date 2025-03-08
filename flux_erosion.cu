@@ -25,6 +25,12 @@ __device__ unsigned int toIndex(uint2 coordinates, int height, int width) {
     return  coordinates.y * width + coordinates.x;
 }
 
+__device__ float bilinearInterpolate(float Q00, float Q10, float Q01, float Q11, float tx, float ty) {
+    float I0 = (1 - tx) * Q00 + tx * Q10;
+    float I1 = (1 - tx) * Q01 + tx * Q11;
+    return (1 - ty) * I0 + ty * I1;
+}
+
 __device__ unsigned int toIndex(int x, int y, int height, int width) {
     if (x >= width) x = 0;
     if (x < 0) x = width - 1;
@@ -44,6 +50,7 @@ __device__ float fluxComponentComputation(float *material, float* hydration, flo
     float pipe_length = 1; //l
     float gravity = 9.81;//g
     float deltaE = material[threadID] + hydration[threadID] - material[neighbor] - hydration[neighbor];
+    //printf("flux: %.4f", fmaxf(0, flux + deltatime * pipe_cross_section * ((gravity * deltaE) / pipe_length)));
     return fmaxf(0, flux + deltatime * pipe_cross_section * ((gravity * deltaE) / pipe_length));
 }
 
@@ -68,7 +75,8 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
     uint2 coords = toCoord(threadID, height, width);
 
     float4 current_f = flux[threadID];
-    float K = fminf(1, (current_f.x + current_f.y + current_f.z + current_f.w) * deltatime);
+
+    float K = fminf(1, hydration[threadID] / ((current_f.x + current_f.y + current_f.z + current_f.w) * deltatime));
 
     float4 intermediate_flux = make_float4(0, 0, 0, 0);
     
@@ -76,6 +84,10 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
     intermediate_flux.y = fluxComponentComputation(material, hydration, flux[threadID].y, threadID, toIndex(coords.x, coords.y + 1, height, width), deltatime) * K;
     intermediate_flux.z = fluxComponentComputation(material, hydration, flux[threadID].z, threadID, toIndex(coords.x + 1, coords.y, height, width), deltatime) * K;
     intermediate_flux.w = fluxComponentComputation(material, hydration, flux[threadID].w, threadID, toIndex(coords.x, coords.y - 1, height, width), deltatime) * K;
+
+
+    //printf("flux: %.4f : %.4f : %.4f : %.4f\n", intermediate_flux.x, intermediate_flux.y, intermediate_flux.z, intermediate_flux.w);
+
 
     flux[threadID] = intermediate_flux;
 }
@@ -104,7 +116,7 @@ __global__ void flowComputation(float* hydration, float4* flux, float2* velocity
     velocity[threadID].x = (flux[toIndex(coords.x - 1, coords.y, height, width)].z - localFlux.x + localFlux.z - flux[toIndex(coords.x + 1, coords.y, height, width)].x) / 2.0;
     velocity[threadID].y = (flux[toIndex(coords.x, coords.y + 1, height, width)].y - localFlux.w + localFlux.y - flux[toIndex(coords.x, coords.y - 1, height, width)].w) / 2.0;
 
-    printf("velocity: %.4f : %.4f hydration: %.4f deltaVol: %.4f\n", velocity[threadID].x, velocity[threadID].y, hydration[threadID], deltaVolume);
+    //printf("velocity: %.4f : %.4f hydration: %.4f deltaVol: %.4f flowIn: %.4f flowOut: %.4f\n", velocity[threadID].x, velocity[threadID].y, hydration[threadID], deltaVolume, flowIn, flowOut);
 }
 
 __global__ void sedimentComputation(float* material, float* sediment, float2* velocity, int height, int width, float deltatime)
@@ -128,6 +140,31 @@ __global__ void sedimentComputation(float* material, float* sediment, float2* ve
         sediment[threadID] -= s;
         material[threadID] += s;
     }
+}
+
+__global__ void transportComputation(float* sediment, float2* velocity, int height, int width, float deltatime)
+{
+    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
+    uint2 coords = toCoord(threadID, height, width);
+
+    float2 vel = velocity[threadID];
+
+    float2 sample_coords = make_float2(coords.x - vel.x * deltatime, coords.y - vel.y * deltatime);
+
+    int x0 = floorf(sample_coords.x);
+    int x1 = x0 + 1;
+    int y0 = floorf(sample_coords.y);
+    int y1 = y0 + 1;
+
+    float weightX = sample_coords.x - x0;
+    float weightY = sample_coords.y - y0;
+
+    float corner00 = sediment[toIndex(x0, y0, height, width)];
+    float corner10 = sediment[toIndex(x1, y0, height, width)];
+    float corner01 = sediment[toIndex(x0, y1, height, width)];
+    float corner11 = sediment[toIndex(x1, y1, height, width)];
+
+    sediment[threadID] = bilinearInterpolate(corner00, corner10, corner01, corner11, weightX, weightY);
 }
 
 FluxVelocityErosion::FluxVelocityErosion(int width, int height)
@@ -183,10 +220,12 @@ void FluxVelocityErosion::simulate(float *input, int iterations) {
         rainComputation <<<mWidth, mHeight >>> (mHydration, mRandStates, mHeight, mWidth, 0.02);
                 
         fluxComputation <<<mWidth, mHeight >>> (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
-        
+
         flowComputation <<<mWidth, mHeight >>> (mHydration, mFlux, mVelocity, mHeight, mWidth, 0.02);
         
         sedimentComputation <<<mWidth, mHeight >>> (mMaterial, mSediment, mVelocity, mHeight, mWidth, 0.02);
+
+        transportComputation <<<mWidth, mHeight>>> (mSediment, mVelocity, mHeight, mWidth, 0.02);
 
         cudaThreadSynchronize();
         printf("Completed: %4i/%4i\n", i+1, iterations);

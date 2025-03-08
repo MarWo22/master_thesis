@@ -20,7 +20,7 @@ int main()
     auto input = generateRandomTexture(1024, 1024);
     
     FluxVelocityErosion fluxVelocityErosion(1024, 1024);
-    fluxVelocityErosion.simulate(input, 100);
+    fluxVelocityErosion.simulate(input, 1000);
 
     float* output = new float[1024 * 1024];
 
