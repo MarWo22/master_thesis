@@ -6,37 +6,39 @@
 
 int main()
 {
-    auto input = generateRandomTexture(1024, 1024);
-    
-    FluxVelocityErosion fluxVelocityErosion(1024, 1024);
-    fluxVelocityErosion.simulate(input, 100);
+    int size = 256;
 
-    float* output = new float[1024 * 1024];
+    auto input = generateRandomTexture(size, size);
+    
+    FluxVelocityErosion fluxVelocityErosion(size, size);
+    fluxVelocityErosion.simulate(input, 10);
+
+    float* output = new float[size * size];
 
     fluxVelocityErosion.getHydration(output);
 
-    auto texture16Bit = convertFloatTextureTo16Bit(output, 1024, 1024);
+    auto texture16Bit = convertFloatTextureTo16Bit(output, size, size);
 
     std::time_t now = std::time(nullptr);
     auto filename = std::string("output_") + std::to_string(now) + "_hydration.png";
 
-    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, 1024, 1024);
+    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, size, size);
 
     fluxVelocityErosion.getMaterial(output);
 
-    texture16Bit = convertFloatTextureTo16Bit(output, 1024, 1024);
+    texture16Bit = convertFloatTextureTo16Bit(output, size, size);
 
     filename = std::string("output_") + std::to_string(now) + "_material.png";
 
-    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, 1024, 1024);
+    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, size, size);
 
     fluxVelocityErosion.getSediment(output);
 
-    texture16Bit = convertFloatTextureTo16Bit(output, 1024, 1024);
+    texture16Bit = convertFloatTextureTo16Bit(output, size, size);
 
     filename = std::string("output_") + std::to_string(now) + "_sediment.png";
 
-    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, 1024, 1024);
+    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, size, size);
 
     delete output;
     delete texture16Bit;

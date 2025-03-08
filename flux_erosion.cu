@@ -101,8 +101,10 @@ __global__ void flowComputation(float* hydration, float4* flux, float2* velocity
 
     hydration[threadID] += deltaVolume / pipe_length;
 
-    velocity[threadID].x = (flux[toIndex(coords.x - 1, coords.y, height, width)].z - localFlux.x + localFlux.z - flux[toIndex(coords.x + 1, coords.y, height, width)].x) / 2;
-    velocity[threadID].y = (flux[toIndex(coords.x, coords.y + 1, height, width)].y - localFlux.w + localFlux.y - flux[toIndex(coords.x, coords.y - 1, height, width)].w) / 2;
+    velocity[threadID].x = (flux[toIndex(coords.x - 1, coords.y, height, width)].z - localFlux.x + localFlux.z - flux[toIndex(coords.x + 1, coords.y, height, width)].x) / 2.0;
+    velocity[threadID].y = (flux[toIndex(coords.x, coords.y + 1, height, width)].y - localFlux.w + localFlux.y - flux[toIndex(coords.x, coords.y - 1, height, width)].w) / 2.0;
+
+    printf("velocity: %.4f : %.4f hydration: %.4f deltaVol: %.4f\n", velocity[threadID].x, velocity[threadID].y, hydration[threadID], deltaVolume);
 }
 
 __global__ void sedimentComputation(float* material, float* sediment, float2* velocity, int height, int width, float deltatime)
@@ -126,7 +128,6 @@ __global__ void sedimentComputation(float* material, float* sediment, float2* ve
         sediment[threadID] -= s;
         material[threadID] += s;
     }
-    printf("sediment: %.4f \n", sediment[threadID]);
 }
 
 FluxVelocityErosion::FluxVelocityErosion(int width, int height)
