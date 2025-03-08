@@ -1,47 +1,55 @@
+#include <algorithm>
 #include <iostream>
 #include "random_texture.h"
 #include "texture_save.h"
 #include "flux_erosion.h"
 #include <string>
 
+
+uint8_t *convertTextureTemp(const float *texture, int width, int height)
+{
+    auto *texture8bit = new uint8_t[1024*1024];
+    for (int i = 0; i < 1024*1024; ++i)
+        texture8bit[i] = static_cast<uint8_t>(std::clamp(texture[i] * 255.0f, 0.0f, 255.0f));
+    return texture8bit;
+}
+
+
 int main()
 {
-    int size = 256;
-
-    auto input = generateRandomTexture(size, size);
+    auto input = generateRandomTexture(1024, 1024);
     
-    FluxVelocityErosion fluxVelocityErosion(size, size);
-    fluxVelocityErosion.simulate(input, 10);
+    FluxVelocityErosion fluxVelocityErosion(1024, 1024);
+    fluxVelocityErosion.simulate(input, 100);
 
-    float* output = new float[size * size];
+    float* output = new float[1024 * 1024];
 
     fluxVelocityErosion.getHydration(output);
-
-    auto texture16Bit = convertFloatTextureTo16Bit(output, size, size);
 
     std::time_t now = std::time(nullptr);
     auto filename = std::string("output_") + std::to_string(now) + "_hydration.png";
 
-    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, size, size);
+    auto texture8Bit = convertTextureTemp(output, 1024, 1024);
+    Texture::save8BitGreyscalePng(filename.c_str(), texture8Bit, 1024, 1024);
+    delete texture8Bit;
 
     fluxVelocityErosion.getMaterial(output);
 
-    texture16Bit = convertFloatTextureTo16Bit(output, size, size);
-
     filename = std::string("output_") + std::to_string(now) + "_material.png";
 
-    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, size, size);
+    texture8Bit = convertTextureTemp(output, 1024, 1024);
+    Texture::save8BitGreyscalePng(filename.c_str(), texture8Bit, 1024, 1024);
+    delete texture8Bit;
 
     fluxVelocityErosion.getSediment(output);
 
-    texture16Bit = convertFloatTextureTo16Bit(output, size, size);
-
     filename = std::string("output_") + std::to_string(now) + "_sediment.png";
 
-    Texture::save16BitGreyscalePng(filename.c_str(), texture16Bit, size, size);
+    texture8Bit = convertTextureTemp(output, 1024, 1024);
+    Texture::save8BitGreyscalePng(filename.c_str(), texture8Bit, 1024, 1024);
+    delete texture8Bit;
 
     delete output;
-    delete texture16Bit;
     return 0;
 }
 
