@@ -7,6 +7,8 @@ namespace Texture
     void save16BitGreyscalePng(const char *fileName, uint16_t *image_data, int width, int height);
 
     void save8BitGreyscalePng(const char *fileName, uint8_t *image_data, int width, int height);
+
+    void save8BitRgbPng(const char *fileName, uint8_t *image_data, const int width, const int height);
 }
 
 
