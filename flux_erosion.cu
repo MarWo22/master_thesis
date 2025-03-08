@@ -17,11 +17,21 @@ __global__ void extractHeight(float3* d_input, float* d_output, int size) {
     d_output[threadID] = d_input[threadID].x;
 }
 
+__device__ float magnitude(float2 input) {
+    return sqrt(input.x * input.x + input.y * input.y);
+}
+
 __device__ unsigned int toIndex(uint2 coordinates, int height, int width) {
     return  coordinates.y * width + coordinates.x;
 }
 
-__device__ unsigned int toIndex(unsigned int x, unsigned int y, int height, int width) {
+__device__ unsigned int toIndex(int x, int y, int height, int width) {
+    if (x >= width) x = 0;
+    if (x < 0) x = width - 1;
+
+    if (y >= height) y = 0;
+    if (y < 0) y = height - 1;
+
     return  y * width + x;
 }
 
@@ -70,7 +80,7 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
     flux[threadID] = intermediate_flux;
 }
 
-__global__ void flowComputation(float* material, float* hydration, float4* flux, curandState* const rngStates, int height, int width, float deltatime)
+__global__ void flowComputation(float* hydration, float4* flux, float2* velocity, int height, int width, float deltatime)
 {
     unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
     uint2 coords = toCoord(threadID, height, width);
@@ -90,6 +100,33 @@ __global__ void flowComputation(float* material, float* hydration, float4* flux,
     float pipe_length = 1; //l
 
     hydration[threadID] += deltaVolume / pipe_length;
+
+    velocity[threadID].x = (flux[toIndex(coords.x - 1, coords.y, height, width)].z - localFlux.x + localFlux.z - flux[toIndex(coords.x + 1, coords.y, height, width)].x) / 2;
+    velocity[threadID].y = (flux[toIndex(coords.x, coords.y + 1, height, width)].y - localFlux.w + localFlux.y - flux[toIndex(coords.x, coords.y - 1, height, width)].w) / 2;
+}
+
+__global__ void sedimentComputation(float* material, float* sediment, float2* velocity, int height, int width, float deltatime)
+{
+    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
+
+    float KC = 2; //capacity constant
+    float KS = 0.01; //dissolving constant
+
+    float C = KC * sinf(40) * magnitude(velocity[threadID]); // replace 1 with local slope
+
+    float threshold = 0.6;
+
+    if (C > threshold) {
+        float s = KS * (C - sediment[threadID]);
+        sediment[threadID] += s;
+        material[threadID] -= s;
+    }
+    else {
+        float s = KS * (sediment[threadID] - C);
+        sediment[threadID] -= s;
+        material[threadID] += s;
+    }
+    printf("sediment: %.4f \n", sediment[threadID]);
 }
 
 FluxVelocityErosion::FluxVelocityErosion(int width, int height)
@@ -119,9 +156,10 @@ FluxVelocityErosion::~FluxVelocityErosion() {
 void FluxVelocityErosion::simulate(float *input, int iterations) {
     // Allocate array on device memory
     unsigned int size = mHeight * mWidth;
-    dim3 blockDim(16, 16);
+    
+    /*dim3 blockDim(16, 16);
     dim3 gridDim((mWidth + blockDim.x - 1) / blockDim.x,
-        (mHeight + blockDim.y - 1) / blockDim.y);
+        (mHeight + blockDim.y - 1) / blockDim.y);*/
 
 
     if (mMaterial != nullptr)
@@ -135,20 +173,22 @@ void FluxVelocityErosion::simulate(float *input, int iterations) {
     cudaMalloc(&mVelocity, size * sizeof(float2));
     cudaMalloc(&mRandStates, size * sizeof(curandState));
 
-    initErosionKernel <<<gridDim, blockDim >>> (mRandStates, rand());
+    initErosionKernel <<<mWidth, mHeight >>> (mRandStates, rand());
 
 
 
     for (unsigned int i = 0; i < iterations; i++)
     {
-        rainComputation <<<gridDim, blockDim>>> (mHydration, mRandStates, mHeight, mWidth, 0.02);
+        rainComputation <<<mWidth, mHeight >>> (mHydration, mRandStates, mHeight, mWidth, 0.02);
                 
-        fluxComputation <<<gridDim, blockDim>>> (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
+        fluxComputation <<<mWidth, mHeight >>> (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
         
-        flowComputation <<<gridDim, blockDim>>> (mMaterial, mHydration, mFlux, mRandStates, mHeight, mWidth, 0.02);
+        flowComputation <<<mWidth, mHeight >>> (mHydration, mFlux, mVelocity, mHeight, mWidth, 0.02);
         
+        sedimentComputation <<<mWidth, mHeight >>> (mMaterial, mSediment, mVelocity, mHeight, mWidth, 0.02);
+
         cudaThreadSynchronize();
-        printf("Completed: %4i/%4i\n", i, iterations);
+        printf("Completed: %4i/%4i\n", i+1, iterations);
     }
 
 }
