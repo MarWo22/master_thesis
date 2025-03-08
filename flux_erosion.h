@@ -4,7 +4,6 @@
 //float* run_erosion(float* input, int height, int width);
 #include <curand_kernel.h>
 
-
 class FluxVelocityErosion
 {
     int mWidth;
@@ -17,6 +16,13 @@ class FluxVelocityErosion
     float2* mVelocity;
 
 public:
+    float mPipeLengthConstant;
+    float mPipeCrossSectionConstant;
+    float mCapacityConstant;
+    float mDissolvingConstant;
+    float mEvaporationConstant;
+    float mGravityConstant;
+
     FluxVelocityErosion(int width, int height);
     ~FluxVelocityErosion();
 

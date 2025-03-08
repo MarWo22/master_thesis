@@ -1,20 +1,23 @@
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-
-#include "flux_erosion.h"
+#include <algorithm>
 #include <curand_kernel.h>
 #include <iostream>
+#include <string>
+
+#include "cuda_runtime.h"
+#include "device_launch_parameters.h"
+#include "texture_save.h"
+#include "flux_erosion.h"
 
 __global__ void copyToFloat3(float* d_input, float3* d_output, int size) {
-    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
-    if (threadID >= size) return;
-    d_output[threadID] = make_float3(d_input[threadID], 0.0f, 0.0f);
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= size) return;
+    d_output[idx] = make_float3(d_input[idx], 0.0f, 0.0f);
 }
 
 __global__ void extractHeight(float3* d_input, float* d_output, int size) {
-    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
-    if (threadID >= size) return;
-    d_output[threadID] = d_input[threadID].x;
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= size) return;
+    d_output[idx] = d_input[idx].x;
 }
 
 __device__ float magnitude(float2 input) {
@@ -45,57 +48,57 @@ __device__ uint2 toCoord(unsigned int index, int height, int width) {
     return make_uint2(fmodf(index, width), index/width);
 }
 
-__device__ float fluxComponentComputation(float *material, float* hydration, float &flux, unsigned int threadID, unsigned int neighbor, float deltatime) {
+__device__ float fluxComponentComputation(float *material, float* hydration, float &flux, unsigned int idx, unsigned int neighbor, float deltatime) {
     float pipe_cross_section = 1;//A
     float pipe_length = 1; //l
     float gravity = 9.81;//g
-    float deltaE = material[threadID] + hydration[threadID] - material[neighbor] - hydration[neighbor];
+    float deltaE = material[idx] + hydration[idx] - material[neighbor] - hydration[neighbor];
     //printf("flux: %.4f", fmaxf(0, flux + deltatime * pipe_cross_section * ((gravity * deltaE) / pipe_length)));
     return fmaxf(0, flux + deltatime * pipe_cross_section * ((gravity * deltaE) / pipe_length));
 }
 
 __global__ void initErosionKernel(curandState* const rngStates, const unsigned int seed) {
     // Determine thread ID
-    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     // Initialise the RNG
-    curand_init(seed, threadID, 0, &rngStates[threadID]);
+    curand_init(seed, idx, 0, &rngStates[idx]);
 }
 
 __global__ void rainComputation(float* hydration, curandState* const rngStates, int height, int width, float deltatime)
 {
-    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
-    hydration[threadID] += curand_uniform(&rngStates[threadID]) * deltatime;
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    hydration[idx] += curand_uniform(&rngStates[idx]) * deltatime;
 }
 
 __global__ void fluxComputation(float* material, float* hydration, float4* flux, int height, int width, float deltatime)
 {
-    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
-    if (threadID >= height * width) return;
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= height * width) return;
 
-    uint2 coords = toCoord(threadID, height, width);
+    uint2 coords = toCoord(idx, height, width);
 
-    float4 current_f = flux[threadID];
+    float4 current_f = flux[idx];
 
-    float K = fminf(1, hydration[threadID] / ((current_f.x + current_f.y + current_f.z + current_f.w) * deltatime));
+    float K = fminf(1, hydration[idx] / ((current_f.x + current_f.y + current_f.z + current_f.w) * deltatime));
 
     float4 intermediate_flux = make_float4(0, 0, 0, 0);
     
-    intermediate_flux.x = fluxComponentComputation(material, hydration, flux[threadID].x, threadID, toIndex(coords.x - 1, coords.y, height, width), deltatime) * K;
-    intermediate_flux.y = fluxComponentComputation(material, hydration, flux[threadID].y, threadID, toIndex(coords.x, coords.y + 1, height, width), deltatime) * K;
-    intermediate_flux.z = fluxComponentComputation(material, hydration, flux[threadID].z, threadID, toIndex(coords.x + 1, coords.y, height, width), deltatime) * K;
-    intermediate_flux.w = fluxComponentComputation(material, hydration, flux[threadID].w, threadID, toIndex(coords.x, coords.y - 1, height, width), deltatime) * K;
+    intermediate_flux.x = fluxComponentComputation(material, hydration, flux[idx].x, idx, toIndex(coords.x - 1, coords.y, height, width), deltatime) * K;
+    intermediate_flux.y = fluxComponentComputation(material, hydration, flux[idx].y, idx, toIndex(coords.x, coords.y + 1, height, width), deltatime) * K;
+    intermediate_flux.z = fluxComponentComputation(material, hydration, flux[idx].z, idx, toIndex(coords.x + 1, coords.y, height, width), deltatime) * K;
+    intermediate_flux.w = fluxComponentComputation(material, hydration, flux[idx].w, idx, toIndex(coords.x, coords.y - 1, height, width), deltatime) * K;
 
 
     //printf("flux: %.4f : %.4f : %.4f : %.4f\n", intermediate_flux.x, intermediate_flux.y, intermediate_flux.z, intermediate_flux.w);
 
 
-    flux[threadID] = intermediate_flux;
+    flux[idx] = intermediate_flux;
 }
 
 __global__ void flowComputation(float* hydration, float4* flux, float2* velocity, int height, int width, float deltatime)
 {
-    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
-    uint2 coords = toCoord(threadID, height, width);
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint2 coords = toCoord(idx, height, width);
 
     float flowIn = 0;
 
@@ -104,50 +107,50 @@ __global__ void flowComputation(float* hydration, float4* flux, float2* velocity
     flowIn += flux[toIndex(coords.x - 1, coords.y, height, width)].x;
     flowIn += flux[toIndex(coords.x, coords.y - 1, height, width)].y;
 
-    float4 localFlux = flux[threadID];
+    float4 localFlux = flux[idx];
     float flowOut = localFlux.x + localFlux.y + localFlux.z + localFlux.w;
 
     float deltaVolume = deltatime * (flowIn - flowOut);
 
     float pipe_length = 1; //l
 
-    hydration[threadID] += deltaVolume / pipe_length;
+    hydration[idx] += deltaVolume / pipe_length;
 
-    velocity[threadID].x = (flux[toIndex(coords.x - 1, coords.y, height, width)].z - localFlux.x + localFlux.z - flux[toIndex(coords.x + 1, coords.y, height, width)].x) / 2.0;
-    velocity[threadID].y = (flux[toIndex(coords.x, coords.y + 1, height, width)].y - localFlux.w + localFlux.y - flux[toIndex(coords.x, coords.y - 1, height, width)].w) / 2.0;
+    velocity[idx].x = (flux[toIndex(coords.x - 1, coords.y, height, width)].z - localFlux.x + localFlux.z - flux[toIndex(coords.x + 1, coords.y, height, width)].x) / 2.0;
+    velocity[idx].y = (flux[toIndex(coords.x, coords.y + 1, height, width)].y - localFlux.w + localFlux.y - flux[toIndex(coords.x, coords.y - 1, height, width)].w) / 2.0;
 
-    //printf("velocity: %.4f : %.4f hydration: %.4f deltaVol: %.4f flowIn: %.4f flowOut: %.4f\n", velocity[threadID].x, velocity[threadID].y, hydration[threadID], deltaVolume, flowIn, flowOut);
+    //printf("velocity: %.4f : %.4f hydration: %.4f deltaVol: %.4f flowIn: %.4f flowOut: %.4f\n", velocity[idx].x, velocity[idx].y, hydration[idx], deltaVolume, flowIn, flowOut);
 }
 
 __global__ void sedimentComputation(float* material, float* sediment, float2* velocity, int height, int width, float deltatime)
 {
-    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     float KC = 2; //capacity constant
     float KS = 0.01; //dissolving constant
 
-    float C = KC * sinf(40) * magnitude(velocity[threadID]); // replace 1 with local slope
+    float C = KC * sinf(40) * magnitude(velocity[idx]); // replace 1 with local slope
 
     float threshold = 0.6;
 
     if (C > threshold) {
-        float s = KS * (C - sediment[threadID]);
-        sediment[threadID] += s;
-        material[threadID] -= s;
+        float s = KS * (C - sediment[idx]);
+        sediment[idx] += s;
+        material[idx] -= s;
     }
     else {
-        float s = KS * (sediment[threadID] - C);
-        sediment[threadID] -= s;
-        material[threadID] += s;
+        float s = KS * (sediment[idx] - C);
+        sediment[idx] -= s;
+        material[idx] += s;
     }
 }
 
 __global__ void transportComputation(float* sediment, float2* velocity, int height, int width, float deltatime)
 {
-    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
-    uint2 coords = toCoord(threadID, height, width);
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint2 coords = toCoord(idx, height, width);
 
-    float2 vel = velocity[threadID];
+    float2 vel = velocity[idx];
 
     float2 sample_coords = make_float2(coords.x - vel.x * deltatime, coords.y - vel.y * deltatime);
 
@@ -164,7 +167,7 @@ __global__ void transportComputation(float* sediment, float2* velocity, int heig
     float corner01 = sediment[toIndex(x0, y1, height, width)];
     float corner11 = sediment[toIndex(x1, y1, height, width)];
 
-    sediment[threadID] = bilinearInterpolate(corner00, corner10, corner01, corner11, weightX, weightY);
+    sediment[idx] = bilinearInterpolate(corner00, corner10, corner01, corner11, weightX, weightY);
 }
 
 __global__ void evaporateComputation(float* hydration, int height, int width, float deltatime)
@@ -236,6 +239,10 @@ void FluxVelocityErosion::simulate(float *input, int iterations) {
         evaporateComputation << <mWidth, mHeight >> > (mHydration, mHeight, mWidth, 0.02);
 
         cudaThreadSynchronize();
+
+        if (i % 100 == 0) {
+        }
+
         printf("Completed: %4i/%4i\n", i+1, iterations);
     }
 
