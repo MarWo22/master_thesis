@@ -167,6 +167,13 @@ __global__ void transportComputation(float* sediment, float2* velocity, int heig
     sediment[threadID] = bilinearInterpolate(corner00, corner10, corner01, corner11, weightX, weightY);
 }
 
+__global__ void evaporateComputation(float* hydration, int height, int width, float deltatime)
+{
+    unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
+    float KE = 0.9;
+    hydration[threadID] = hydration[threadID] * (1 - KE * deltatime);
+}
+
 FluxVelocityErosion::FluxVelocityErosion(int width, int height)
     : mWidth(width)
     , mHeight(height)
@@ -214,7 +221,6 @@ void FluxVelocityErosion::simulate(float *input, int iterations) {
     initErosionKernel <<<mWidth, mHeight >>> (mRandStates, rand());
 
 
-
     for (unsigned int i = 0; i < iterations; i++)
     {
         rainComputation <<<mWidth, mHeight >>> (mHydration, mRandStates, mHeight, mWidth, 0.02);
@@ -226,6 +232,8 @@ void FluxVelocityErosion::simulate(float *input, int iterations) {
         sedimentComputation <<<mWidth, mHeight >>> (mMaterial, mSediment, mVelocity, mHeight, mWidth, 0.02);
 
         transportComputation <<<mWidth, mHeight>>> (mSediment, mVelocity, mHeight, mWidth, 0.02);
+
+        evaporateComputation << <mWidth, mHeight >> > (mHydration, mHeight, mWidth, 0.02);
 
         cudaThreadSynchronize();
         printf("Completed: %4i/%4i\n", i+1, iterations);
