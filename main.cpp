@@ -15,41 +15,42 @@ uint8_t *convertTextureTemp(const float *texture, int width, int height)
 }
 
 
+void quickExport(float* data, std::string tag, int batch, std::time_t now) {
+    auto filename = std::string("output_") + std::to_string(now) + "_" + tag + "_" + std::to_string(batch) + ".png";
+
+    auto texture8Bit = convertTextureTemp(data, 1024, 1024);
+    Texture::save8BitGreyscalePng(filename.c_str(), texture8Bit, 1024, 1024);
+    delete texture8Bit;
+}
+
 int main()
 {
     auto input = generateRandomTexture(1024, 1024);
-    
-    FluxVelocityErosion fluxVelocityErosion(1024, 1024);
-    fluxVelocityErosion.simulate(input, 10000);
-
     float* output = new float[1024 * 1024];
+    std::time_t now = std::time(nullptr);
+
+    FluxVelocityErosion fluxVelocityErosion(1024, 1024);
+
+    fluxVelocityErosion.start(input, 1000);
+    fluxVelocityErosion.getHydration(output);
+    quickExport(output, "hydration", 0, now);
+
+    fluxVelocityErosion.resume(1000);
+    fluxVelocityErosion.getHydration(output);
+    quickExport(output, "hydration", 1, now);
+
+    fluxVelocityErosion.resume(1000);
+    fluxVelocityErosion.getHydration(output);
+    quickExport(output, "hydration", 2, now);
+
 
     fluxVelocityErosion.getHydration(output);
 
-    std::time_t now = std::time(nullptr);
-    auto filename = std::string("output_") + std::to_string(now) + "_hydration.png";
-
-    auto texture8Bit = convertTextureTemp(output, 1024, 1024);
-    Texture::save8BitGreyscalePng(filename.c_str(), texture8Bit, 1024, 1024);
-    delete texture8Bit;
-
-    fluxVelocityErosion.getMaterial(output);
-
-    filename = std::string("output_") + std::to_string(now) + "_material.png";
-
-    texture8Bit = convertTextureTemp(output, 1024, 1024);
-    Texture::save8BitGreyscalePng(filename.c_str(), texture8Bit, 1024, 1024);
-    delete texture8Bit;
-
-    fluxVelocityErosion.getSediment(output);
-
-    filename = std::string("output_") + std::to_string(now) + "_sediment.png";
-
-    texture8Bit = convertTextureTemp(output, 1024, 1024);
-    Texture::save8BitGreyscalePng(filename.c_str(), texture8Bit, 1024, 1024);
-    delete texture8Bit;
+    
 
     delete output;
     return 0;
 }
+
+
 

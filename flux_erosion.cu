@@ -186,6 +186,7 @@ FluxVelocityErosion::FluxVelocityErosion(int width, int height)
     , mSediment(nullptr)
     , mFlux(nullptr)
     , mVelocity(nullptr)
+    , completed(0)
 {}
 
 FluxVelocityErosion::~FluxVelocityErosion() {
@@ -201,7 +202,7 @@ FluxVelocityErosion::~FluxVelocityErosion() {
         cudaFree(mVelocity);
 }
 
-void FluxVelocityErosion::simulate(float *input, int iterations) {
+void FluxVelocityErosion::start(float *input, int iterations) {
     // Allocate array on device memory
     unsigned int size = mHeight * mWidth;
     
@@ -223,29 +224,32 @@ void FluxVelocityErosion::simulate(float *input, int iterations) {
 
     initErosionKernel <<<mWidth, mHeight >>> (mRandStates, rand());
 
+    simulate(iterations);
+}
 
+void FluxVelocityErosion::resume(int iterations) {
+    simulate(iterations);
+}
+
+void FluxVelocityErosion::simulate(int iterations) {
     for (unsigned int i = 0; i < iterations; i++)
     {
-        rainComputation <<<mWidth, mHeight >>> (mHydration, mRandStates, mHeight, mWidth, 0.02);
-                
-        fluxComputation <<<mWidth, mHeight >>> (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
+        rainComputation << <mWidth, mHeight >> > (mHydration, mRandStates, mHeight, mWidth, 0.02);
 
-        flowComputation <<<mWidth, mHeight >>> (mHydration, mFlux, mVelocity, mHeight, mWidth, 0.02);
-        
-        sedimentComputation <<<mWidth, mHeight >>> (mMaterial, mSediment, mVelocity, mHeight, mWidth, 0.02);
+        fluxComputation << <mWidth, mHeight >> > (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02);
 
-        transportComputation <<<mWidth, mHeight>>> (mSediment, mVelocity, mHeight, mWidth, 0.02);
+        flowComputation << <mWidth, mHeight >> > (mHydration, mFlux, mVelocity, mHeight, mWidth, 0.02);
+
+        sedimentComputation << <mWidth, mHeight >> > (mMaterial, mSediment, mVelocity, mHeight, mWidth, 0.02);
+
+        transportComputation << <mWidth, mHeight >> > (mSediment, mVelocity, mHeight, mWidth, 0.02);
 
         evaporateComputation << <mWidth, mHeight >> > (mHydration, mHeight, mWidth, 0.02);
 
         cudaThreadSynchronize();
-
-        if (i % 100 == 0) {
-        }
-
-        printf("Completed: %4i/%4i\n", i+1, iterations);
+        completed++;
+        printf("Batch: %4i/%4i Total: %.i \n", i + 1, iterations, completed);
     }
-
 }
 
 void FluxVelocityErosion::getHydration(float* output) {
