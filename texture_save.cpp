@@ -115,9 +115,14 @@ namespace
 }
 
 
-void Texture::save16BitGreyscalePng(const char *fileName, uint16_t *image_data, const int width, const int height)
+void Texture::save16BitGreyscalePng(const char *fileName, float *image_data, int width, int height)
 {
     saveGrayscalePng(fileName, image_data, width, height, 16);
+}
+
+void Texture::save16BitGreyscalePng(const char *fileName, uint16_t *image_data, const int width, const int height)
+{
+    saveGrayscalePng<uint16_t>(fileName, image_data, width, height, 16);
 }
 void Texture::save8BitGreyscalePng(const char *fileName, uint8_t *image_data, const int width, const int height)
 {
