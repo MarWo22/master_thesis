@@ -14,6 +14,7 @@ class FluxVelocityErosion
     float* mSediment;
     float4* mFlux;
     float2* mVelocity;
+
     int completed;
     void simulate(int iterations);
 
@@ -33,7 +34,6 @@ public:
     void getMaterial(float* output);
     void getHydration(float* output);
     void getSediment(float* output);
-
 };
 
 #endif //FLUX_EROSION_H

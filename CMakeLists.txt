@@ -13,8 +13,6 @@ find_package(PNG REQUIRED)
 
 add_executable(PlateTectonics
         main.cpp
-        random_texture.h
-        random_texture.cu
         flux_erosion.h
         flux_erosion.cu
         texture_save.cpp
