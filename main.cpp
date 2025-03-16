@@ -74,9 +74,9 @@ int main()
     fluxVelocityErosion.getMaterial(output);
     quickExport(output, "material", 0, now);
 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 5; i++)
     {
-        fluxVelocityErosion.resume(10);
+        fluxVelocityErosion.resume(100);
         fluxVelocityErosion.getMaterial(output);
         quickExport(output, "material", i + 1, now);
 

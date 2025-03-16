@@ -45,13 +45,13 @@ __device__ unsigned int toIndex(int x, int y, int height, int width) {
     y = ((y % height) + height) % height;
 
     if (x < 0 || x >= width)
-        printf("X is wrong: %.4f \n", x);
+        printf("X is wrong: %.i \n", x);
 
     if (y < 0 || y >= width)
-        printf("X is wrong: %.4f \n", y);
+        printf("X is wrong: %.i \n", y);
 
-    if (y * width + x >= width * height || y * width + x < 0)
-        printf("Index out of range for %.4f, %.4f id: %.4f \n", y, x, y * width + x);
+    /*if (y * width + x >= width * height || y * width + x < 0)
+        printf("Index out of range for %.4f, %.4f id: %.4f \n", y, x, y * width + x);*/
 
     return  y * width + x;
 }
@@ -120,7 +120,6 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
 
 __global__ void flowComputation(float* hydration, float4* flux, float2* velocity, int height, int width, float deltatime, float pipe_length)
 {
-    printf("?!?!?!!?!?!?!?!??");
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
     uint2 coords = toCoord(idx, height, width);
 
@@ -137,21 +136,22 @@ __global__ void flowComputation(float* hydration, float4* flux, float2* velocity
     float deltaVolume = deltatime * (flowIn - flowOut);
 
     hydration[idx] += deltaVolume / pipe_length;
-    printf("Indexes: %.4f - %.4f - %.4f - %.4f", toIndex(coords.x - 1, coords.y, height, width), toIndex(coords.x + 1, coords.y, height, width), toIndex(coords.x, coords.y + 1, height, width), toIndex(coords.x, coords.y - 1, height, width));
+    //printf("Indexes: %.4f - %.4f - %.4f - %.4f", toIndex(coords.x - 1, coords.y, height, width), toIndex(coords.x + 1, coords.y, height, width), toIndex(coords.x, coords.y + 1, height, width), toIndex(coords.x, coords.y - 1, height, width));
 
     velocity[idx].x = (flux[toIndex(coords.x - 1, coords.y, height, width)].z - localFlux.x + localFlux.z - flux[toIndex(coords.x + 1, coords.y, height, width)].x) / 2.0;
     velocity[idx].y = (flux[toIndex(coords.x, coords.y + 1, height, width)].y - localFlux.w + localFlux.y - flux[toIndex(coords.x, coords.y - 1, height, width)].w) / 2.0;
 
-    printf("velocity: %.4f : %.4f hydration: %.4f deltaVol: %.4f flowIn: %.4f flowOut: %.4f\n", velocity[idx].x, velocity[idx].y, hydration[idx], deltaVolume, flowIn, flowOut);
+    if (velocity[idx].x == -INFINITY) {
+        printf("vel: %.4f", velocity[idx].x);
+    }
+
+    //printf("velocity: %.4f : %.4f hydration: %.4f deltaVol: %.4f flowIn: %.4f flowOut: %.4f\n", velocity[idx].x, velocity[idx].y, hydration[idx], deltaVolume, flowIn, flowOut);
 }
 
 
 
 __global__ void sedimentComputation(float* material, float* sediment, float2* velocity, int height, int width, float deltatime, float kc, float ks)
 {
-    printf("?!?!?!!?!?!?!?!?? Sediment");
-
-
     unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
     uint2 coord = toCoord(idx, height, width);
@@ -181,7 +181,15 @@ __global__ void transportComputation(float* sediment, float2* velocity, int heig
 
     float2 vel = velocity[idx];
 
+    /*if (vel.x == -INFINITY) {
+        printf("vel: %.4f", vel.x);
+    }*/
+
     float2 sample_coords = make_float2(coords.x - vel.x * deltatime, coords.y - vel.y * deltatime);
+
+    /*if (sample_coords.x == -INFINITY) {
+        printf("Sample coords infite!");
+    }*/
 
     int x0 = floorf(sample_coords.x);
     int x1 = x0 + 1;
