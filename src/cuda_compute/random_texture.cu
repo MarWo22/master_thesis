@@ -17,7 +17,7 @@ __global__ void generateRandomTextureKernel(float *texture, curandState *const r
 {
     unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
 
-    texture[threadID] = curand_uniform(&rngStates[threadID]);
+    texture[threadID] = 1;
 }
 
 __global__ void convertTextureTo16BitKernel(const float *input_texture, uint16_t *output_texture)
@@ -53,10 +53,7 @@ float* generateRandomTexture(int height, int width)
 
     generateRandomTextureKernel<<<1024, 1024>>>(d_texture, randStates);
 
-    cudaMemcpy(h_texture, d_texture, size * sizeof(float), cudaMemcpyDeviceToHost);
-
-    cudaFree(d_texture);
-    return h_texture;
+    return d_texture;
 }
 
 uint16_t* convertFloatTextureTo16Bit(float *texture, int height, int width)
