@@ -1,0 +1,7 @@
+{
+  "use_renderer" : true,
+  "heightmap_dimensions" : {
+    "x": 1024,
+    "y": 1024
+  }
+}
