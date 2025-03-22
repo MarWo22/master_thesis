@@ -51,6 +51,8 @@ add_executable(PlateTectonics
         src/cuda_compute/random_texture.h
         src/cuda_compute/texture_save.cpp
         src/cuda_compute/texture_save.h
+        src/cuda_compute/flux_erosion.h
+        src/cuda_compute/flux_erosion.cu
         src/config.h
 )
 
