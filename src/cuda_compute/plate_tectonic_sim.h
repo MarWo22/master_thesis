@@ -2,6 +2,7 @@
 #define PLATE_TECTONIC_SIM_H
 #include "GL/glew.h"
 #include "cuda_gl_interop.h"
+#include "flux_erosion.h"
 
 class PlateTectonicSim {
     int m_width;
@@ -13,6 +14,9 @@ class PlateTectonicSim {
 
     // Heightmap on device
     float *m_heightMapDevice;
+
+    // Simulation objects
+    FluxVelocityErosion m_erosion;
 
 
 public:

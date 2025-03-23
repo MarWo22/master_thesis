@@ -98,8 +98,9 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
     uint2 coords = toCoord(idx, height, width);
 
     float4 current_f = flux[idx];
-
-    float K = fminf(1, hydration[idx] / ((current_f.x + current_f.y + current_f.z + current_f.w) * deltatime));
+    
+    float fluxTotal = fmaxf(current_f.x + current_f.y + current_f.z + current_f.w, 0.01f);
+    float K = fminf(1, hydration[idx] / (fluxTotal * deltatime));
 
     float4 intermediate_flux = make_float4(0, 0, 0, 0);
     
@@ -108,6 +109,8 @@ __global__ void fluxComputation(float* material, float* hydration, float4* flux,
     intermediate_flux.z = fluxComponentComputation(material, hydration, flux[idx].z, idx, toIndex(coords.x + 1, coords.y, height, width), deltatime, gravity, pipe_cross_section, pipe_length) * K;
     intermediate_flux.w = fluxComponentComputation(material, hydration, flux[idx].w, idx, toIndex(coords.x, coords.y - 1, height, width), deltatime, gravity, pipe_cross_section, pipe_length) * K;
 
+
+    
 
     //printf("flux: %.4f : %.4f : %.4f : %.4f\n", intermediate_flux.x, intermediate_flux.y, intermediate_flux.z, intermediate_flux.w);
 
@@ -141,10 +144,6 @@ __global__ void flowComputation(float* hydration, float4* flux, float2* velocity
     velocity[idx].x = (flux[toIndex(coords.x - 1, coords.y, height, width)].z - localFlux.x + localFlux.z - flux[toIndex(coords.x + 1, coords.y, height, width)].x) / 2.0;
     velocity[idx].y = (flux[toIndex(coords.x, coords.y + 1, height, width)].y - localFlux.w + localFlux.y - flux[toIndex(coords.x, coords.y - 1, height, width)].w) / 2.0;
 
-    if (velocity[idx].x == -INFINITY) {
-        printf("vel: %.4f", velocity[idx].x);
-    }
-
     //printf("velocity: %.4f : %.4f hydration: %.4f deltaVol: %.4f flowIn: %.4f flowOut: %.4f\n", velocity[idx].x, velocity[idx].y, hydration[idx], deltaVolume, flowIn, flowOut);
 }
 
@@ -170,6 +169,10 @@ __global__ void sedimentComputation(float* material, float* sediment, float2* ve
         float s = ks * (sediment[idx] - C);
         sediment[idx] = fmaxf(sediment[idx] - s, 0.0);
         material[idx] = fmaxf(material[idx] + s, 0.0);
+    }
+
+    if (material[idx] == INFINITY || material[idx] == -INFINITY) {
+        printf("INFINITY!!!");
     }
 }
 
@@ -216,29 +219,29 @@ __global__ void evaporateComputation(float* hydration, int height, int width, fl
 FluxVelocityErosion::FluxVelocityErosion(int width, int height)
     : mWidth(width)
     , mHeight(height)
-    , mRandStates(nullptr)
-    , mMaterial(nullptr)
-    , mHydration(nullptr)
-    , mSediment(nullptr)
-    , mFlux(nullptr)
-    , mVelocity(nullptr)
+    , mRandStatesDevice(nullptr)
+    , mMaterialDevice(nullptr)
+    , mHydrationDevice(nullptr)
+    , mSedimentDevice(nullptr)
+    , mFluxDevice(nullptr)
+    , mVelocityDevice(nullptr)
     , completed(0)
 {}
 
 FluxVelocityErosion::~FluxVelocityErosion() {
-    if (mMaterial != nullptr)
-        cudaFree(mMaterial);
-    if (mHydration != nullptr)
-        cudaFree(mHydration);
-    if (mSediment != nullptr)
-        cudaFree(mSediment);
-    if (mFlux != nullptr)
-        cudaFree(mFlux);
-    if (mVelocity != nullptr)
-        cudaFree(mVelocity);
+    if (mMaterialDevice != nullptr)
+        cudaFree(mMaterialDevice);
+    if (mHydrationDevice != nullptr)
+        cudaFree(mHydrationDevice);
+    if (mSedimentDevice != nullptr)
+        cudaFree(mSedimentDevice);
+    if (mFluxDevice != nullptr)
+        cudaFree(mFluxDevice);
+    if (mVelocityDevice != nullptr)
+        cudaFree(mVelocityDevice);
 }
 
-void FluxVelocityErosion::start(float *input, int iterations) {
+void FluxVelocityErosion::start(float *input, int iterations, bool fromDevice) {
     // Allocate array on device memory
     unsigned int size = mHeight * mWidth;
     
@@ -247,18 +250,20 @@ void FluxVelocityErosion::start(float *input, int iterations) {
         (mHeight + blockDim.y - 1) / blockDim.y);*/
 
 
-    if (mMaterial != nullptr)
-        cudaFree(mMaterial);
-    cudaMalloc(&mMaterial, size * sizeof(float));
-    cudaMemcpy(mMaterial, input, size * sizeof(float), cudaMemcpyHostToDevice);
+    if (mMaterialDevice != nullptr)
+        cudaFree(mMaterialDevice);
+    
+    cudaMalloc(&mMaterialDevice, size * sizeof(float));
+    cudaMemcpy(mMaterialDevice, input, size * sizeof(float), cudaMemcpyDeviceToDevice);
+    
 
-    cudaMalloc(&mHydration, size * sizeof(float));
-    cudaMalloc(&mSediment, size * sizeof(float));
-    cudaMalloc(&mFlux, size * sizeof(float4));
-    cudaMalloc(&mVelocity, size * sizeof(float2));
-    cudaMalloc(&mRandStates, size * sizeof(curandState));
+    cudaMalloc(&mHydrationDevice, size * sizeof(float));
+    cudaMalloc(&mSedimentDevice, size * sizeof(float));
+    cudaMalloc(&mFluxDevice, size * sizeof(float4));
+    cudaMalloc(&mVelocityDevice, size * sizeof(float2));
+    cudaMalloc(&mRandStatesDevice, size * sizeof(curandState));
 
-    initErosionKernel <<<mWidth, mHeight >>> (mRandStates, rand());
+    initErosionKernel <<<mWidth, mHeight >>> (mRandStatesDevice, rand());
 
     simulate(iterations);
 }
@@ -270,18 +275,18 @@ void FluxVelocityErosion::resume(int iterations) {
 void FluxVelocityErosion::simulate(int iterations) {
     for (unsigned int i = 0; i < iterations; i++)
     {
-        rainComputation << <mWidth, mHeight >> > (mHydration, mRandStates, mHeight, mWidth, 0.02);
+        rainComputation << <mWidth, mHeight >> > (mHydrationDevice, mRandStatesDevice, mHeight, mWidth, 0.02);
 
-        fluxComputation << <mWidth, mHeight >> > (mMaterial, mHydration, mFlux, mHeight, mWidth, 0.02, mGravityConstant, mPipeCrossSectionConstant, mPipeLengthConstant);
+        fluxComputation << <mWidth, mHeight >> > (mMaterialDevice, mHydrationDevice, mFluxDevice, mHeight, mWidth, 0.02, mGravityConstant, mPipeCrossSectionConstant, mPipeLengthConstant);
 
-        flowComputation << <mWidth, mHeight >> > (mHydration, mFlux, mVelocity, mHeight, mWidth, 0.02, mPipeLengthConstant);
+        flowComputation << <mWidth, mHeight >> > (mHydrationDevice, mFluxDevice, mVelocityDevice, mHeight, mWidth, 0.02, mPipeLengthConstant);
         //cudaDeviceSynchronize();
 
-        sedimentComputation << <mWidth, mHeight >> > (mMaterial, mSediment, mVelocity, mHeight, mWidth, 0.02, mCapacityConstant, mDissolvingConstant);
+        sedimentComputation << <mWidth, mHeight >> > (mMaterialDevice, mSedimentDevice, mVelocityDevice, mHeight, mWidth, 0.02, mCapacityConstant, mDissolvingConstant);
 
-        transportComputation << <mWidth, mHeight >> > (mSediment, mVelocity, mHeight, mWidth, 0.02);
+        transportComputation << <mWidth, mHeight >> > (mSedimentDevice, mVelocityDevice, mHeight, mWidth, 0.02);
 
-        evaporateComputation << <mWidth, mHeight >> > (mHydration, mHeight, mWidth, 0.02, mEvaporationConstant);
+        evaporateComputation << <mWidth, mHeight >> > (mHydrationDevice, mHeight, mWidth, 0.02, mEvaporationConstant);
         cudaThreadSynchronize();
 
         completed++;
@@ -289,18 +294,30 @@ void FluxVelocityErosion::simulate(int iterations) {
     }
 }
 
-void FluxVelocityErosion::getHydration(float* output) {
+void FluxVelocityErosion::getHydrationHost(float* output) {
     unsigned int size = sizeof(float) * mHeight * mWidth;
-    cudaMemcpy(output, mHydration, size, cudaMemcpyDeviceToHost);
+    cudaMemcpy(output, mHydrationDevice, size, cudaMemcpyDeviceToHost);
 }
 
-void FluxVelocityErosion::getMaterial(float* output) {
+void FluxVelocityErosion::getMaterialHost(float* output) {
     unsigned int size = sizeof(float) * mHeight * mWidth;
-    cudaMemcpy(output, mMaterial, size, cudaMemcpyDeviceToHost);
+    cudaMemcpy(output, mMaterialDevice, size, cudaMemcpyDeviceToHost);
 }
 
-void FluxVelocityErosion::getSediment(float* output) {
+void FluxVelocityErosion::getSedimentHost(float* output) {
     unsigned int size = sizeof(float) * mHeight * mWidth;
-    cudaMemcpy(output, mSediment, size, cudaMemcpyDeviceToHost);
+    cudaMemcpy(output, mSedimentDevice, size, cudaMemcpyDeviceToHost);
+}
+
+float* FluxVelocityErosion::getHydrationDevice() {
+    return mHydrationDevice;
+}
+
+float* FluxVelocityErosion::getMaterialDevice() {
+    return mMaterialDevice;
+}
+
+float* FluxVelocityErosion::getSedimentDevice() {
+    return mSedimentDevice;
 }
 

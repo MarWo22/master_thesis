@@ -24,7 +24,7 @@ void loadTextures(PlateTectonicSim &tectonicsSim)
     auto *heightMap = new Texture;
     heightMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     heightMap->load2DImage("./assets/textures/heightMap.png", GL_R32F, GL_RED, GL_FLOAT, 1);
-    Renderer::addTexture("heightMap", heightMap);
+    //Renderer::addTexture("heightMap", heightMap);
 
     auto *cudaHeightMap = new Texture;
     cudaHeightMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
@@ -32,7 +32,7 @@ void loadTextures(PlateTectonicSim &tectonicsSim)
     tectonicsSim.connectToOpengl2DTexture(cudaHeightMap->id());
     tectonicsSim.copyToOpenGl();
 
-    Renderer::addTexture("cudaHeightMap", cudaHeightMap);
+    Renderer::addTexture("heightMap", cudaHeightMap);
 }
 
 void initRenderComponents(Renderer &renderer)
