@@ -1,6 +1,8 @@
 #include <iostream>
 #include "texture.h"
 
+#include <vector>
+
 #include "stb_image.h"
 #include "image.h"
 
@@ -36,11 +38,13 @@ void Texture::load2DImage(const std::string& filename, GLint internalFormat, GLe
 {
     glBindTexture(GL_TEXTURE_2D, m_id);
     const Image image(filename, channels);
+    m_size = {image.width, image.height};
     glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, image.width, image.height, 0, format, type, image.data);
 }
 
 void Texture::load2DEmpty(const GLint internalFormat, const GLenum format, const GLenum type, const glm::ivec2 &size)
 {
+    m_size = size;
     glBindTexture(GL_TEXTURE_2D, m_id);
     glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, size.x, size.y, 0, format, type, nullptr);
 }

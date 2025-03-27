@@ -45,13 +45,21 @@ add_executable(PlateTectonics
         src/renderer/imgui/imgui_impl_opengl3.cpp
         src/renderer/imgui/imgui_impl_opengl3.h
         src/renderer/imgui/imgui_impl_opengl3_loader.h
-        src/cuda_compute/plate_tectonic_sim.cpp
+        src/cuda_compute/plate_tectonic_sim.cu
         src/cuda_compute/plate_tectonic_sim.h
         src/cuda_compute/random_texture.cu
         src/cuda_compute/random_texture.h
         src/cuda_compute/texture_save.cpp
         src/cuda_compute/texture_save.h
         src/config.h
+        src/cuda_compute/vec2.cuh
+        src/cuda_compute/plate_data.h
+        src/cuda_compute/plate_tectonics_kernel.cu
+        src/cuda_compute/plate_tectonics_kernel.cuh
+        src/cuda_compute/cuda_helper.cuh
+        src/cuda_compute/cuda_gl_interop_manager.cpp
+        src/cuda_compute/cuda_gl_interop_manager.h
+        src/cuda_compute/cuda_texture.cuh
 )
 
 set_target_properties(PlateTectonics PROPERTIES
