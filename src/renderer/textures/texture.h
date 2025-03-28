@@ -10,6 +10,7 @@
 class Texture
 {
     GLuint m_id;
+    glm::ivec2 m_size;
 
 public:
 
@@ -25,6 +26,7 @@ public:
 
 
     [[nodiscard]] GLuint id() const { return m_id; }
+    [[nodiscard]] const glm::ivec2 &size() const {return m_size; }
 
     void bind(GLenum texture_unit) const;
 

@@ -11,7 +11,9 @@ void Terrain::Vertex::init(const int xPos, const int zPos, const int sizeX, cons
 
 Terrain::Terrain(const int sizeX, const int sizeZ)
     : m_heightmapShader(nullptr)
+    , m_platesShader(nullptr)
     , m_heightmapTexture(nullptr)
+    , m_platesTexture(nullptr)
     , m_sizeX(sizeX)
     , m_sizeZ(sizeZ)
     , m_vao(0)
@@ -22,16 +24,21 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
 void Terrain::init()
 {
     m_heightmapShader = getShader("heightMap");
+    m_platesShader = getShader("plates");
     m_heightmapTexture = getTexture("heightMap");
+    m_platesTexture = getTexture("cudaPlateMap");
     createGlState();
     populateBuffers();
 }
 
 void Terrain::render(const Camera &camera)
 {
-    m_heightmapShader->bind();
-    m_heightmapShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+    // m_heightmapShader->bind();
+    m_platesShader->bind();
+    m_platesShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+    m_platesShader->setUniform("textureSize", m_platesTexture->size());
     m_heightmapTexture->bind(GL_TEXTURE0);
+    m_platesTexture->bind(GL_TEXTURE1);
 
     glBindVertexArray(m_vao);
 
