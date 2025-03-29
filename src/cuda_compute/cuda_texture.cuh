@@ -35,7 +35,44 @@ public:
         return m_textureArr[textureIndex.y * m_size.x + textureIndex.x];
     }
 
+    __device__ __inline__ const T& operator[](const Vec2<float>& textureCoordinate) const
+    {
+        int x0 = floorf(textureCoordinate.x);
+        int x1 = x0 + 1;
+        int y0 = floorf(textureCoordinate.y);
+        int y1 = y0 + 1;
+
+        float weightX = textureCoordinate.x - x0;
+        float weightY = textureCoordinate.y - y0;
+
+        float I0 = (1 - weightX) * this[Vec2<int>(x0, y0)] + weightX * this[Vec2<int>(x1, y0);
+        float I1 = (1 - weightX) * this[Vec2<int>(x0, y1) + weightX * this[Vec2<int>(x1, y1);
+        return (1 - weightY) * I0 + weightY * I1;         //Keep in mind. I0 and I1 might need to be swapped !!!!!!!
+    }
+
+
+
     __device__ __inline__ const Vec2<int> &size() const { return m_size; }
+
+    __device__ const Vec2<int> indexToCoordinate(size_t idx) 
+    {  
+        return Vec2<int>(fmodf(idx, m_size.x), idx / m_size.x);
+    }
+
+    __device__ const size_t coordinateToIndex(Vec2<int> coordinate) 
+    {  
+        x = ((coordinate.x % m_size.x) + m_size.x) % m_size.x;
+        y = ((coordinate.y % m_size.y) + m_size.y) % m_size.y;
+
+        return  y * width + x;
+    }
+
+    __device__ const float Slope(Vec2<int>& textureIndex) {
+        double dzdx = (this[textureIndex + Vec2<int>(1,0)] - this[textureIndex + Vec2<int>(-1,0)) / 2.0;
+        double dzdy = (this[textureIndex + Vec2<int>(0,1)] - this[textureIndex + Vec2<int>(0,-1)]) / 2.0;
+
+        return std::sqrt(dzdx * dzdx + dzdy * dzdy);
+    }
 
 };
 
@@ -82,7 +119,6 @@ public:
     T *getPointer() const { return m_rawCudaPointer;}
 
     CudaTexture<T> *deviceTexture() { return m_texture; }
-
 };
 
 #endif //CUDA_TEXTURE_CUH
