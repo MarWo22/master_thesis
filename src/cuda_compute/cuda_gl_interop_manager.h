@@ -5,6 +5,7 @@
 #include <GL/glew.h>
 #include <cuda_gl_interop.h>
 #include <memory>
+#include <unordered_map>
 
 class CudaGlInteropManager {
 
@@ -22,12 +23,13 @@ class CudaGlInteropManager {
                    int textureHeight);
     };
 
-    std::vector<std::unique_ptr<Connection>> m_connections;
+    std::unordered_map<GLuint, std::unique_ptr<Connection>> m_connections;
 
 public:
     CudaGlInteropManager() = default;
     void addConnection(GLuint openGlTexture, void *cudaDeviceTexture, size_t typeSize, int textureWidth, int textureHeight);
     void copyAllConnections() const;
+    void copyConnection(GLuint openGLTexture);
     void removeConnection(GLuint openGlTexture);
 
 private:

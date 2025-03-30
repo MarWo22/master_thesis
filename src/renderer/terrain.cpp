@@ -2,6 +2,10 @@
 
 #include <iostream>
 
+#include "../generation_settings.h"
+
+extern GenerationSettings generationSettings;
+
 void Terrain::Vertex::init(const int xPos, const int zPos, const int sizeX, const int sizeZ)
 {
     pos = glm::vec3(xPos, 0, zPos);
@@ -33,12 +37,20 @@ void Terrain::init()
 
 void Terrain::render(const Camera &camera)
 {
-    // m_heightmapShader->bind();
-    m_platesShader->bind();
-    m_platesShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
-    m_platesShader->setUniform("textureSize", m_platesTexture->size());
-    m_heightmapTexture->bind(GL_TEXTURE0);
-    m_platesTexture->bind(GL_TEXTURE1);
+    if (generationSettings.renderMode == GenerationSettings::RenderMode::NORMAL)
+    {
+        m_heightmapShader->bind();
+        m_heightmapShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+        m_heightmapTexture->bind(GL_TEXTURE0);
+    }
+    else if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_PLATES)
+    {
+        m_platesShader->bind();
+        m_platesShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+        m_platesShader->setUniform("textureSize", m_platesTexture->size());
+        m_heightmapTexture->bind(GL_TEXTURE0);
+        m_platesTexture->bind(GL_TEXTURE1);
+    }
 
     glBindVertexArray(m_vao);
 

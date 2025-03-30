@@ -32,8 +32,8 @@ public:
 
     PlateTectonicSim(int width, int height, int numStartingPlates);
 
-    [[nodiscard]] float *heightMapDevice() const { return m_heightMapDevice; }
-    [[nodiscard]] uint8_t *plateIdsDevice() const { return m_plateIdsTexture.getPointer(); }
+    [[nodiscard]] float *heightMapCudaTexture() const { return m_heightMapDevice; }
+    [[nodiscard]] CudaTextureHost<uint8_t> &plateIdsCudaTexture() { return m_plateIdsTexture; }
 
     void initialize(int seed);
 
@@ -46,11 +46,8 @@ private:
     std::vector<Vec2<float>> initializeVoronoiSeeds(
         std::default_random_engine &generator) const;
 
-    void plateMovement();
-
-    void tectonicInteractions();
-
-    void plateUpdates();
+    std::vector<PlateData> initializePlateData(std::default_random_engine &generator,
+        const std::vector<Vec2<float>> &voronoiSeeds) const;
 
 };
 

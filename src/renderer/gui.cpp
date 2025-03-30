@@ -6,8 +6,11 @@
 
 #include <iostream>
 
+#include "../generation_settings.h"
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_opengl3.h"
+
+GenerationSettings generationSettings;
 
 Gui::Gui()
     : m_frameCount(0)
@@ -31,8 +34,14 @@ void Gui::gui()
 
     ImGui::Text("Average %.1f FPS", m_avgFramerate);
 
+    ImGui::Text("Render mode:");
+    ImGui::RadioButton("Normal", &generationSettings.renderMode, GenerationSettings::RenderMode::NORMAL);
+    ImGui::RadioButton("Show Plates", &generationSettings.renderMode, GenerationSettings::RenderMode::SHOW_PLATES);
+
+    ImGui::InputInt("Number of iterations", &generationSettings.executionIterations);
+
     if (ImGui::Button("Execute"))
-        std::cout << "Clicked\n";
+        generationSettings.callCallback("executeIterations");
 }
 
 void Gui::render()

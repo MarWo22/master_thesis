@@ -16,7 +16,7 @@ void loadShaders()
     Renderer::addShader("plates", new Shader("./shaders/heightMap.vert", "./shaders/plates.frag"));
 }
 
-void loadTextures(CudaGlInteropManager &interopManager, const PlateTectonicSim &tectonicSim)
+void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tectonicSim)
 {
     const glm::ivec2 heightmapDimensions = Config::getInstance().HEIGHTMAP_DIMENSIONS;
 
@@ -35,13 +35,18 @@ void loadTextures(CudaGlInteropManager &interopManager, const PlateTectonicSim &
     cudaHeightMap->load2DEmpty(GL_R32F, GL_RED, GL_FLOAT, heightmapDimensions);
     Renderer::addTexture("cudaHeightMap", cudaHeightMap);
 
-    interopManager.addConnection(cudaHeightMap->id(), tectonicSim.heightMapDevice(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y);
+    // interopManager.addConnection(cudaHeightMap->id(), tectonicSim.heightMapDevice(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y);
 
     auto *cudaPlateMap = new Texture();
     cudaPlateMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     cudaPlateMap->load2DEmpty(GL_R8, GL_RED, GL_UNSIGNED_BYTE, heightmapDimensions);
     Renderer::addTexture("cudaPlateMap", cudaPlateMap);
-    interopManager.addConnection(cudaPlateMap->id(), static_cast<void *>(tectonicSim.plateIdsDevice()), sizeof(uint8_t), heightmapDimensions.x, heightmapDimensions.y);
+    interopManager.addConnection(cudaPlateMap->id(), tectonicSim.plateIdsCudaTexture().getPointer(), sizeof(uint8_t), heightmapDimensions.x, heightmapDimensions.y);
+    tectonicSim.plateIdsCudaTexture().onUpdateCallback([&interopManager, cudaPlateMap]() {
+        std::cout << "Something is happening\n";
+        interopManager.copyConnection(cudaPlateMap->id());
+    });
+
     std::cout << "copying" << "\n";
     interopManager.copyAllConnections();
 
@@ -65,7 +70,7 @@ int main()
         Renderer renderer;
         renderer.initRenderer();
         auto const size = Config::getInstance().HEIGHTMAP_DIMENSIONS;
-        PlateTectonicSim tectonicSim(size.x, size.y, 128);
+        PlateTectonicSim tectonicSim(size.x, size.y, 16);
         tectonicSim.initialize(rand());
 
         CudaGlInteropManager interopManager;

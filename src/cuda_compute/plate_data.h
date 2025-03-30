@@ -6,7 +6,7 @@ struct PlateData
 {
     float velocity;
     Vec2<float> direction;
-    Vec2<float> center;
+    Vec2<float> pixelCenter; // ranges from [0,1]
 
     PlateData()
         : velocity(0)

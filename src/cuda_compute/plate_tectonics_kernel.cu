@@ -30,25 +30,50 @@ __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const Vec
             minDistance = distance;
         }
     }
+
     idTexture[invokeIndex] = static_cast<uint8_t>(minIndex);
 }
 
-__global__ void plateMovement(const uint8_t *idTexture, uint8_t *writeIdTexture, PlateData *plateLookup, const Vec2<int> textureSize)
+__global__ void plateMovement(CudaTexture<uint8_t> *idTexturePtr, CudaTexture<uint8_t> *writeIdTexturePtr, const PlateData *plateLookup)
 {
+    CudaTexture<uint8_t> idTexture = *idTexturePtr;
+    CudaTexture<uint8_t> writeTexture = *writeIdTexturePtr;
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, textureSize))
+    if (!isWithinBounds(invokeIndex, idTexture.size()))
         return;
 
-    const Vec2<int> textureIndex = getTextureIndex(invokeIndex, textureSize);
     const int plateIndex = idTexture[invokeIndex];
-    const PlateData plateData = plateLookup[invokeIndex];
+    const PlateData plateData = plateLookup[plateIndex];
 
-    const Vec2<float> offset = plateData.direction * plateData.velocity;
-    const Vec2<int> newTextureIndex = {static_cast<int>(plateData.center.x + offset.x),
-        static_cast<int>(plateData.center.y + offset.y)};
+    // Get current index in the texture
+    const Vec2<int> textureIndex = getTextureIndex(invokeIndex, idTexture.size());
+    // Calculate the movement of the pixel in this iteration
+    const Vec2<float> pixelMovement = plateData.direction * plateData.velocity;
+    // Calculate the new pixel center in integers
+    const Vec2<int> newPixelCenter(static_cast<int>(plateData.pixelCenter.x + pixelMovement.x),
+        static_cast<int>(plateData.pixelCenter.y + pixelMovement.y));
+    // Determine the new texture index
+    const Vec2<int> newTextureIndex = textureIndex + newPixelCenter ;
+    // printf("%f %f\n", plateData.pixelCenter.x, plateData.pixelCenter.y);
+    // Write to the output texture
+    writeTexture[newTextureIndex] = plateIndex;
+    // TODO:
+    // Fill in empties
+    // Fix wrapping
+    // Fix updating of center pixels
+}
 
-    // writeToTexture()
+__global__ void updatePlateData(PlateData *plateLookup, const Vec2<int> callSize)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (!isWithinBounds(callSize))
+        return;
 
 
+    PlateData current = plateLookup[invokeIndex];
 
+    current.pixelCenter = current.pixelCenter + current.direction * current.velocity;
+
+    plateLookup[invokeIndex] = current;
 }

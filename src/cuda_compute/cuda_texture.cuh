@@ -1,5 +1,6 @@
 #ifndef CUDA_TEXTURE_CUH
 #define CUDA_TEXTURE_CUH
+#include <functional>
 #include <iostream>
 
 #include "vec2.cuh"
@@ -44,6 +45,7 @@ class CudaTextureHost
 {
     CudaTexture<T> *m_texture;
     T *m_rawCudaPointer;
+    std::vector<std::function<void()>> m_onUpdateCallbacks;
     int m_width;
     int m_height;
 
@@ -54,6 +56,29 @@ public:
         , m_width(0)
         , m_height(0)
     {}
+
+    void onUpdateCallback(const std::function<void()> &callback)
+    {
+        m_onUpdateCallbacks.push_back(callback);
+    }
+
+    void update() const
+    {
+        for (auto &callback : m_onUpdateCallbacks)
+            callback();
+    }
+
+    ~CudaTextureHost()
+    {
+        if (m_rawCudaPointer != nullptr)
+            if (const cudaError_t err = cudaFree(m_rawCudaPointer); err != cudaSuccess)
+                // Handle memory allocation failure
+                std::cerr << "CUDA free failed: " << cudaGetErrorString(err) << std::endl;
+
+        if (m_texture != nullptr)
+            if (const cudaError_t err = cudaFree(m_texture); err != cudaSuccess)
+                std::cerr << "CUDA free failed: " << cudaGetErrorString(err) << std::endl;
+    }
 
     void initialize(const int width, const int height)
     {

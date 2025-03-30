@@ -60,6 +60,8 @@ add_executable(PlateTectonics
         src/cuda_compute/cuda_gl_interop_manager.cpp
         src/cuda_compute/cuda_gl_interop_manager.h
         src/cuda_compute/cuda_texture.cuh
+        src/generation_settings.cpp
+        src/generation_settings.h
 )
 
 set_target_properties(PlateTectonics PROPERTIES

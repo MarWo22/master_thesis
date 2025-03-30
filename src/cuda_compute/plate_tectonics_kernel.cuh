@@ -6,6 +6,9 @@
 
 __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const Vec2<float> *seeds, int numSeeds);
 
-__global__ void plateMovement(uint8_t *idTexture, float *crustTexture, PlateData *plateLookup, Vec2<int> textureSize);
+__global__ void plateMovement(CudaTexture<uint8_t> *idTexturePtr, CudaTexture<uint8_t> *writeIdTexturePtr, const PlateData *plateLookup);
+
+__global__ void updatePlateData(PlateData *plateLookup, Vec2<int> callSize);
+
 
 #endif //PLATE_TECTONICS_KERNEL_CUH
