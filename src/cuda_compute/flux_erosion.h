@@ -2,14 +2,14 @@
 #define FLUX_EROSION_H
 
 //float* run_erosion(float* input, int height, int width);
-#include <curand_kernel.h>
+#include "cuda_texture.cuh"
+
 
 class FluxVelocityErosion
 {
     int mWidth;
     int mHeight;
     int completed;
-    void simulate(int iterations);
 
 public:
     float mPipeLengthConstant;
@@ -19,21 +19,22 @@ public:
     float mEvaporationConstant;
     float mGravityConstant;
     
-    curandState* mRandStatesDevice;
-    float* mMaterialDevice;
-    float* mHydrationDevice;
-    float* mSedimentDevice;
-    float4* mFluxDevice;
-    float2* mVelocityDevice;
+    CudaTextureHost<float> m_materialDevice;
+    CudaTextureHost<float> m_hydrationDevice;
+    CudaTextureHost<float> m_sedimentDevice;
+    CudaTextureHost<float> m_sedimentBufferDevice;
+    CudaTextureHost<float4> m_fluxDevice;
+    CudaTextureHost<Vec2<float>> m_velocityDevice;
 
-    FluxVelocityErosion(int width, int height);
+    FluxVelocityErosion(float* input, int width, int height);
     ~FluxVelocityErosion();
 
-    void start(float* input, int iterations, bool fromDevice);
-    void resume(int iterations);
+    void simulate(int iterations);
+    
     void getMaterialHost(float* output);
     void getHydrationHost(float* output);
     void getSedimentHost(float* output);
+    
     float* getMaterialDevice();
     float* getHydrationDevice();
     float* getSedimentDevice();

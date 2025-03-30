@@ -1,6 +1,5 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include "cuda_noise.cuh"
 
 #include "random_texture.h"
 #include <curand_kernel.h>
@@ -13,13 +12,11 @@ __global__ void initKernel(curandState *const rngStates, const unsigned int seed
     curand_init(seed, threadID, 0, &rngStates[threadID]);
 }
 
-__global__ void generateRandomTextureKernel(float *texture, int width, int height)
+__global__ void generateRandomTextureKernel(float *texture, curandState* const rngStates)
 {
     unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
 
-    uint2 coord = make_uint2(fmodf(threadID, width), threadID / width);
-
-    texture[threadID] = cudaNoise::simplexNoise(make_float3(coord.x, coord.y, 0), 0.01, 1212);
+    texture[threadID] = 1;
 }
 
 __global__ void convertTextureTo16BitKernel(const float *input_texture, uint16_t *output_texture)
@@ -53,7 +50,7 @@ float* generateRandomTexture(int height, int width)
 
     initKernel<<<height, width>>>(randStates, rand());
 
-    generateRandomTextureKernel<<<1024, 1024>>>(d_texture, width, height);
+    generateRandomTextureKernel<<<1024, 1024>>>(d_texture, randStates);
 
     return d_texture;
 }

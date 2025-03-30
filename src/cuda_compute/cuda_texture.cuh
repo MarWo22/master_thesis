@@ -28,48 +28,49 @@ public:
 
     __device__ __inline__ T& operator[](const Vec2<int> &textureIndex)
     {
-        return m_textureArr[textureIndex.y * m_size.x + textureIndex.x];
+        return m_textureArr[coordinateToIndex(textureIndex)];
     }
     __device__ __inline__ const T& operator[](const Vec2<int> &textureIndex) const
     {
-        return m_textureArr[textureIndex.y * m_size.x + textureIndex.x];
+        return m_textureArr[coordinateToIndex(textureIndex)];
     }
 
-    __device__ __inline__ const T& operator[](const Vec2<float>& textureCoordinate) const
-    {
-        int x0 = floorf(textureCoordinate.x);
-        int x1 = x0 + 1;
-        int y0 = floorf(textureCoordinate.y);
-        int y1 = y0 + 1;
-
-        float weightX = textureCoordinate.x - x0;
-        float weightY = textureCoordinate.y - y0;
-
-        float I0 = (1 - weightX) * this[Vec2<int>(x0, y0)] + weightX * this[Vec2<int>(x1, y0);
-        float I1 = (1 - weightX) * this[Vec2<int>(x0, y1) + weightX * this[Vec2<int>(x1, y1);
-        return (1 - weightY) * I0 + weightY * I1;         //Keep in mind. I0 and I1 might need to be swapped !!!!!!!
-    }
+    
+    
 
 
 
     __device__ __inline__ const Vec2<int> &size() const { return m_size; }
 
-    __device__ const Vec2<int> indexToCoordinate(size_t idx) 
+    __device__ __inline__ const Vec2<int> indexToCoordinate(size_t idx) const
     {  
         return Vec2<int>(fmodf(idx, m_size.x), idx / m_size.x);
     }
 
-    __device__ const size_t coordinateToIndex(Vec2<int> coordinate) 
+    __device__ __inline__ const size_t coordinateToIndex(const Vec2<int> &coordinate) const
     {  
-        x = ((coordinate.x % m_size.x) + m_size.x) % m_size.x;
-        y = ((coordinate.y % m_size.y) + m_size.y) % m_size.y;
+        Vec2<int> coord = wrapCoordinate(coordinate);
 
-        return  y * width + x;
+        return  coord.y * m_size.x + coord.x;
     }
 
-    __device__ const float Slope(Vec2<int>& textureIndex) {
-        double dzdx = (this[textureIndex + Vec2<int>(1,0)] - this[textureIndex + Vec2<int>(-1,0)) / 2.0;
-        double dzdy = (this[textureIndex + Vec2<int>(0,1)] - this[textureIndex + Vec2<int>(0,-1)]) / 2.0;
+    __device__ __inline__ const Vec2<int> wrapCoordinate(const Vec2<int>& coordinate) const
+    {
+        int x = fmodf(fmodf(coordinate.x, m_size.x) + m_size.x, m_size.x);
+        int y = fmodf(fmodf(coordinate.y, m_size.y) + m_size.y, m_size.y);
+
+        return Vec2<int>(x,y);
+    }
+
+    __device__ __inline__ const float Slope(const Vec2<int> &textureIndex) {
+        
+        int a = coordinateToIndex(textureIndex + Vec2<int>(1, 0));
+        int b = coordinateToIndex(textureIndex + Vec2<int>(-1,0));
+        int c = coordinateToIndex(textureIndex + Vec2<int>(0, 1));
+        int d = coordinateToIndex(textureIndex + Vec2<int>(0,-1));
+
+        float dzdx = (m_textureArr[a] - m_textureArr[b]) / 2.0;
+        float dzdy = (m_textureArr[c] - m_textureArr[d]) / 2.0;
 
         return std::sqrt(dzdx * dzdx + dzdy * dzdy);
     }
