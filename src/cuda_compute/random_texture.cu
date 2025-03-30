@@ -5,7 +5,6 @@
 #include <curand_kernel.h>
 #include <iostream>
 
-
 __global__ void initKernel(curandState *const rngStates, const unsigned int seed) {
     // Determine thread ID
     unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
@@ -13,7 +12,7 @@ __global__ void initKernel(curandState *const rngStates, const unsigned int seed
     curand_init(seed, threadID, 0, &rngStates[threadID]);
 }
 
-__global__ void generateRandomTextureKernel(float *texture, curandState *const rngStates)
+__global__ void generateRandomTextureKernel(float *texture, curandState* const rngStates)
 {
     unsigned int threadID = blockIdx.x * blockDim.x + threadIdx.x;
 

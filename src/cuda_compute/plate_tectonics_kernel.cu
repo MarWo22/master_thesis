@@ -24,7 +24,8 @@ __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const Vec
     for (int i = 0 ; i != numSeeds; ++i)
     {
         const Vec2<float> seed = seeds[i];
-        if (const float distance = textureIndexFloat.distanceSquared(seed); distance < minDistance)
+        const float distance = textureIndexFloat.distanceSquared(seed);
+        if (distance < minDistance)
         {
             minIndex = i;
             minDistance = distance;

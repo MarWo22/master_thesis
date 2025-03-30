@@ -51,6 +51,9 @@ add_executable(PlateTectonics
         src/cuda_compute/random_texture.h
         src/cuda_compute/texture_save.cpp
         src/cuda_compute/texture_save.h
+        src/cuda_compute/flux_erosion.h
+        src/cuda_compute/flux_erosion.cu
+        src/cuda_compute/cuda_noise.cuh
         src/config.h
         src/cuda_compute/vec2.cuh
         src/cuda_compute/plate_data.h
@@ -62,6 +65,8 @@ add_executable(PlateTectonics
         src/cuda_compute/cuda_texture.cuh
         src/generation_settings.cpp
         src/generation_settings.h
+        src/cuda_compute/erosion_kernel.cu
+        src/cuda_compute/erosion_kernel.cuh
 )
 
 set_target_properties(PlateTectonics PROPERTIES
