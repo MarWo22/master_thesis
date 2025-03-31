@@ -7,6 +7,7 @@
 #include "cuda_gl_interop_manager.h"
 #include "plate_data.h"
 #include "plate_tectonics_kernel.cuh"
+#include "flux_erosion.h"
 
 PlateTectonicSim::PlateTectonicSim(const int width, const int height, int numStartingPlates)
     : m_width(width)
@@ -15,7 +16,19 @@ PlateTectonicSim::PlateTectonicSim(const int width, const int height, int numSta
     , m_plateDataLookup(nullptr)
     , m_numStartingPlates(numStartingPlates)
 {
-    m_heightMapDevice = generateRandomTexture(height, width);
+    FluxVelocityErosion erosion = FluxVelocityErosion(height, width);
+
+    erosion.mCapacityConstant = 4;
+    erosion.mDissolvingConstant = 0.1f;
+    erosion.mPipeLengthConstant = 0.5f;
+    erosion.mPipeCrossSectionConstant = 0.5f;
+    erosion.mGravityConstant = 9.81f;
+    erosion.mEvaporationConstant = 0.99;
+
+    erosion.simulate(10);
+
+    m_heightMapDevice = erosion.m_materialDevice.getPointer();
+
 }
 
 

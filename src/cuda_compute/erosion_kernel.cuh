@@ -18,5 +18,4 @@ __global__ void evaporateComputation(CudaTexture<float>* hydration, float deltat
 
 __global__ void initMaterial(CudaTexture<float>* material, int seed);
 
-
 #endif //EROSION_KERNEL_CUH

@@ -11,7 +11,7 @@
 
 
 
-FluxVelocityErosion::FluxVelocityErosion(float* input, int width, int height)
+FluxVelocityErosion::FluxVelocityErosion(int width, int height)
     : mWidth(width)
     , mHeight(height)
     , completed(0)
@@ -42,39 +42,15 @@ void FluxVelocityErosion::simulate(int iterations) {
         sedimentComputation << <mWidth, mHeight >> > (m_materialDevice.deviceTexture(), m_sedimentDevice.deviceTexture(), m_velocityDevice.deviceTexture(), 0.02, mCapacityConstant, mDissolvingConstant);
 
         transportComputation << <mWidth, mHeight >> > (m_sedimentDevice.deviceTexture(), m_sedimentBufferDevice.deviceTexture(), m_velocityDevice.deviceTexture(), 0.02);
+        cudaMemcpy(m_sedimentDevice.deviceTexture(), m_sedimentBufferDevice.deviceTexture(), sizeof(float) * mWidth * mHeight, cudaMemcpyDeviceToDevice);
 
         evaporateComputation << <mWidth, mHeight >> > (m_hydrationDevice.deviceTexture(), 0.02, mEvaporationConstant);
-        cudaThreadSynchronize();
 
         completed++;
         printf("Batch: %4i/%4i Total: %.i \n", i + 1, iterations, completed);
     }
+    cudaThreadSynchronize();
+
 }
 
-void FluxVelocityErosion::getHydrationHost(float* output) {
-    unsigned int size = sizeof(float) * mHeight * mWidth;
-    cudaMemcpy(output, m_hydrationDevice.deviceTexture(), size, cudaMemcpyDeviceToHost);
-}
-
-void FluxVelocityErosion::getMaterialHost(float* output) {
-    unsigned int size = sizeof(float) * mHeight * mWidth;
-    cudaMemcpy(output, m_materialDevice.deviceTexture(), size, cudaMemcpyDeviceToHost);
-}
-
-void FluxVelocityErosion::getSedimentHost(float* output) {
-    unsigned int size = sizeof(float) * mHeight * mWidth;
-    cudaMemcpy(output, m_sedimentDevice.deviceTexture(), size, cudaMemcpyDeviceToHost);
-}
-
-float* FluxVelocityErosion::getHydrationDevice() {
-    return m_hydrationDevice.getPointer();
-}
-
-float* FluxVelocityErosion::getMaterialDevice() {
-    return m_materialDevice.getPointer();
-}
-
-float* FluxVelocityErosion::getSedimentDevice() {
-    return m_sedimentDevice.getPointer();
-}
 

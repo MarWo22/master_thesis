@@ -35,7 +35,7 @@ void loadTextures(CudaGlInteropManager &interopManager, const PlateTectonicSim &
     cudaHeightMap->load2DEmpty(GL_R32F, GL_RED, GL_FLOAT, heightmapDimensions);
     Renderer::addTexture("cudaHeightMap", cudaHeightMap);
 
-    interopManager.addConnection(cudaHeightMap->id(), tectonicSim.heightMapDevice(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y);
+    interopManager.addConnection(heightMap->id(), tectonicSim.heightMapDevice(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y);
 
     auto *cudaPlateMap = new Texture();
     cudaPlateMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
