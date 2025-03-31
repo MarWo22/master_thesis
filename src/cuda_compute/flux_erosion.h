@@ -26,19 +26,10 @@ public:
     CudaTextureHost<float4> m_fluxDevice;
     CudaTextureHost<Vec2<float>> m_velocityDevice;
 
-    FluxVelocityErosion(float* input, int width, int height);
+    FluxVelocityErosion(int width, int height);
     ~FluxVelocityErosion();
 
     void simulate(int iterations);
-    
-    void getMaterialHost(float* output);
-    void getHydrationHost(float* output);
-    void getSedimentHost(float* output);
-    
-    float* getMaterialDevice();
-    float* getHydrationDevice();
-    float* getSedimentDevice();
-
 };
 
 #endif //FLUX_EROSION_H

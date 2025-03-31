@@ -129,16 +129,9 @@ __global__ void evaporateComputation(CudaTexture<float>* hydration, float deltat
     hydrationTexture[idx] = hydrationTexture[idx] * (1 - ke * deltatime);
 }
 
-__global__ void detectInfinity(CudaTexture<float> texture) {
-    unsigned int idx = getInvokeIndex();
-    if (texture[idx] == INFINITY || texture[idx] == -INFINITY) {
-        printf("Detected Infinity at %.i \n", idx);
-    }
-}
-
 __global__ void initMaterial(CudaTexture<float>* material, int seed)
 {
     Vec2<int> coords = getTextureIndex(material->size());
     CudaTexture<float> materialTexture = *material;
-    materialTexture[coords] += cudaNoise::simplexNoise(make_float3(coords.x, coords.y, 0), 1, seed);
+    materialTexture[coords] += cudaNoise::simplexNoise(make_float3(coords.x, coords.y, 0), 0.001, seed);
 }
