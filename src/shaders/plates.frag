@@ -2,9 +2,6 @@
 
 layout(location = 0) out vec4 fragmentColor;
 layout(binding = 1) uniform sampler2D platesTexture;
-layout(binding = 0) uniform sampler2D heightMap;
-
-uniform vec2 textureSize;
 
 in vec2 texCoord;
 
@@ -61,7 +58,9 @@ vec3 getColorFromID(int id) {
 }
 
 void main() {
-    float normalizedID = texture(platesTexture, texCoord).r;
+    ivec2 texelCoord = ivec2(texCoord * textureSize(platesTexture, 0));
+    float normalizedID = texelFetch(platesTexture, texelCoord, 0).r;
+
     int id = int(normalizedID * 255);
     fragmentColor = vec4(getColorFromID(id),1);
 }

@@ -14,8 +14,14 @@ class Terrain final : public RenderComponent
 {
     Shader *m_heightmapShader;
     Shader *m_platesShader;
+    Shader *m_regionShader;
+    Shader *m_velocityShader;
+    Shader *m_directionShader;
     Texture *m_heightmapTexture;
     Texture *m_platesTexture;
+    Texture *m_collisionTexture;
+    Texture *m_velocityTexture;
+    Texture *m_directionTexture;
     int m_sizeX;
     int m_sizeZ;
 

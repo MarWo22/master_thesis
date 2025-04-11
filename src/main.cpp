@@ -3,17 +3,24 @@
 #include <iostream>
 
 #include "config.h"
+#include "generation_settings.h"
 #include "cuda_compute/cuda_gl_interop_manager.h"
 #include "cuda_compute/plate_tectonic_sim.h"
 #include "renderer/background.h"
 #include "renderer/renderer.h"
 #include "renderer/terrain.h"
 
+extern GenerationSettings generationSettings;
+
 void loadShaders()
 {
     Renderer::addShader("background", new Shader("./shaders/fullscreenQuad.vert", "./shaders/background.frag"));
     Renderer::addShader("heightMap", new Shader("./shaders/heightMap.vert", "./shaders/heightMap.frag"));
     Renderer::addShader("plates", new Shader("./shaders/heightMap.vert", "./shaders/plates.frag"));
+    Renderer::addShader("region", new Shader("./shaders/heightMap.vert", "./shaders/region.frag"));
+    Renderer::addShader("velocity", new Shader("./shaders/heightMap.vert", "./shaders/velocity.frag"));
+    Renderer::addShader("direction", new Shader("./shaders/heightMap.vert", "./shaders/direction.frag"));
+
 }
 
 void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tectonicSim)
@@ -36,23 +43,33 @@ void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tecton
     Renderer::addTexture("cudaHeightMap", cudaHeightMap);
 
     // interopManager.addConnection(cudaHeightMap->id(), tectonicSim.heightMapDevice(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y);
-    interopManager.addConnection(heightMap->id(), tectonicSim.heightMapDevice(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y);
+    interopManager.addConnection("cudaHeightMap", heightMap->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
 
-    auto *cudaPlateMap = new Texture();
-    cudaPlateMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
-    cudaPlateMap->load2DEmpty(GL_R8, GL_RED, GL_UNSIGNED_BYTE, heightmapDimensions);
-    Renderer::addTexture("cudaPlateMap", cudaPlateMap);
-    interopManager.addConnection(cudaPlateMap->id(), tectonicSim.plateIdsCudaTexture().getPointer(), sizeof(uint8_t), heightmapDimensions.x, heightmapDimensions.y);
-    tectonicSim.plateIdsCudaTexture().onUpdateCallback([&interopManager, cudaPlateMap]() {
-        std::cout << "Something is happening\n";
-        interopManager.copyConnection(cudaPlateMap->id());
-    });
+    // The following textures are not initially allocated. They are allocated through toggling them on or off on the GUI
+    // These are only for visualization purposes, and will draw unnecessary memory and computing power to allocate and copy constantly when not used
+    auto *cudaPlateTexture = new Texture();
+    cudaPlateTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("cudaPlateTexture", cudaPlateTexture->id(), sizeof(uint8_t), heightmapDimensions.x, heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
+    Renderer::addTexture("cudaPlateTexture", cudaPlateTexture);
 
-    std::cout << "copying" << "\n";
-    interopManager.copyAllConnections();
+    auto *collisionMap = new Texture();
+    collisionMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("collisionMap", collisionMap->id(), sizeof(uint8_t), heightmapDimensions.x, heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
+    Renderer::addTexture("collisionMap", collisionMap);
 
+    auto *velocityTexture = new Texture();
+    velocityTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("velocityTexture", velocityTexture->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
+    Renderer::addTexture("velocityTexture", velocityTexture);
 
+    auto *directionTexture = new Texture();
+    directionTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("directionTexture", directionTexture->id(), sizeof(float2), heightmapDimensions.x, heightmapDimensions.y, GL_RG32F, GL_RG, GL_FLOAT);
+    Renderer::addTexture("directionTexture", directionTexture);
+
+    // interopManager.copyConnection("cudaHeightMap");
 }
+
 
 void initRenderComponents(Renderer &renderer)
 {
@@ -70,11 +87,12 @@ int main()
     {
         Renderer renderer;
         renderer.initRenderer();
-        auto const size = Config::getInstance().HEIGHTMAP_DIMENSIONS;
-        PlateTectonicSim tectonicSim(size.x, size.y, 16);
-        tectonicSim.initialize(rand());
-
         CudaGlInteropManager interopManager;
+
+        auto const size = Config::getInstance().HEIGHTMAP_DIMENSIONS;
+        PlateTectonicSim tectonicSim(size.x, size.y, 16, &interopManager);
+        tectonicSim.initialize(1000);
+
 
         loadShaders();
         loadTextures(interopManager, tectonicSim);
@@ -82,6 +100,10 @@ int main()
         initRenderComponents(renderer);
 
         renderer.initRenderComponents();
+
+        if (cudaError_t err = cudaGetLastError(); err != cudaSuccess)
+            std::cerr << "Cuda error during initialization phase: " <<  cudaGetErrorString(err) << "\n";
+
         while (!renderer.shouldClose())
         {
             renderer.render();

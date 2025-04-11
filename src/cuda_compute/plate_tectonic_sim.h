@@ -3,6 +3,7 @@
 #include <random>
 #include <vector>
 
+#include "cuda_gl_interop_manager.h"
 #include "cuda_texture.cuh"
 #include "plate_data.h"
 #include "vec2.cuh"
@@ -14,7 +15,7 @@ class PlateTectonicSim {
     int m_height;
 
     // Main heightmap on device
-    float *m_heightMapDevice;
+    CudaTextureHost<float> m_heightMapTexture;
 
     // Plate tectonic sim specific device arrays
     CudaTextureHost<uint8_t> m_plateIdsTexture;
@@ -25,14 +26,16 @@ class PlateTectonicSim {
     int m_threadsPerBlock = 256;
 
     // Plate tectonic sim specific execution parameters
-    int m_maxPlates = 256; // Higher values will require the plateIdsDevice to be increased to 16bit
+    int m_maxPlates = 255; // Higher values will require the plateIdsDevice to be increased to 16bit (Need to reserve 1 for the algorithm to work)
     int m_numStartingPlates;
+
+    CudaGlInteropManager *m_interopManager;
 
 public:
 
-    PlateTectonicSim(int width, int height, int numStartingPlates);
+    PlateTectonicSim(int width, int height, int numStartingPlates, CudaGlInteropManager *interopManager);
 
-    [[nodiscard]] float *heightMapCudaTexture() const { return m_heightMapDevice; }
+    [[nodiscard]] CudaTextureHost<float> &heightMapCudaTexture() { return m_heightMapTexture; }
     [[nodiscard]] CudaTextureHost<uint8_t> &plateIdsCudaTexture() { return m_plateIdsTexture; }
 
     void initialize(int seed);
@@ -48,6 +51,11 @@ private:
 
     std::vector<PlateData> initializePlateData(std::default_random_engine &generator,
         const std::vector<Vec2<float>> &voronoiSeeds) const;
+
+    void setupToggleCallbacks() const;
+    void copyPlateIdsGL() const;
+    void copyDirectionGL() const;
+    void copyVelocitiesGL() const;
 
 };
 

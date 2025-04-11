@@ -13,13 +13,15 @@ public:
       enum RenderMode
       {
             NORMAL,
-            SHOW_PLATES
+            SHOW_PLATES,
+            SHOW_COLLISION_AREAS,
+            SHOW_PLATE_DIRECTIONS,
+            SHOW_PLATE_VELOCITIES
       };
 
       // The actual settings. Could make them private with getter/setters, but I think this is sufficient
       int executionIterations = 1;
       int renderMode = NORMAL;
-
 
       void registerCallback(const std::string &ident, const std::function<void()> &);
       void callCallback(const std::string &ident);

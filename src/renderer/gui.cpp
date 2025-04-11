@@ -34,9 +34,29 @@ void Gui::gui()
 
     ImGui::Text("Average %.1f FPS", m_avgFramerate);
 
-    ImGui::Text("Render mode:");
-    ImGui::RadioButton("Normal", &generationSettings.renderMode, GenerationSettings::RenderMode::NORMAL);
-    ImGui::RadioButton("Show Plates", &generationSettings.renderMode, GenerationSettings::RenderMode::SHOW_PLATES);
+    if (ImGui::CollapsingHeader("Render mode"))
+    {
+        if (ImGui::RadioButton("Normal", &generationSettings.renderMode, GenerationSettings::RenderMode::NORMAL))
+        {
+            generationSettings.callCallback("toggleDefaultMode");
+        }
+        if (ImGui::RadioButton("Show Plates", &generationSettings.renderMode, GenerationSettings::RenderMode::SHOW_PLATES))
+        {
+            generationSettings.callCallback("togglePlateMode");
+        }
+        if (ImGui::RadioButton("Show Collision Areas (requires a new iteration)", &generationSettings.renderMode, GenerationSettings::RenderMode::SHOW_COLLISION_AREAS))
+        {
+            generationSettings.callCallback("toggleCollisionMode");
+        }
+        if (ImGui::RadioButton("Show Plate Directions", &generationSettings.renderMode, GenerationSettings::RenderMode::SHOW_PLATE_DIRECTIONS))
+        {
+            generationSettings.callCallback("toggleDirectionMode");
+        }
+        if (ImGui::RadioButton("Show Plate Velocities", &generationSettings.renderMode, GenerationSettings::RenderMode::SHOW_PLATE_VELOCITIES))
+        {
+            generationSettings.callCallback("toggleVelocityMode");
+        }
+    }
 
     ImGui::InputInt("Number of iterations", &generationSettings.executionIterations);
 

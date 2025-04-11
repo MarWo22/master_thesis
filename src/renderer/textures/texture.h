@@ -11,6 +11,8 @@ class Texture
 {
     GLuint m_id;
     glm::ivec2 m_size;
+    GLint m_wrapMode;
+    GLint m_minMagMode;
 
 public:
 
@@ -21,6 +23,8 @@ public:
     void init2D(GLint wrapMode, GLint minMagMode);
 
     void load2DImage(const std::string& filename, GLint internalFormat, GLenum format, GLenum type, int channels);
+
+    void regenerate();
 
     void load2DEmpty(GLint internalFormat, GLenum format, GLenum type, const glm::ivec2 &size);
 

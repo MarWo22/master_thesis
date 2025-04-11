@@ -89,6 +89,7 @@ target_include_directories(PlateTectonics PRIVATE
 )
 
 
+
 file(GLOB SHADER_FILES "src/shaders/*")
 
 add_custom_target(copy_shaders ALL COMMENT "Updating shaders if they changed")
