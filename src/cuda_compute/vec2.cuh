@@ -50,7 +50,7 @@ struct Vec2 {
 
     __device__ [[nodiscard]] float magnitude() const
     {
-        return sqrt(x*x + y*y);
+        return sqrt(abs(x*x + y*y));
     }
 
     __device__ [[nodiscard]] float magnitudeSquared() const
@@ -60,7 +60,7 @@ struct Vec2 {
 
     __device__ [[nodiscard]] float distance(const Vec2 &other) const
     {
-        return sqrt((other.x - x) * (other.x - x) + (other.y - y) * (other.y - y));
+        return sqrt(abs((other.x - x) * (other.x - x) + (other.y - y) * (other.y - y)));
     }
 
     __device__ [[nodiscard]] float distanceSquared(const Vec2 &other) const

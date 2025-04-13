@@ -72,7 +72,12 @@ public:
         float dzdx = (m_textureArr[a] - m_textureArr[b]) / 2.0;
         float dzdy = (m_textureArr[c] - m_textureArr[d]) / 2.0;
 
-        return std::sqrt(dzdx * dzdx + dzdy * dzdy);
+
+        
+
+        float grade = fminf(fmaxf(dzdx * dzdx + dzdy * dzdy, -10.0f),  10.0f);
+
+        return sinf(grade);
     }
 
 };

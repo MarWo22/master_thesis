@@ -5,31 +5,32 @@
 
 #include "cuda_helper.cuh"
 #include "cuda_noise.cuh"
+#include "flux_erosion.h"
 
 
-__global__ void rainComputation(CudaTexture<float>* hydration, float deltatime, int seed)
+__global__ void rainComputation(CudaErosionData data, float deltatime, int seed)
 {
-    CudaTexture<float> hydrationTexture = *hydration;
-
-    Vec2<int> coords = getTextureIndex(hydration->size());
-
-    hydrationTexture[coords] += cudaNoise::discreteNoise(make_float3(coords.x, coords.y, 0), 1, seed) * deltatime;
+    Vec2<int> coords = getTextureIndex(data.m_hydration->size());
+    CudaTexture<float> texture = *data.m_hydration;
+    texture[coords] += cudaNoise::discreteNoise(make_float3(coords.x, coords.y, 0), 1, seed) * deltatime;
 }
 
-__device__ float fluxSubComputation(CudaTexture<float> material, CudaTexture<float> hydration, float& flux, Vec2<int> coordinateSelf, Vec2<int> coordinateNeighbor, float deltatime, float gravity, float pipe_cross_section, float pipe_length) {
-    float deltaE = material[coordinateSelf] + hydration[coordinateSelf] - material[coordinateNeighbor] - hydration[coordinateNeighbor];
+__device__ float fluxSubComputation(CudaErosionData data, float& flux, Vec2<int> coordinateSelf, Vec2<int> coordinateNeighbor, float deltatime, float gravity, float pipe_cross_section, float pipe_length) {
+    CudaTexture<float> hydrationTexture = *data.m_hydration;
+    CudaTexture<float> materialTexture = *data.m_material;
+    float deltaE = materialTexture[coordinateSelf] + hydrationTexture[coordinateSelf] - materialTexture[coordinateNeighbor] - hydrationTexture[coordinateNeighbor];
 
     return fmaxf(0, flux + deltatime * pipe_cross_section * ((gravity * deltaE) / pipe_length));
 }
 
-__global__ void fluxComputation(CudaTexture<float>* material, CudaTexture<float>* hydration, CudaTexture<float4>* flux, float deltatime, float gravity, float pipe_cross_section, float pipe_length)
+__global__ void fluxComputation(CudaErosionData data, float deltatime, float gravity, float pipe_cross_section, float pipe_length)
 {
-    CudaTexture<float> materialTexture = *material;
-    CudaTexture<float> hydrationTexture = *hydration;
-    CudaTexture<float4> fluxTexture = *flux;
+    CudaTexture<float> hydrationTexture = *data.m_hydration;
+    CudaTexture<float> materialTexture = *data.m_material;
+    CudaTexture<float4> fluxTexture = *data.m_flux;
 
     unsigned int idx = getInvokeIndex();    
-    Vec2<int> coords = getTextureIndex(material->size());
+    Vec2<int> coords = getTextureIndex(data.m_material->size());
 
     float4 current_f = fluxTexture[idx];
 
@@ -38,24 +39,24 @@ __global__ void fluxComputation(CudaTexture<float>* material, CudaTexture<float>
 
     float4 intermediate_flux = make_float4(0, 0, 0, 0);
 
-    intermediate_flux.x = fluxSubComputation(materialTexture, hydrationTexture, fluxTexture[idx].x, coords, Vec2<int>(coords.x - 1, coords.y), deltatime, gravity, pipe_cross_section, pipe_length) * K;
-    intermediate_flux.y = fluxSubComputation(materialTexture, hydrationTexture, fluxTexture[idx].y, coords, Vec2<int>(coords.x, coords.y + 1), deltatime, gravity, pipe_cross_section, pipe_length) * K;
-    intermediate_flux.z = fluxSubComputation(materialTexture, hydrationTexture, fluxTexture[idx].z, coords, Vec2<int>(coords.x + 1, coords.y), deltatime, gravity, pipe_cross_section, pipe_length) * K;
-    intermediate_flux.w = fluxSubComputation(materialTexture, hydrationTexture, fluxTexture[idx].w, coords, Vec2<int>(coords.x, coords.y - 1), deltatime, gravity, pipe_cross_section, pipe_length) * K;
+    intermediate_flux.x = fluxSubComputation(data, fluxTexture[idx].x, coords, Vec2<int>(coords.x - 1, coords.y), deltatime, gravity, pipe_cross_section, pipe_length) * K;
+    intermediate_flux.y = fluxSubComputation(data, fluxTexture[idx].y, coords, Vec2<int>(coords.x, coords.y + 1), deltatime, gravity, pipe_cross_section, pipe_length) * K;
+    intermediate_flux.z = fluxSubComputation(data, fluxTexture[idx].z, coords, Vec2<int>(coords.x + 1, coords.y), deltatime, gravity, pipe_cross_section, pipe_length) * K;
+    intermediate_flux.w = fluxSubComputation(data, fluxTexture[idx].w, coords, Vec2<int>(coords.x, coords.y - 1), deltatime, gravity, pipe_cross_section, pipe_length) * K;
 
     fluxTexture[idx] = intermediate_flux;
 }
 
 
 
-__global__ void flowComputation(CudaTexture<float>* hydration, CudaTexture<float4>* flux, CudaTexture<Vec2<float>>* velocity, float deltatime, float pipe_length)
-{
-    CudaTexture<float> hydrationTexture = *hydration;
-    CudaTexture<float4> fluxTexture = *flux;
-    CudaTexture<Vec2<float>> velocityTexture = *velocity;
-    
+__global__ void flowComputation(CudaErosionData data, float deltatime, float pipe_length)
+{   
+    CudaTexture<float> hydrationTexture = *data.m_hydration;
+    CudaTexture<Vec2<float>> velocityTexture = *data.m_velocity;
+    CudaTexture<float4> fluxTexture = *data.m_flux;
+
     unsigned int idx = getInvokeIndex();
-    Vec2<int> coords = getTextureIndex(hydration->size());
+    Vec2<int> coords = getTextureIndex(data.m_hydration->size());
 
     float flowIn = 0;
 
@@ -77,61 +78,57 @@ __global__ void flowComputation(CudaTexture<float>* hydration, CudaTexture<float
 
 
 
-__global__ void sedimentComputation(CudaTexture<float>* material, CudaTexture<float>* sediment, CudaTexture<Vec2<float>>* velocity, float deltatime, float kc, float ks)
+__global__ void sedimentComputation(CudaErosionData data, float deltatime, float kc, float ks, float kd)
 {
-    CudaTexture<float> materialTexture = *material;
-    CudaTexture<float> sedimentTexture = *sediment;
-    CudaTexture<Vec2<float>> velocityTexture = *velocity;
+    CudaTexture<float> materialTexture = *data.m_material;
+    CudaTexture<float> sedimentTexture = *data.m_sediment;
+    CudaTexture<Vec2<float>> velocityTexture = *data.m_velocity;
 
     unsigned int idx = getInvokeIndex();
-    Vec2<int> coord = getTextureIndex(material->size());
+    Vec2<int> coord = getTextureIndex(data.m_material->size());
 
-    float threshold = 0.03;
-    float C = kc * sinf(fmaxf(materialTexture.Slope(coord), threshold)) * velocityTexture[idx].magnitude();
-
-    if (C > sedimentTexture[idx]) {
-        float s = ks * (C - sedimentTexture[idx]);
-        sedimentTexture[idx] = fmaxf(sedimentTexture[idx] + s, 0.0);
-        materialTexture[idx] = fmaxf(materialTexture[idx] - s, 0.0);
+    float threshold = 0.03f;
+    float capacity = kc * fmaxf(materialTexture.Slope(coord), threshold) * velocityTexture[idx].magnitude();
+    if (capacity > sedimentTexture[idx]) {
+        float s = ks * (capacity - sedimentTexture[idx]);
+        sedimentTexture[idx] = fmaxf(sedimentTexture[idx] + s, 0.0f);
+        materialTexture[idx] = fminf(fmaxf(materialTexture[idx] - s, 0.0f), 16.0f);
     }
     else {
-        float s = ks * (sedimentTexture[idx] - C);
-        sedimentTexture[idx] = fmaxf(sedimentTexture[idx] - s, 0.0);
-        materialTexture[idx] = fmaxf(materialTexture[idx] + s, 0.0);
-    }
-
-    if (materialTexture[idx] == INFINITY || materialTexture[idx] == -INFINITY) {
-        printf("INFINITY!!!");
+        float s = kd * (sedimentTexture[idx] - capacity);
+        sedimentTexture[idx] = fmaxf(sedimentTexture[idx] - s, 0.0f);
+        materialTexture[idx] = fminf(fmaxf(materialTexture[idx] + s, 0.0f), 16.0f);
     }
 }
 
-__global__ void transportComputation(CudaTexture<float>* sediment, CudaTexture<float>* sedimentBuffer, CudaTexture<Vec2<float>>* velocity, float deltatime)
-{
-    CudaTexture<float> sedimentTexture = *sediment;
-    CudaTexture<float> sedimentBufferTexture = *sedimentBuffer;
-    CudaTexture<Vec2<float>> velocityTexture = *velocity;
-    
+__global__ void transportComputation(CudaErosionData data, float deltatime)
+{   
+    CudaTexture<float> sedimentTexture = *data.m_sediment;
+    CudaTexture<float> sedimentBufferTexture = *data.m_sedimentBuffer;
+    CudaTexture<Vec2<float>> velocityTexture = *data.m_velocity;
+
     unsigned int idx = getInvokeIndex();
-    Vec2<int> coord = getTextureIndex(sediment->size());
+    Vec2<int> coord = getTextureIndex(data.m_sediment->size());
 
     Vec2<float> vel = velocityTexture[idx];
-
-    //issue here. Need to setup buffer.
 
     sedimentBufferTexture[idx] = interpolate(Vec2<float>(coord.x - vel.x * deltatime, coord.y - vel.y * deltatime), sedimentTexture);
 }
 
-__global__ void evaporateComputation(CudaTexture<float>* hydration, float deltatime, float ke)
+__global__ void evaporateComputation(CudaErosionData data, float deltatime, float ke)
 {
-    CudaTexture<float> hydrationTexture = *hydration;
+    CudaTexture<float> hydrationTexture = *data.m_hydration;
 
     unsigned int idx = getInvokeIndex();
     hydrationTexture[idx] = hydrationTexture[idx] * (1 - ke * deltatime);
 }
 
-__global__ void initMaterial(CudaTexture<float>* material, int seed)
+__global__ void initMaterial(CudaErosionData data, int seed)
 {
-    Vec2<int> coords = getTextureIndex(material->size());
-    CudaTexture<float> materialTexture = *material;
+    CudaTexture<float> materialTexture = *data.m_material;
+
+    Vec2<int> coords = getTextureIndex(data.m_material->size());
     materialTexture[coords] += cudaNoise::simplexNoise(make_float3(coords.x, coords.y, 0), 0.001, seed);
+    materialTexture[coords] += cudaNoise::simplexNoise(make_float3(coords.x, coords.y, 0), 0.01, seed) * 0.1;
+    materialTexture[coords] += cudaNoise::simplexNoise(make_float3(coords.x, coords.y, 0), 0.1, seed) * 0.01;
 }

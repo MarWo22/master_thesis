@@ -1,9 +1,17 @@
 #ifndef FLUX_EROSION_H
 #define FLUX_EROSION_H
 
-//float* run_erosion(float* input, int height, int width);
 #include "cuda_texture.cuh"
 
+struct CudaErosionData {
+public:
+    CudaTexture<float>* m_material;
+    CudaTexture<float>* m_hydration;
+    CudaTexture<float>* m_sediment;
+    CudaTexture<float>* m_sedimentBuffer;
+    CudaTexture<float4>* m_flux;
+    CudaTexture<Vec2<float>>* m_velocity;
+};
 
 class FluxVelocityErosion
 {
@@ -16,15 +24,18 @@ public:
     float mPipeCrossSectionConstant;
     float mCapacityConstant;
     float mDissolvingConstant;
+    float mDispositionConstant;
     float mEvaporationConstant;
     float mGravityConstant;
     
-    CudaTextureHost<float> m_materialDevice;
-    CudaTextureHost<float> m_hydrationDevice;
-    CudaTextureHost<float> m_sedimentDevice;
-    CudaTextureHost<float> m_sedimentBufferDevice;
-    CudaTextureHost<float4> m_fluxDevice;
-    CudaTextureHost<Vec2<float>> m_velocityDevice;
+    CudaTextureHost<float> m_materialHost;
+    CudaTextureHost<float> m_hydrationHost;
+    CudaTextureHost<float> m_sedimentHost;
+    CudaTextureHost<float> m_sedimentBufferHost;
+    CudaTextureHost<float4> m_fluxHost;
+    CudaTextureHost<Vec2<float>> m_velocityHost;
+
+    CudaErosionData *m_data;
 
     FluxVelocityErosion(int width, int height);
     ~FluxVelocityErosion();

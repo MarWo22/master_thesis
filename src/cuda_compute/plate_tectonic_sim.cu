@@ -18,16 +18,19 @@ PlateTectonicSim::PlateTectonicSim(const int width, const int height, int numSta
 {
     FluxVelocityErosion erosion = FluxVelocityErosion(height, width);
 
-    erosion.mCapacityConstant = 4;
+    erosion.mCapacityConstant = 0.1;
     erosion.mDissolvingConstant = 0.1f;
-    erosion.mPipeLengthConstant = 0.5f;
-    erosion.mPipeCrossSectionConstant = 0.5f;
+    erosion.mDispositionConstant = 0.1f;
+    erosion.mEvaporationConstant = 0.003f;
+
+    erosion.mPipeLengthConstant = 1.f;
+    erosion.mPipeCrossSectionConstant = 0.6f;
+
     erosion.mGravityConstant = 9.81f;
-    erosion.mEvaporationConstant = 0.99;
 
-    erosion.simulate(10);
+    erosion.simulate(100);
 
-    m_heightMapDevice = erosion.m_materialDevice.getPointer();
+    m_heightMapDevice = erosion.m_materialHost.getPointer();
 
 }
 
