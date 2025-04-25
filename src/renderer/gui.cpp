@@ -15,6 +15,7 @@ GenerationSettings generationSettings;
 Gui::Gui()
     : m_frameCount(0)
     , m_avgFramerate(0)
+    , m_timeSum(0)
 {}
 
 Gui::~Gui()
@@ -62,10 +63,35 @@ void Gui::gui()
         }
     }
 
+    ImGui::SetNextItemWidth(250);
     ImGui::InputInt("Number of iterations", &generationSettings.executionIterations);
 
-    if (ImGui::Button("Execute"))
+    bool disable_button = generationSettings.isExecutingRealtime;
+
+    if (disable_button)
+        ImGui::BeginDisabled(); // disables all widgets until EndDisabled is called
+
+    if (ImGui::Button("Execute Realtime"))
+    {
+        generationSettings.isExecutingRealtime = true;
         generationSettings.callCallback("executeIterations");
+        m_timeSum = 0;
+    }
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80);
+
+    ImGui::InputInt("it/s", &generationSettings.iterationsPerSecond);
+
+    if (disable_button)
+        ImGui::EndDisabled();
+
+    if (ImGui::Button("Execute At Once"))
+    {
+        generationSettings.isExecutingRealtime = false;
+        generationSettings.callCallback("executeIterations");
+    }
+
 }
 
 void Gui::render()

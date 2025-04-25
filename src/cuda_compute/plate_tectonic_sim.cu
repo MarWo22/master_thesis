@@ -44,8 +44,20 @@ void PlateTectonicSim::initialize()
     initializeTectonics();
     generationSettings.registerCallback("executeIterations", [this]
     {
-        for (int i = 0; i < generationSettings.executionIterations; ++i)
-            executeIteration();
+        if (!generationSettings.isExecutingRealtime)
+            for (int i = 0; i < generationSettings.executionIterations; ++i)
+                executeIteration();
+        else
+        {
+            if (generationSettings.executionIterations > 0)
+            {
+                executeIteration();
+                generationSettings.executionIterations -= 1;
+            }
+            if (generationSettings.executionIterations <= 0)
+                generationSettings.isExecutingRealtime = false;
+
+        }
     });
     if (m_interopManager != nullptr)
         setupToggleCallbacks();
@@ -134,6 +146,7 @@ void PlateTectonicSim::executeIteration()
 
     if (m_interopManager)
     {
+        m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
         if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_COLLISION_AREAS)
         {
             CudaTextureHost<uint8_t> glTexture;

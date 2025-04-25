@@ -84,6 +84,8 @@ void initRenderComponents(Renderer &renderer)
     renderer.addRenderComponent(new Terrain(size.x, size.y));
 }
 
+
+
 int main()
 {
     Config::getInstance().loadConfig("config.json");
@@ -109,8 +111,15 @@ int main()
         if (cudaError_t err = cudaGetLastError(); err != cudaSuccess)
             std::cerr << "Cuda error during initialization phase: " <<  cudaGetErrorString(err) << "\n";
 
+        float time_between_executions = 0;
         while (!renderer.shouldClose())
         {
+            if (generationSettings.isExecutingRealtime)
+            {
+                time_between_executions += renderer.deltaTime();
+                if (time_between_executions > 1 / generationSettings.iterationsPerSecond)
+                    generationSettings.callCallback("executeIterations");
+            }
             renderer.render();
         }
     }

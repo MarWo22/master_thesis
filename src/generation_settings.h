@@ -22,6 +22,8 @@ public:
 
       // The actual settings. Could make them private with getter/setters, but I think this is sufficient
       int executionIterations = 1;
+      int iterationsPerSecond = 5;
+      bool isExecutingRealtime = false;
       int renderMode = NORMAL;
 
       void registerCallback(const std::string &ident, const std::function<void()> &);

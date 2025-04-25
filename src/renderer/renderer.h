@@ -33,6 +33,8 @@ public:
 
     void render();
 
+    [[nodiscard]] float deltaTime() const {return m_deltaTime;}
+
     void renderRenderComponents() const;
 
     void updateTime();

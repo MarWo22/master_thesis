@@ -5,6 +5,8 @@ class Gui {
 
     float m_frameCount;
     float m_avgFramerate;
+
+    float m_timeSum;
 public:
     Gui();
     ~Gui();
