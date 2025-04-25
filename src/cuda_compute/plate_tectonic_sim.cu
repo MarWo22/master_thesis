@@ -217,7 +217,7 @@ void PlateTectonicSim::initializeTectonics()
     int numBlocksPixels = (m_width * m_height + 1) / m_threadsPerBlock;
     initPlateIDs<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_plateDataLookup, voronoiSeedsDevice,
                                                    static_cast<int>(voronoiSeedsHost.size()));
-    initHeightmap << <numBlocks, m_threadsPerBlock >> > (m_heightMapTexture.deviceTexture(), m_seed, 5);
+    initHeightmap << <numBlocksPixels, m_threadsPerBlock >> > (m_heightMapTexture.deviceTexture(), m_seed, 5);
 
     initPixelDependantPlateData<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), m_plateDataLookup);
 
