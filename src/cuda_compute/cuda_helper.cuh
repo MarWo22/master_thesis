@@ -33,9 +33,10 @@ __device__ __inline__ bool isWithinBounds(const Vec2<int> &textureSize)
     return isWithinBounds(invokeIndex, textureSize);
 }
 
-__device__ __inline__ float interpolate(const Vec2<float>& textureCoordinate, const CudaTexture<float>* texture)
+template<typename T>
+__device__ __inline__ T interpolate(const Vec2<float>& textureCoordinate, const CudaTexture<T>* texture)
 {
-    const CudaTexture<float>& r_texture = *texture;
+    const CudaTexture<T>& r_texture = *texture;
 
 
     int x0 = floorf(textureCoordinate.x);
@@ -46,8 +47,8 @@ __device__ __inline__ float interpolate(const Vec2<float>& textureCoordinate, co
     float weightX = textureCoordinate.x - x0;
     float weightY = textureCoordinate.y - y0;
 
-    float I0 = (1 - weightX) * r_texture[(Vec2<int>(x0, y0))] + weightX * r_texture[(Vec2<int>(x1, y0))];
-    float I1 = (1 - weightX) * r_texture[(Vec2<int>(x0, y1))] + weightX * r_texture[(Vec2<int>(x1, y1))];
+    T I0 = (1 - weightX) * r_texture[(Vec2<int>(x0, y0))] + weightX * r_texture[(Vec2<int>(x1, y0))];
+    T I1 = (1 - weightX) * r_texture[(Vec2<int>(x0, y1))] + weightX * r_texture[(Vec2<int>(x1, y1))];
     return (1 - weightY) * I0 + weightY * I1;         //Keep in mind. I0 and I1 might need to be swapped !!!!!!!
 }
 

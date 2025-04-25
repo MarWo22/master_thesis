@@ -1,19 +1,27 @@
 #ifndef PLATE_TECTONICS_KERNEL_CUH
 #define PLATE_TECTONICS_KERNEL_CUH
+#include <curand_kernel.h>
+
 #include "cuda_texture.cuh"
 #include "plate_data.h"
 #include "vec2.cuh"
 
 
-__global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const Vec2<float> *seeds, int numSeeds);
+__global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData *plateData, const Vec2<float> *seeds,
+                             int numSeeds);
 
-__global__ void initHeightmap(CudaTexture<float> * w_heightMapPtr, int seed, int octaves);
+__global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idTexturePtr,
+                                            const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData);
+
+__global__ void initPlatesRngGen(curandState *rngStates, unsigned int seed, Vec2<int> callSize);
+
+__global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int octaves);
 
 
 __global__ void plateMovement(CudaTexture<uint8_t> *idTexturePtr, CudaTexture<uint8_t> *writeIdTexturePtr,
                               const PlateData *plateLookup);
 
-__global__ void updatePlateData(PlateData *plateLookup, Vec2<int> callSize);
+__global__ void updatePlateData(PlateData *plateLookup, curandState *rngStates, Vec2<int> callSize);
 
 __global__ void testingPlateMovement(const CudaTexture<uint8_t> *r_idTexturePtr,
                                      const PlateData *r_plateLookup,
@@ -37,20 +45,22 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
                                        CudaTexture<float2> *w_velocityPtr);
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
-                                  const CudaTexture<uint32_t> *r_collisionsPtr, const PlateData *r_plateLookup,
-                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_upliftMapPtr);
+                                  const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *r_plateLookup,
+                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr,
+                                  CudaTexture<float> *w_convergenceMapPtr);
 
-__global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<float>* w_heightMapPtr, const int size, const float noiseFrequency, const float noiseIntensity, const int seed);
+__global__ void processUplift(CudaTexture<float> *w_upliftMapPtr, CudaTexture<float> *w_heightMapPtr, int size,
+                              float noiseFrequency, float noiseIntensity, int seed);
 
 __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                  CudaTexture<float> *w_heightMapPtr, unsigned int invokeIndex);
+                                  CudaTexture<float> *w_heightMapPtr, unsigned int invokeIndex, int *localSizeChange);
 
 
 __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                    const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_upliftMapPtr, 
+                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float> *w_convergenceMapPtr,
                                    uint8_t plateA, uint8_t plateB, uint8_t plateC,
-                                   uint8_t plateD, unsigned int invokeIndex);
+                                   uint8_t plateD, unsigned int invokeIndex, int *localSizeChange);
 
 __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                 const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
