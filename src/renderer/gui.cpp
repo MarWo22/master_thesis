@@ -56,6 +56,10 @@ void Gui::gui()
         {
             generationSettings.callCallback("toggleVelocityMode");
         }
+        if (ImGui::RadioButton("Show Uplift Areas", &generationSettings.renderMode, GenerationSettings::RenderMode::SHOW_UPLIFT_AREAS))
+        {
+            generationSettings.callCallback("toggleUpliftMode");
+        }
     }
 
     ImGui::InputInt("Number of iterations", &generationSettings.executionIterations);

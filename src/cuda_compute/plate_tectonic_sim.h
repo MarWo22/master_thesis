@@ -14,6 +14,8 @@ class PlateTectonicSim {
     int m_width;
     int m_height;
 
+    int m_seed;
+
     // Main heightmap on device
     CudaTextureHost<float> m_heightMapTexture;
 
@@ -33,18 +35,18 @@ class PlateTectonicSim {
 
 public:
 
-    PlateTectonicSim(int width, int height, int numStartingPlates, CudaGlInteropManager *interopManager);
+    PlateTectonicSim(int width, int height, int seed, int numStartingPlates, CudaGlInteropManager *interopManager);
 
     [[nodiscard]] CudaTextureHost<float> &heightMapCudaTexture() { return m_heightMapTexture; }
     [[nodiscard]] CudaTextureHost<uint8_t> &plateIdsCudaTexture() { return m_plateIdsTexture; }
 
-    void initialize(int seed);
+    void initialize();
 
     void executeIteration();
 
 private:
 
-    void initializeTectonics(int seed);
+    void initializeTectonics();
 
     std::vector<Vec2<float>> initializeVoronoiSeeds(
         std::default_random_engine &generator) const;
@@ -56,7 +58,6 @@ private:
     void copyPlateIdsGL() const;
     void copyDirectionGL() const;
     void copyVelocitiesGL() const;
-
 };
 
 

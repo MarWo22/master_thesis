@@ -50,7 +50,7 @@ struct Vec2 {
 
     __device__ [[nodiscard]] float magnitude() const
     {
-        return sqrt(x*x + y*y);
+        return sqrtf(x*x + y*y);
     }
 
     __device__ [[nodiscard]] float magnitudeSquared() const

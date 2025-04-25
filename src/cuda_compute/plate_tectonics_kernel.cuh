@@ -35,7 +35,9 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, const PlateData *r_plateLookup,
-                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr);
+                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_upliftMapPtr);
+
+__global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<float>* w_heightMapPtr, const int size, const float noiseFrequency, const float noiseIntensity, const int seed);
 
 __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<uint8_t> *w_plateIdsPtr,
                                   CudaTexture<float> *w_heightMapPtr, unsigned int invokeIndex);
@@ -43,7 +45,8 @@ __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, Cud
 
 __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                    const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                   CudaTexture<float> *w_heightMapPtr, uint8_t plateA, uint8_t plateB, uint8_t plateC,
+                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_upliftMapPtr, 
+                                   uint8_t plateA, uint8_t plateB, uint8_t plateC,
                                    uint8_t plateD, unsigned int invokeIndex);
 
 __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,

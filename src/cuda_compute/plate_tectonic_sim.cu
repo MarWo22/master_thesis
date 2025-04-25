@@ -15,10 +15,11 @@ extern GenerationSettings generationSettings;
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 
-PlateTectonicSim::PlateTectonicSim(const int width, const int height, const int numStartingPlates,
+PlateTectonicSim::PlateTectonicSim(const int width, const int height, int seed, const int numStartingPlates,
                                    CudaGlInteropManager *interopManager)
     : m_width(width)
       , m_height(height)
+      , m_seed(seed)
       , m_plateDataLookup(nullptr)
       , m_numStartingPlates(numStartingPlates)
       , m_interopManager(interopManager)
@@ -37,9 +38,9 @@ PlateTectonicSim::PlateTectonicSim(const int width, const int height, const int 
     // m_heightMapDevice = erosion.m_materialDevice.getPointer();
 }
 
-void PlateTectonicSim::initialize(int seed)
+void PlateTectonicSim::initialize()
 {
-    initializeTectonics(seed);
+    initializeTectonics();
     generationSettings.registerCallback("executeIterations", [this]
     {
         for (int i = 0; i < generationSettings.executionIterations; ++i)
@@ -128,25 +129,32 @@ void PlateTectonicSim::executeIteration()
 
     CudaTextureHost<float> heightMapTextureWrite;
     CudaTextureHost<uint8_t> plateIdsTextureWrite;
+    CudaTextureHost<float> uplift;
 
     heightMapTextureWrite.initialize(m_width, m_height);
     plateIdsTextureWrite.initialize(m_width, m_height);
+    uplift.initialize(m_width, m_height, 0);
+
 
     processCollisions<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(),
                                                               m_heightMapTexture.deviceTexture(),
                                                               plateCollisions.deviceTexture(), m_plateDataLookup,
                                                               plateIdsTextureWrite.deviceTexture(),
-                                                              heightMapTextureWrite.deviceTexture());
+                                                              heightMapTextureWrite.deviceTexture(),
+                                                              uplift.deviceTexture());
+
+    processUplift << <numBlocksPixels, m_threadsPerBlock >> > (uplift.deviceTexture(), m_heightMapTexture.deviceTexture(), 150, 0.1f, 20.f, m_seed);
 
     // TODO: Add when heightmap stuff is implemented
-    // if (const cudaError_t err = cudaMemcpy(m_heightMapTexture.getPointer(), heightMapTextureWrite.getPointer(), sizeof(float) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
-    //     std::cerr << "Error memcpy heightmap: " << cudaGetErrorString(err) << std::endl;
+    /*if (const cudaError_t err = cudaMemcpy(m_heightMapTexture.getPointer(), heightMapTextureWrite.getPointer(), sizeof(float) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
+        std::cerr << "Error memcpy heightmap: " << cudaGetErrorString(err) << std::endl;*/
 
     if (const cudaError_t err = cudaMemcpy(m_plateIdsTexture.getPointer(), plateIdsTextureWrite.getPointer(), sizeof(uint8_t) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
         std::cerr << "Error memcpy plateIds: " << cudaGetErrorString(err) << std::endl;
 
     heightMapTextureWrite.free();
     plateIdsTextureWrite.free();
+    uplift.free();
 
     updatePlateData<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, Vec2(m_maxPlates, 1));
 
@@ -166,6 +174,10 @@ void PlateTectonicSim::executeIteration()
         if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_PLATES)
         {
             m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
+        }
+        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_UPLIFT_AREAS)
+        {
+            m_interopManager->copyConnection("upliftTexture", m_heightMapTexture.getPointer());
         }
     }
 
@@ -201,9 +213,9 @@ void PlateTectonicSim::copyVelocitiesGL() const
     m_interopManager->copyConnection("velocityTexture", glTexture.getPointer());
 }
 
-void PlateTectonicSim::initializeTectonics(const int seed)
+void PlateTectonicSim::initializeTectonics()
 {
-    std::default_random_engine generator(seed);
+    std::default_random_engine generator(m_seed);
 
     // Init plate data vector on host, copy to device
 
@@ -229,6 +241,7 @@ void PlateTectonicSim::initializeTectonics(const int seed)
         std::cerr << "Error copy m_plateDataLookup: " << cudaGetErrorString(err) << std::endl;
 
     m_plateIdsTexture.initialize(m_width, m_height);
+    m_heightMapTexture.initialize(m_width, m_height);
     int numBlocks = (m_width * m_height + 1) / m_threadsPerBlock;
     initPlateIDs<<<numBlocks, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), voronoiSeedsDevice,
                                                    static_cast<int>(voronoiSeedsHost.size()));
@@ -290,6 +303,11 @@ void PlateTectonicSim::setupToggleCallbacks() const
     {
         m_interopManager->toggleSubTextures("velocityTexture");
         copyVelocitiesGL();
+    });
+
+    generationSettings.registerCallback("toggleUpliftMode", [this]
+    {
+        m_interopManager->toggleSubTextures("upliftTexture");
     });
 }
 

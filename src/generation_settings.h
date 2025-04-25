@@ -16,7 +16,8 @@ public:
             SHOW_PLATES,
             SHOW_COLLISION_AREAS,
             SHOW_PLATE_DIRECTIONS,
-            SHOW_PLATE_VELOCITIES
+            SHOW_PLATE_VELOCITIES,
+            SHOW_UPLIFT_AREAS
       };
 
       // The actual settings. Could make them private with getter/setters, but I think this is sufficient

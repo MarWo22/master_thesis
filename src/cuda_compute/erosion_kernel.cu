@@ -4,7 +4,6 @@
 #include <cstdio>
 
 #include "cuda_helper.cuh"
-#include "cuda_noise.cuh"
 
 
 __global__ void rainComputation(CudaTexture<float>* hydration, float deltatime, int seed)
@@ -13,7 +12,7 @@ __global__ void rainComputation(CudaTexture<float>* hydration, float deltatime, 
 
     Vec2<int> coords = getTextureIndex(hydration->size());
 
-    hydrationTexture[coords] += cudaNoise::discreteNoise(make_float3(coords.x, coords.y, 0), 1, seed) * deltatime;
+    //hydrationTexture[coords] += cudaNoise::discreteNoise(make_float3(coords.x, coords.y, 0), 1, seed) * deltatime;
 }
 
 __device__ float fluxSubComputation(CudaTexture<float> material, CudaTexture<float> hydration, float& flux, Vec2<int> coordinateSelf, Vec2<int> coordinateNeighbor, float deltatime, float gravity, float pipe_cross_section, float pipe_length) {
@@ -133,5 +132,5 @@ __global__ void initMaterial(CudaTexture<float>* material, int seed)
 {
     Vec2<int> coords = getTextureIndex(material->size());
     CudaTexture<float> materialTexture = *material;
-    materialTexture[coords] += cudaNoise::simplexNoise(make_float3(coords.x, coords.y, 0), 0.001, seed);
+    //materialTexture[coords] += cudaNoise::simplexNoise(make_float3(coords.x, coords.y, 0), 0.001, seed);
 }

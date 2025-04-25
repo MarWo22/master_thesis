@@ -22,6 +22,7 @@ class Terrain final : public RenderComponent
     Texture *m_collisionTexture;
     Texture *m_velocityTexture;
     Texture *m_directionTexture;
+    Texture* m_upliftTexture;
     int m_sizeX;
     int m_sizeZ;
 

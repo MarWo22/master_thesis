@@ -62,6 +62,11 @@ void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tecton
     interopManager.addConnection("velocityTexture", velocityTexture->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
     Renderer::addTexture("velocityTexture", velocityTexture);
 
+    auto* upliftTexture = new Texture();
+    upliftTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("upliftTexture", upliftTexture->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
+    Renderer::addTexture("upliftTexture", upliftTexture);
+
     auto *directionTexture = new Texture();
     directionTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     interopManager.addConnection("directionTexture", directionTexture->id(), sizeof(float2), heightmapDimensions.x, heightmapDimensions.y, GL_RG32F, GL_RG, GL_FLOAT);
@@ -90,8 +95,8 @@ int main()
         CudaGlInteropManager interopManager;
 
         auto const size = Config::getInstance().HEIGHTMAP_DIMENSIONS;
-        PlateTectonicSim tectonicSim(size.x, size.y, 16, &interopManager);
-        tectonicSim.initialize(1000);
+        PlateTectonicSim tectonicSim(size.x, size.y, 1000, 16, &interopManager);
+        tectonicSim.initialize();
 
 
         loadShaders();

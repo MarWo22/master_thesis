@@ -24,6 +24,7 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
     , m_collisionTexture(nullptr)
     , m_velocityTexture(nullptr)
     , m_directionTexture(nullptr)
+    , m_upliftTexture(nullptr)
     , m_sizeX(sizeX)
     , m_sizeZ(sizeZ)
     , m_vao(0)
@@ -43,6 +44,7 @@ void Terrain::init()
     m_collisionTexture = getTexture("collisionMap");
     m_velocityTexture = getTexture("velocityTexture");
     m_directionTexture = getTexture("directionTexture");
+    m_upliftTexture = getTexture("upliftTexture");
     createGlState();
     populateBuffers();
 }
@@ -79,6 +81,12 @@ void Terrain::render(const Camera &camera)
             m_velocityShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_velocityTexture->bind(GL_TEXTURE1);
+            break;
+        case GenerationSettings::RenderMode::SHOW_UPLIFT_AREAS:
+            m_velocityShader->bind();
+            m_velocityShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+            m_heightmapTexture->bind(GL_TEXTURE0);
+            m_upliftTexture->bind(GL_TEXTURE1);
             break;
         default:
             std::cerr << "Undefined render mode" << std::endl;

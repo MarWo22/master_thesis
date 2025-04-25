@@ -4,6 +4,9 @@
 #include <cstdio>
 
 #include "cuda_helper.cuh"
+#include "cuda_noise.cuh"
+
+#include "math_functions.h"
 
 __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const Vec2<float> *seeds, const int numSeeds)
 {
@@ -160,9 +163,11 @@ __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, Cud
 
 __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                    const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                   CudaTexture<float> *w_heightMapPtr, const uint8_t plateA, const uint8_t plateB,
-                                   const uint8_t plateC, const uint8_t plateD, const unsigned int invokeIndex)
+                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_upliftMapPtr,
+                                   const uint8_t plateA, const uint8_t plateB, const uint8_t plateC, 
+                                   const uint8_t plateD, const unsigned int invokeIndex)
 {
+    (*w_upliftMapPtr)[invokeIndex] = 1.0f;
     (*w_plateIdsPtr)[invokeIndex] = plateA;
 }
 
@@ -182,7 +187,7 @@ __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, const PlateData *r_plateLookup,
-                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr)
+                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_upliftMapPtr)
 {
     // Cache dereference since used more than once
     const CudaTexture<uint32_t> &r_collisions = *r_collisionsPtr;
@@ -210,7 +215,7 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
 
         // If plateB is not equal to zero, it means at least two plates move into the same pixel, indicating a divergent boundary.
         if (plateB != 0)
-            processConvergence(r_plateIdsPtr, r_heightMapPtr, r_plateLookup, w_plateIdsPtr, w_heightMapPtr, plateA,
+            processConvergence(r_plateIdsPtr, r_heightMapPtr, r_plateLookup, w_plateIdsPtr, w_heightMapPtr, w_upliftMapPtr, plateA,
                                plateB, plateC, plateD, invokeIndex);
             // Otherwise, only one plate moves into the pixel, indicating ordinary movement
         else
@@ -219,6 +224,44 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
     }
 }
 
+__global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<float>* w_heightMapPtr, const int size, const float noiseFrequency, const float noiseIntensity, const int seed)
+{
+    CudaTexture<float>& r_uplift = *w_upliftMapPtr;
+    CudaTexture<float>& r_height = *w_heightMapPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_uplift.size()))
+        return;
+
+    Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
+    
+    int offset = cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) * noiseIntensity;
+
+    int dim(size + offset);
+    float size2 = dim * dim;
+    if (dim % 2 == 1) {
+        dim--;
+    }
+    dim *= 0.5;
+    float dim2 = dim * dim;
+    
+
+    float value = 0.0f;
+    for (int x = -dim; x <= dim; x++)
+    {
+        for (int y = -dim; y <= dim; y++)
+        {
+            Vec2<int> sample(x, y);
+            float weight = clamp01(1.0f - sample.magnitude() / dim);
+            if(weight > EPSILON)
+                value += (r_uplift[sample + center] * weight);
+        }
+    }
+    
+    float noise = clamp(cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), 0.1f, 100), 1.0f, 0.1f);
+    
+    r_height[invokeIndex] += clamp01(value / size2);
+}
 
 __global__ void convertCollisionMapForGL(const CudaTexture<uint32_t> *r_texturePtr, CudaTexture<uint8_t> *w_texturePtr)
 {

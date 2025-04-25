@@ -48,4 +48,12 @@ __device__ __inline__ float interpolate(const Vec2<float>& textureCoordinate, co
     return (1 - weightY) * I0 + weightY * I1;         //Keep in mind. I0 and I1 might need to be swapped !!!!!!!
 }
 
+__device__ __inline__ float clamp(const float value, const float min, const float max) {
+    return fmaxf(fminf(value, max), min);
+}
+
+__device__ __inline__ float clamp01(const float value) {
+    return fmaxf(fminf(value, 1.0f), 0.0f);
+}
+
 #endif //CUDA_HELPER_CUH
