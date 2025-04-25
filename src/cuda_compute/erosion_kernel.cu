@@ -117,7 +117,7 @@ __global__ void transportComputation(CudaTexture<float>* sediment, CudaTexture<f
 
     //issue here. Need to setup buffer.
 
-    sedimentBufferTexture[idx] = interpolate(Vec2<float>(coord.x - vel.x * deltatime, coord.y - vel.y * deltatime), sedimentTexture);
+    sedimentBufferTexture[idx] = interpolate(Vec2<float>(coord.x - vel.x * deltatime, coord.y - vel.y * deltatime), sediment);
 }
 
 __global__ void evaporateComputation(CudaTexture<float>* hydration, float deltatime, float ke)

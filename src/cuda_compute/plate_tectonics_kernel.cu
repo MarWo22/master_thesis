@@ -45,6 +45,24 @@ __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const Vec
     idTexture[invokeIndex] = static_cast<uint8_t>(minIndex);
 }
 
+__global__ void initHeightmap(CudaTexture<float>* w_heightMapPtr, int seed, int octaves) {
+    CudaTexture<float>& r_height = *w_heightMapPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_height.size()))
+        return;
+
+    Vec2<int> coord = r_height.indexToCoordinate(invokeIndex);
+
+    float value = 0.0f;
+
+    for (int octave = 0; octave < octaves; octave++)
+    {
+
+    }
+}
+
+
 __global__ void plateMovement(CudaTexture<uint8_t> *idTexturePtr, CudaTexture<uint8_t> *writeIdTexturePtr,
                               const PlateData *plateLookup)
 {
@@ -157,17 +175,18 @@ __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, Cud
 {
     const uint8_t previousPlateId = (*r_plateIdsPtr)[invokeIndex];
     (*w_plateIdsPtr)[invokeIndex] = previousPlateId;
-
+    CudaTexture<float>& w_height = *w_heightMapPtr;
+    w_height[invokeIndex] = 0.0f;
     // TODO: add oceanic crust to the heightmap
 }
 
 __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                    const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_upliftMapPtr,
+                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_convergenceMapPtr,
                                    const uint8_t plateA, const uint8_t plateB, const uint8_t plateC, 
                                    const uint8_t plateD, const unsigned int invokeIndex)
 {
-    (*w_upliftMapPtr)[invokeIndex] = 1.0f;
+    (*w_convergenceMapPtr)[invokeIndex] = 1.0f;
     (*w_plateIdsPtr)[invokeIndex] = plateA;
 }
 
@@ -177,17 +196,23 @@ __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const
                                 const unsigned int invokeIndex)
 {
     (*w_plateIdsPtr)[invokeIndex] = originId;
+    const CudaTexture<float>& r_height = *r_heightMapPtr;
+    const CudaTexture<uint8_t> &plateIds = *r_plateIdsPtr;
+    const Vec2<int> textureIndex = getTextureIndex(plateIds.size());
 
-    // const CudaTexture<uint8_t> &plateIds = *r_plateIdsPtr;
-    // const Vec2<int> textureIndex = getTextureIndex(plateIds.size());
-    //
-    // // Struct is small, so a copy is likely faster than referencing in Cuda
-    // const PlateData plateDataOrigin = r_plateLookup[originId];
+    Vec2<int> coord = r_height.indexToCoordinate(invokeIndex);
+
+    CudaTexture<float>& w_height = *w_heightMapPtr;
+
+    // Struct is small, so a copy is likely faster than referencing in Cuda
+    const PlateData plateDataOrigin = r_plateLookup[originId];
+    
+    w_height[invokeIndex] = r_height[Vec2<float>(coord.x, coord.y) - plateDataOrigin.direction * plateDataOrigin.velocity];
 }
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, const PlateData *r_plateLookup,
-                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_upliftMapPtr)
+                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_convergenceMapPtr)
 {
     // Cache dereference since used more than once
     const CudaTexture<uint32_t> &r_collisions = *r_collisionsPtr;
@@ -215,7 +240,7 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
 
         // If plateB is not equal to zero, it means at least two plates move into the same pixel, indicating a divergent boundary.
         if (plateB != 0)
-            processConvergence(r_plateIdsPtr, r_heightMapPtr, r_plateLookup, w_plateIdsPtr, w_heightMapPtr, w_upliftMapPtr, plateA,
+            processConvergence(r_plateIdsPtr, r_heightMapPtr, r_plateLookup, w_plateIdsPtr, w_heightMapPtr, w_convergenceMapPtr, plateA,
                                plateB, plateC, plateD, invokeIndex);
             // Otherwise, only one plate moves into the pixel, indicating ordinary movement
         else
@@ -235,7 +260,7 @@ __global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<fl
 
     Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
     
-    int offset = cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) * noiseIntensity;
+    int offset = noiseIntensity + cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) * noiseIntensity;
 
     int dim(size + offset);
     float size2 = dim * dim;

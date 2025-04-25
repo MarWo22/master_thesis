@@ -7,6 +7,9 @@
 
 __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const Vec2<float> *seeds, int numSeeds);
 
+__global__ void initHeightmap(CudaTexture<float> * w_heightMapPtr, int seed, int octaves);
+
+
 __global__ void plateMovement(CudaTexture<uint8_t> *idTexturePtr, CudaTexture<uint8_t> *writeIdTexturePtr,
                               const PlateData *plateLookup);
 

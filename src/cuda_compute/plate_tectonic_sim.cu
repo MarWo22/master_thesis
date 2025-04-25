@@ -143,11 +143,11 @@ void PlateTectonicSim::executeIteration()
                                                               heightMapTextureWrite.deviceTexture(),
                                                               uplift.deviceTexture());
 
-    processUplift << <numBlocksPixels, m_threadsPerBlock >> > (uplift.deviceTexture(), m_heightMapTexture.deviceTexture(), 150, 0.1f, 20.f, m_seed);
+    processUplift << <numBlocksPixels, m_threadsPerBlock >> > (uplift.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
 
     // TODO: Add when heightmap stuff is implemented
-    /*if (const cudaError_t err = cudaMemcpy(m_heightMapTexture.getPointer(), heightMapTextureWrite.getPointer(), sizeof(float) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
-        std::cerr << "Error memcpy heightmap: " << cudaGetErrorString(err) << std::endl;*/
+    if (const cudaError_t err = cudaMemcpy(m_heightMapTexture.getPointer(), heightMapTextureWrite.getPointer(), sizeof(float) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
+        std::cerr << "Error memcpy heightmap: " << cudaGetErrorString(err) << std::endl;
 
     if (const cudaError_t err = cudaMemcpy(m_plateIdsTexture.getPointer(), plateIdsTextureWrite.getPointer(), sizeof(uint8_t) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
         std::cerr << "Error memcpy plateIds: " << cudaGetErrorString(err) << std::endl;
