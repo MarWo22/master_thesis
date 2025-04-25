@@ -58,12 +58,28 @@ __global__ void initHeightmap(CudaTexture<float>* w_heightMapPtr, int seed, int 
 
     Vec2<int> coord = r_height.indexToCoordinate(invokeIndex);
 
-    float value = 0.0f;
+    float d = 0.001f;
+    float value = 0;
+
+    float amp = .1f;
+    float freq = 0.01f;
 
     for (int octave = 0; octave < octaves; octave++)
     {
-        
+        float v =  cudaNoise::simplexNoise(coord.toFloat3(), freq, seed + octave);
+        float vx = cudaNoise::simplexNoise(make_float3(coord.x + d, coord.y, 0), freq, seed + octave);
+        float vy = cudaNoise::simplexNoise(make_float3(coord.x, coord.y + d, 0), freq, seed + octave);
+
+        Vec2<float> der = Vec2<float>((vx - v) / d, (vy - v) / d);
+
+        value += remap(v / (1 + der.magnitude()), -1, 1, 0, 1) * amp;
+
+        amp *= 0.1f;
+        freq *= 10.f;
     }
+
+    r_height[invokeIndex] = value;
+
 }
 
 __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idTexturePtr, const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData)
@@ -386,7 +402,7 @@ __global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<fl
     
     float noise = clamp(cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), 0.1f, 100), 1.0f, 0.1f);
     
-    r_height[invokeIndex] += clamp01(value / size2);
+    r_height[invokeIndex] += clamp01(value / size2) * 0.01f;
 }
 
 __global__ void convertCollisionMapForGL(const CudaTexture<uint32_t> *r_texturePtr, CudaTexture<uint8_t> *w_texturePtr)

@@ -60,4 +60,8 @@ __device__ __inline__ float clamp01(const float value) {
     return fmaxf(fminf(value, 1.0f), 0.0f);
 }
 
+__device__ __inline__ float remap(const float value, const float inStart, const float inStop, const float outStart, const float outStop) {
+    return outStart + (outStop - outStart) * ((value - inStart) / (inStop - inStart));
+}
+
 #endif //CUDA_HELPER_CUH
