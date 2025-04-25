@@ -18,11 +18,12 @@ extern GenerationSettings generationSettings;
 PlateTectonicSim::PlateTectonicSim(const int width, const int height, int seed, const int numStartingPlates,
                                    CudaGlInteropManager *interopManager)
     : m_width(width)
-      , m_height(height)
-      , m_seed(seed)
-      , m_plateDataLookup(nullptr)
-      , m_numStartingPlates(numStartingPlates)
-      , m_interopManager(interopManager)
+    , m_height(height)
+    , m_seed(seed)
+    , m_plateDataLookup(nullptr)
+    , m_numStartingPlates(numStartingPlates)
+    , m_interopManager(interopManager)
+    , m_randStatesPlates(nullptr)
 {
     // FluxVelocityErosion erosion = FluxVelocityErosion(height, width);
     //
@@ -72,17 +73,16 @@ void PlateTectonicSim::executeIteration()
     const thrust::device_ptr<unsigned int> pixelIndicesThrust(pixelIndicesCollisions.getPointer());
     const thrust::device_ptr<uint8_t> plateIdsThrust(plateIdsCollisions.getPointer());
 
-    thrust::sort_by_key(pixelIndicesThrust, pixelIndicesThrust + m_height * m_width, plateIdsThrust,
+    sort_by_key(pixelIndicesThrust, pixelIndicesThrust + m_height * m_width, plateIdsThrust,
                         thrust::greater<unsigned int>());
 
     // Allocate array for the exclusive prefix sum values
     CudaTextureHost<uint8_t> exclusivePrefixSum;
     exclusivePrefixSum.initialize(m_width, m_height, 1);
 
-
     // Perform exclusive scan
     const thrust::device_ptr<uint8_t> exclusivePrefixSumThrust(exclusivePrefixSum.getPointer());
-    thrust::exclusive_scan_by_key(pixelIndicesThrust, pixelIndicesThrust + m_width * m_height, exclusivePrefixSumThrust,
+    exclusive_scan_by_key(pixelIndicesThrust, pixelIndicesThrust + m_width * m_height, exclusivePrefixSumThrust,
                                   exclusivePrefixSumThrust);
 
 
@@ -98,34 +98,6 @@ void PlateTectonicSim::executeIteration()
     plateIdsCollisions.free();
     pixelIndicesCollisions.free();
     exclusivePrefixSum.free();
-
-    // std::vector<uint32_t> plateCollisionsHost(m_width * m_height);
-    // if (const cudaError_t err = cudaMemcpy(plateCollisionsHost.data(), plateCollisions.getPointer(),
-    //                                        m_width * m_height * sizeof(uint32_t),
-    //                                        cudaMemcpyDeviceToHost); err != cudaSuccess)
-    //     std::cerr << "Error memcpy plateCollisions: " << cudaGetErrorString(err) << std::endl;
-    //
-    // std::vector<int> counts(5);
-    //
-    // for (const auto value: plateCollisionsHost)
-    // {
-    //     if (value == 0)
-    //         ++counts[0];
-    //     else if (((value >> 24) & 0xFF) != 0)
-    //         ++counts[4];
-    //     else if (((value >> 16) & 0xFF) != 0)
-    //         ++counts[3];
-    //     else if (((value >> 8) & 0xFF) != 0)
-    //         ++counts[2];
-    //     else
-    //         ++counts[1];
-    // }
-    //
-    // std::cout << "Counts 0: " << counts[0] << std::endl;
-    // std::cout << "Counts 1: " << counts[1] << std::endl;
-    // std::cout << "Counts 2: " << counts[2] << std::endl;
-    // std::cout << "Counts 3: " << counts[3] << std::endl;
-    // std::cout << "Counts 4: " << counts[4] << std::endl;
 
     CudaTextureHost<float> heightMapTextureWrite;
     CudaTextureHost<uint8_t> plateIdsTextureWrite;
@@ -156,7 +128,7 @@ void PlateTectonicSim::executeIteration()
     plateIdsTextureWrite.free();
     uplift.free();
 
-    updatePlateData<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, Vec2(m_maxPlates, 1));
+    updatePlateData<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, m_randStatesPlates, Vec2(m_maxPlates, 1));
 
     cudaDeviceSynchronize();
 
@@ -213,6 +185,8 @@ void PlateTectonicSim::copyVelocitiesGL() const
 void PlateTectonicSim::initializeTectonics()
 {
     std::default_random_engine generator(m_seed);
+    if (const cudaError_t err = cudaMalloc(&m_randStatesPlates,  m_maxPlates*sizeof(curandState)); err != cudaSuccess)
+        std::cerr << "Error Malloc m_randStatePlates:" << cudaGetErrorString(err) << std::endl;
 
     // Init plate data vector on host, copy to device
 
@@ -229,7 +203,7 @@ void PlateTectonicSim::initializeTectonics()
                                            cudaMemcpyHostToDevice); err != cudaSuccess)
         std::cerr << "Error copy voronoiSeedsDevice: " << cudaGetErrorString(err) << std::endl;
 
-    const std::vector<PlateData> plateDataHost = initializePlateData(generator, voronoiSeedsHost);
+    std::vector<PlateData> plateDataHost = initializePlateData(generator, voronoiSeedsHost);
     if (const cudaError_t err = cudaMalloc(&m_plateDataLookup, sizeof(PlateData) * m_maxPlates); err != cudaSuccess)
         std::cerr << "Error Malloc m_plateDataLookup: " << cudaGetErrorString(err) << std::endl;
 
@@ -239,10 +213,17 @@ void PlateTectonicSim::initializeTectonics()
 
     m_plateIdsTexture.initialize(m_width, m_height);
     m_heightMapTexture.initialize(m_width, m_height);
-    int numBlocks = (m_width * m_height + 1) / m_threadsPerBlock;
-    initPlateIDs<<<numBlocks, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), voronoiSeedsDevice,
+
+    int numBlocksPixels = (m_width * m_height + 1) / m_threadsPerBlock;
+    initPlateIDs<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_plateDataLookup, voronoiSeedsDevice,
                                                    static_cast<int>(voronoiSeedsHost.size()));
     initHeightmap << <numBlocks, m_threadsPerBlock >> > (m_heightMapTexture.deviceTexture(), m_seed, 5);
+
+    initPixelDependantPlateData<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), m_plateDataLookup);
+
+    int numBlocksPlates = (m_maxPlates + m_threadsPerBlock - 1) / m_threadsPerBlock;
+    initPlatesRngGen<<<numBlocksPlates, m_threadsPerBlock>>>(m_randStatesPlates, m_seed, Vec2<int>(m_maxPlates, 1));
+
     cudaFree(voronoiSeedsDevice);
     cudaDeviceSynchronize();
 }
@@ -264,7 +245,9 @@ std::vector<PlateData> PlateTectonicSim::initializePlateData(std::default_random
         const float y_dir = dist(generator);
         const float magnitude = sqrt(x_dir * x_dir + y_dir * y_dir);
 
+
         plateData[i].direction = Vec2(x_dir / magnitude, y_dir / magnitude);
+        plateData[i].divergenceRandomPlate = dist(generator) > 0 ? 0 : 1;
     }
 
     return plateData;

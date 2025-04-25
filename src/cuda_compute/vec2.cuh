@@ -68,7 +68,6 @@ struct Vec2 {
         return (other.x - x) * (other.x - x) + (other.y - y) * (other.y - y);
     }
 
-
     __device__ Vec2<T> normalized() const
     {
         float mag = magnitude();

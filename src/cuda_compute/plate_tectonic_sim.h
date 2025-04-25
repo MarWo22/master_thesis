@@ -1,5 +1,6 @@
 #ifndef PLATE_TECTONIC_SIM_H
 #define PLATE_TECTONIC_SIM_H
+#include <curand_kernel.h>
 #include <random>
 #include <vector>
 
@@ -22,7 +23,9 @@ class PlateTectonicSim {
     // Plate tectonic sim specific device arrays
     CudaTextureHost<uint8_t> m_plateIdsTexture;
     CudaTextureHost<float> m_overlapCrustTexture;
+
     PlateData *m_plateDataLookup;
+    curandState *m_randStatesPlates;
 
     // General execution parameters
     int m_threadsPerBlock = 256;

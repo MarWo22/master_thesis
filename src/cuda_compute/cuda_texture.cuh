@@ -35,7 +35,7 @@ public:
     {
         return m_textureArr[coordinateToIndex(textureIndex)];
     }
-    __device__ __inline__ const T& operator[](const Vec2<float>& textureIndex) const
+    __device__ __inline__ T operator[](const Vec2<float>& textureIndex) const
     {
         return interpolate(textureIndex, this);
     }
