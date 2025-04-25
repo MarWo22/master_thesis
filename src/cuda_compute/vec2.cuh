@@ -74,6 +74,16 @@ struct Vec2 {
         float mag = magnitude();
         return Vec2<T>(x / mag, y / mag);
     }
+
+    __device__ float2 toFloat2() const
+    {
+        return make_float2(x, y);
+    }
+
+    __device__ float3 toFloat3() const
+    {
+        return make_float3(x, y, 0);
+    }
 };
 
 #endif //VEC2_CUH

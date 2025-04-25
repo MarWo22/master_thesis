@@ -32,18 +32,18 @@ void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tecton
     environmentMap->load2DImage("./assets/textures/001.hdr", GL_RGB32F, GL_RGB, GL_FLOAT, 3);
     Renderer::addTexture("environmentMap", environmentMap);
 
-    auto *heightMap = new Texture();
+    /*auto *heightMap = new Texture();
     heightMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     heightMap->load2DImage("./assets/textures/heightMap.png", GL_R32F, GL_RED, GL_FLOAT, 1);
-    Renderer::addTexture("heightMap", heightMap);
+    Renderer::addTexture("heightMap", heightMap);*/
 
     auto *cudaHeightMap = new Texture();
     cudaHeightMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     cudaHeightMap->load2DEmpty(GL_R32F, GL_RED, GL_FLOAT, heightmapDimensions);
-    Renderer::addTexture("cudaHeightMap", cudaHeightMap);
+    Renderer::addTexture("heightMap", cudaHeightMap);
 
     // interopManager.addConnection(cudaHeightMap->id(), tectonicSim.heightMapDevice(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y);
-    interopManager.addConnection("cudaHeightMap", heightMap->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
+    interopManager.addConnection("heightMap", cudaHeightMap->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
 
     // The following textures are not initially allocated. They are allocated through toggling them on or off on the GUI
     // These are only for visualization purposes, and will draw unnecessary memory and computing power to allocate and copy constantly when not used

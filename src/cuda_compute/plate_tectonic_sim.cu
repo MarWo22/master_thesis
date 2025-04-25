@@ -175,10 +175,7 @@ void PlateTectonicSim::executeIteration()
         {
             m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
         }
-        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_UPLIFT_AREAS)
-        {
-            m_interopManager->copyConnection("upliftTexture", m_heightMapTexture.getPointer());
-        }
+        m_interopManager->copyConnection("heightMap", m_heightMapTexture.getPointer());
     }
 
     const auto finish{std::chrono::steady_clock::now()};
@@ -245,7 +242,7 @@ void PlateTectonicSim::initializeTectonics()
     int numBlocks = (m_width * m_height + 1) / m_threadsPerBlock;
     initPlateIDs<<<numBlocks, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), voronoiSeedsDevice,
                                                    static_cast<int>(voronoiSeedsHost.size()));
-
+    initHeightmap << <numBlocks, m_threadsPerBlock >> > (m_heightMapTexture.deviceTexture(), m_seed, 5);
     cudaFree(voronoiSeedsDevice);
     cudaDeviceSynchronize();
 }
