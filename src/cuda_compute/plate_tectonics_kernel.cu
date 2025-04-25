@@ -58,7 +58,7 @@ __global__ void initHeightmap(CudaTexture<float>* w_heightMapPtr, int seed, int 
 
     for (int octave = 0; octave < octaves; octave++)
     {
-
+        
     }
 }
 
