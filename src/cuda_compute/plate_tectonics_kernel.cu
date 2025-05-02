@@ -279,8 +279,49 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
                                    const uint8_t plateA, const uint8_t plateB, const uint8_t plateC, 
                                    const uint8_t plateD, const unsigned int invokeIndex, int *localSizeChange)
 {
+    const CudaTexture<float>& r_height = *r_heightMapPtr;
+    const CudaTexture<uint8_t>& plateIds = *r_plateIdsPtr;
+    const Vec2<int> coord = r_height.indexToCoordinate(invokeIndex);
+
+    const PlateData plateAData = r_plateLookup[plateA];
+    const float heightA = r_height[Vec2<float>(coord.x, coord.y) - plateAData.direction * plateAData.velocity];
+
+    float value = heightA;
+    uint8_t plate = plateA;
+
+    if (plateB != MAX_PLATE_COUNT) {
+        const PlateData plateBData = r_plateLookup[plateB];
+        const float heightB = r_height[Vec2<float>(coord.x, coord.y) - plateBData.direction * plateBData.velocity];
+        if (value < heightB) {
+            value = heightB;
+            plate = plateB;
+        }
+    }
+
+    if (plateC != MAX_PLATE_COUNT) {
+        const PlateData plateCData = r_plateLookup[plateC];
+        const float heightC = r_height[Vec2<float>(coord.x, coord.y) - plateCData.direction * plateCData.velocity];
+        if (value < heightC) {
+            value = heightC;
+            plate = plateC;
+        }
+    }
+
+    if (plateD != MAX_PLATE_COUNT) {
+        const PlateData plateDData = r_plateLookup[plateD];
+        const float heightD = r_height[Vec2<float>(coord.x, coord.y) - plateDData.direction * plateDData.velocity];
+        if (value < heightD) {
+            value = heightD;
+            plate = plateD;
+        }
+    }
+
+    CudaTexture<float>& w_height = *w_heightMapPtr;
+    w_height[invokeIndex] = value;
+
     (*w_convergenceMapPtr)[invokeIndex] = 1.0f;
-    (*w_plateIdsPtr)[invokeIndex] = plateA;
+    (*w_plateIdsPtr)[invokeIndex] = plate;
+
     atomicAdd(&localSizeChange[plateB], -1);
 
     if (plateC == MAX_PLATE_COUNT)
@@ -402,7 +443,7 @@ __global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<fl
     
     float noise = clamp(cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), 0.1f, 100), 1.0f, 0.1f);
     
-    r_height[invokeIndex] += clamp01(value / size2) * 0.01f;
+    r_height[invokeIndex] += clamp01(value / size2) * 0.2f;
 }
 
 __global__ void convertCollisionMapForGL(const CudaTexture<uint32_t> *r_texturePtr, CudaTexture<uint8_t> *w_texturePtr)
