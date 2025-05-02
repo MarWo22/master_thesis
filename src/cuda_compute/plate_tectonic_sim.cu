@@ -142,11 +142,12 @@ void PlateTectonicSim::executeIteration()
 
     updatePlateData<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, m_randStatesPlates, Vec2(m_maxPlates, 1));
 
+    updatePlateMass<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), m_plateDataLookup);
+
     cudaDeviceSynchronize();
 
     if (m_interopManager)
     {
-        m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
         if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_COLLISION_AREAS)
         {
             CudaTextureHost<uint8_t> glTexture;

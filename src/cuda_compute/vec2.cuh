@@ -33,6 +33,13 @@ struct Vec2 {
         return Vec2<T>(x + other, y + other);
     }
 
+    __device__ Vec2<T>& operator+=(const Vec2<T>& other)
+    {
+        x += other.x;
+        y += other.y;
+        return *this;
+    }
+
     __device__ Vec2<T> operator-(const T& other) const
     {
         return Vec2<T>(x - other, y - other);
@@ -41,6 +48,11 @@ struct Vec2 {
     __device__ Vec2<T> operator*(T scalar) const
     {
         return Vec2<T>(x * scalar, y * scalar);
+    }
+
+    __device__ Vec2<T> operator/(T scalar) const
+    {
+        return Vec2<T>(x / scalar, y / scalar);
     }
 
     __device__ T dot(const Vec2<T>& other) const
@@ -84,5 +96,11 @@ struct Vec2 {
         return make_float3(x, y, 0);
     }
 };
+
+template <typename T>
+__device__ void atomicAddVec2(Vec2<T>* target, const Vec2<T>& value) {
+    atomicAdd(&(target->x), value.x);
+    atomicAdd(&(target->y), value.y);
+}
 
 #endif //VEC2_CUH

@@ -13,6 +13,9 @@ __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData
 __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idTexturePtr,
                                             const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData);
 
+
+__global__ void updatePlateMass(const CudaTexture<uint8_t> *r_idTexturePtr, const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData);
+
 __global__ void initPlatesRngGen(curandState *rngStates, unsigned int seed, Vec2<int> callSize);
 
 __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int octaves);

@@ -7,6 +7,7 @@ struct PlateData
     float velocity;
     Vec2<float> direction;
     Vec2<float> pixelCenter; // ranges from [0,1]
+    Vec2<float> velocityChange;
     unsigned int divergenceRandomPlate; // 0 or 1, indicates to which plate the new crust will belong
     int size;
     float mass;
