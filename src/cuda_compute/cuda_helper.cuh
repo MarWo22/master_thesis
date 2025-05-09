@@ -64,4 +64,33 @@ __device__ __inline__ float remap(const float value, const float inStart, const 
     return outStart + (outStop - outStart) * ((value - inStart) / (inStop - inStart));
 }
 
+template <typename T>
+__device__ __inline__ void swap(T& x, T& y) noexcept
+{
+    T tmp = x;
+    x = y;
+    y = tmp;
+}
+
+template <typename T>
+__device__ __inline__ void sort2(T& a, T& b) {
+    if (a > b) swap(a, b);
+}
+
+template <typename T>
+__device__ __inline__ void sort3(T& a, T& b, T& c) {
+    if (a > b) swap(a, b);
+    if (b > c) swap(b, c);
+    if (a > b) swap(a, b);
+}
+
+template <typename T>
+__device__ __inline__ void sort4(T& a, T& b, T& c, T& d) {
+    if (a > b) swap(a, b);
+    if (c > d) swap(c, d);
+    if (a > c) swap(a, c);
+    if (b > d) swap(b, d);
+    if (b > c) swap(b, c);
+}
+
 #endif //CUDA_HELPER_CUH

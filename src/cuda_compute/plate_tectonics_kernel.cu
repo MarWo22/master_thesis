@@ -9,14 +9,13 @@
 
 #include "math_functions.h"
 
-#define MAX_PLATE_COUNT 255
 
 // These should become dynamic or as input parameters:
 #define SCALING_FACTOR 10
 
-__global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData *plateData, const Vec2<float> *seeds, const int numSeeds)
+__global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData *plateData, const Vec2<float> *seeds,
+                             const int numSeeds)
 {
-
     CudaTexture<uint8_t> idTexture = *idTexturePtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
@@ -52,8 +51,9 @@ __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData
     idTexture[invokeIndex] = static_cast<uint8_t>(minIndex);
 }
 
-__global__ void initHeightmap(CudaTexture<float>* w_heightMapPtr, int seed, int octaves) {
-    CudaTexture<float>& r_height = *w_heightMapPtr;
+__global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int octaves)
+{
+    CudaTexture<float> &r_height = *w_heightMapPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_height.size()))
@@ -69,7 +69,7 @@ __global__ void initHeightmap(CudaTexture<float>* w_heightMapPtr, int seed, int 
 
     for (int octave = 0; octave < octaves; octave++)
     {
-        float v =  cudaNoise::simplexNoise(coord.toFloat3(), freq, seed + octave);
+        float v = cudaNoise::simplexNoise(coord.toFloat3(), freq, seed + octave);
         float vx = cudaNoise::simplexNoise(make_float3(coord.x + d, coord.y, 0), freq, seed + octave);
         float vy = cudaNoise::simplexNoise(make_float3(coord.x, coord.y + d, 0), freq, seed + octave);
 
@@ -82,35 +82,55 @@ __global__ void initHeightmap(CudaTexture<float>* w_heightMapPtr, int seed, int 
     }
 
     r_height[invokeIndex] = value;
-
 }
 
-__global__ void updatePlateMass(const CudaTexture<uint8_t> *r_idTexturePtr, const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData)
+__global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
+                                const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds, PlateData *w_plateData)
 {
     __shared__ float localMassSum[MAX_PLATE_COUNT];
+    __shared__ int localSize[MAX_PLATE_COUNT];
 
-    const CudaTexture<uint8_t> &r_idTexture = *r_idTexturePtr;
+    CudaTexture<uint8_t> &rw_idTexture = *rw_idTexturePtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, r_idTexture.size()))
+    if (!isWithinBounds(invokeIndex, rw_idTexture.size()))
         return;
 
     if (threadIdx.x < MAX_PLATE_COUNT)
+    {
         localMassSum[threadIdx.x] = 0;
+        localSize[threadIdx.x] = 0;
+    }
 
     __syncthreads();
 
-    const int plateID = r_idTexture[invokeIndex];
+    // Merge if the new merged plate is different from the original plate
+    uint8_t plateID = rw_idTexture[invokeIndex];
+
+    if (const uint8_t mergedPlateID = r_plateMergeIds[plateID]; mergedPlateID != MAX_PLATE_COUNT)
+    {
+        rw_idTexture[invokeIndex] = mergedPlateID;
+        plateID = mergedPlateID;
+    }
+
+
     const float pixelHeight = (*r_heightTexturePtr)[invokeIndex];
 
     atomicAdd(&localMassSum[plateID], pixelHeight);
+    atomicAdd(&localSize[plateID], 1);
 
     __syncthreads();
-    if (threadIdx.x < MAX_PLATE_COUNT and localMassSum[threadIdx.x] != 0)
-        atomicAdd(&w_plateData[threadIdx.x].mass, localMassSum[threadIdx.x]);
+    if (threadIdx.x < MAX_PLATE_COUNT)
+    {
+        if (localMassSum[threadIdx.x] != 0)
+            atomicAdd(&w_plateData[threadIdx.x].mass, localMassSum[threadIdx.x]);
+        if (localSize[threadIdx.x] != 0)
+            atomicAdd(&w_plateData[threadIdx.x].size, localSize[threadIdx.x]);
+    }
 }
 
-__global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idTexturePtr, const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData)
+__global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idTexturePtr,
+                                            const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData)
 {
     __shared__ int localSizeCounts[MAX_PLATE_COUNT];
     __shared__ float localMassSum[MAX_PLATE_COUNT];
@@ -258,11 +278,12 @@ __global__ void registerPlateCollisions(const CudaTexture<uint8_t> *r_plateIdsPt
 
 __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateLookup,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                  CudaTexture<float> *w_heightMapPtr, const unsigned int invokeIndex, int *localSizeChange)
+                                  CudaTexture<float> *w_heightMapPtr, const unsigned int invokeIndex,
+                                  int *localSizeChange)
 {
     const uint8_t previousPlateId = (*r_plateIdsPtr)[invokeIndex];
     (*w_plateIdsPtr)[invokeIndex] = previousPlateId;
-    CudaTexture<float>& w_height = *w_heightMapPtr;
+    CudaTexture<float> &w_height = *w_heightMapPtr;
     w_height[invokeIndex] = 0.0f;
     const PlateData plateData = r_plateLookup[previousPlateId];
 
@@ -271,8 +292,7 @@ __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, con
     {
         (*w_plateIdsPtr)[invokeIndex] = previousPlateId;
         atomicAdd(&localSizeChange[previousPlateId], 1);
-    }
-    else
+    } else
     {
         // Determine where the new pixel is now located
         const Vec2 offset = plateData.pixelCenter + plateData.direction * plateData.velocity;
@@ -289,8 +309,7 @@ __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, con
         {
             (*w_plateIdsPtr)[invokeIndex] = previousPlateId;
             atomicAdd(&localSizeChange[previousPlateId], 1);
-        }
-        else
+        } else
         {
             const int newPlateId = (*r_plateIdsPtr)[oppositeTexIndex];
             (*w_plateIdsPtr)[invokeIndex] = newPlateId;
@@ -309,14 +328,16 @@ __device__ Vec2<int> previousTextureIndex(const Vec2<int> currentTexIndex, const
     return currentTexIndex - pixelOffset;
 }
 
-__device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
-                                   PlateData *plateLookup, const uint8_t plateA, const uint8_t plateB, const uint8_t plateC,
-                                   const uint8_t plateD, const unsigned int invokeIndex)
+__device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPtr,
+                                        const CudaTexture<float> *r_heightMapPtr,
+                                        PlateData *plateLookup, const uint8_t plateA, const uint8_t plateB,
+                                        const uint8_t plateC,
+                                        const uint8_t plateD, const unsigned int invokeIndex)
 {
     const Vec2 currentTexIndex = r_plateIdsPtr->indexToCoordinate(invokeIndex);
 
-    PlateData& plateAData = plateLookup[plateA];
-    PlateData& plateBData = plateLookup[plateB];
+    PlateData &plateAData = plateLookup[plateA];
+    PlateData &plateBData = plateLookup[plateB];
 
 
     const Vec2<int> plateATexIndex = previousTextureIndex(currentTexIndex, plateAData);
@@ -333,15 +354,14 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
     const Vec2<float> plateBVelocityVector = plateBData.direction * plateBData.velocity;
 
 
-
     Vec2<float> numerator = plateAVelocityVector * plateAMass +
-        plateBVelocityVector * plateBMass;
+                            plateBVelocityVector * plateBMass;
 
     float denominator = plateAMass + plateBMass;
 
     if (plateC != MAX_PLATE_COUNT)
     {
-        const PlateData& plateCData = plateLookup[plateC];
+        const PlateData &plateCData = plateLookup[plateC];
         const Vec2<int> plateCTexIndex = previousTextureIndex(currentTexIndex, plateCData);
         plateCMass = max(r_heightMap[plateCTexIndex], 0.001f);
         numerator += plateCData.direction * plateCData.velocity * plateCMass;
@@ -350,7 +370,7 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
 
     if (plateD != MAX_PLATE_COUNT)
     {
-        const PlateData& plateDData = plateLookup[plateD];
+        const PlateData &plateDData = plateLookup[plateD];
         const Vec2<int> plateDTexIndex = previousTextureIndex(currentTexIndex, plateDData);
         plateDMass = max(r_heightMap[plateDTexIndex], 0.001f);
         numerator += plateDData.direction * plateDData.velocity * plateDMass;
@@ -362,8 +382,10 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
     const Vec2<float> finalVelocityDir = finalVelocity.normalized();
     const float vel = finalVelocity.magnitude();
 
-    const Vec2<float> velocityChangePlateA = (finalVelocity - plateAVelocityVector) * (plateAMass / plateAData.mass) * SCALING_FACTOR;
-    const Vec2<float> velocityChangePlateB = (finalVelocity - plateBVelocityVector) * (plateBMass / plateBData.mass) * SCALING_FACTOR;
+    const Vec2<float> velocityChangePlateA = (finalVelocity - plateAVelocityVector) * (plateAMass / plateAData.mass) *
+                                             SCALING_FACTOR;
+    const Vec2<float> velocityChangePlateB = (finalVelocity - plateBVelocityVector) * (plateBMass / plateBData.mass) *
+                                             SCALING_FACTOR;
 
     // printf("Plate %d: (%f %f) %f (%f %f), Plate %d: (%f %f) %f (%f %f), Plate C - %d, Plate D - %d, finalVelocity: (%f %f)\n", plateA, plateAVelocityVector.x, plateAVelocityVector.y, plateAMass, velocityChangePlateA.x, velocityChangePlateA.y, plateB, plateBVelocityVector.x, plateBVelocityVector.y, plateBMass, velocityChangePlateB.x, velocityChangePlateB.y, plateC != MAX_PLATE_COUNT, plateD != MAX_PLATE_COUNT, finalVelocity.x, finalVelocity.y);
 
@@ -379,8 +401,10 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
 
     if (plateC != MAX_PLATE_COUNT)
     {
-        PlateData& plateCData = plateLookup[plateC];
-        const Vec2<float> velocityChangePlateC = (finalVelocity - plateCData.direction * plateCData.velocity) * (plateCMass / plateCData.mass) * SCALING_FACTOR;
+        PlateData &plateCData = plateLookup[plateC];
+        const Vec2<float> velocityChangePlateC =
+                (finalVelocity - plateCData.direction * plateCData.velocity) * (plateCMass / plateCData.mass) *
+                SCALING_FACTOR;
         // printf("C: (%f %f) final: (%f %f), Mass: (%f %f)\n", velocityChangePlateC.x, velocityChangePlateC.y, finalVelocity.x, finalVelocity.y, plateCMass, plateCData.mass);
 
         atomicAddVec2(&plateCData.velocityChange, velocityChangePlateC);
@@ -388,8 +412,10 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
 
     if (plateD != MAX_PLATE_COUNT)
     {
-        PlateData& plateDData = plateLookup[plateD];
-        const Vec2<float> velocityChangePlateD = (finalVelocity - plateDData.direction * plateDData.velocity) * (plateDMass / plateDData.mass) * SCALING_FACTOR;
+        PlateData &plateDData = plateLookup[plateD];
+        const Vec2<float> velocityChangePlateD =
+                (finalVelocity - plateDData.direction * plateDData.velocity) * (plateDMass / plateDData.mass) *
+                SCALING_FACTOR;
         // printf("D: (%f %f) final: (%f %f), Mass: (%f %f)\n", velocityChangePlateD.x, velocityChangePlateD.y, finalVelocity.x, finalVelocity.y, plateDMass, plateDData.mass);
 
         atomicAddVec2(&plateDData.velocityChange, velocityChangePlateD);
@@ -398,12 +424,13 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
 
 __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                    const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_convergenceMapPtr,
+                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float> *w_convergenceMapPtr,
+                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
                                    const uint8_t plateA, const uint8_t plateB, const uint8_t plateC,
                                    const uint8_t plateD, const unsigned int invokeIndex, int *localSizeChange)
 {
-    const CudaTexture<float>& r_height = *r_heightMapPtr;
-    const CudaTexture<uint8_t>& plateIds = *r_plateIdsPtr;
+    const CudaTexture<float> &r_height = *r_heightMapPtr;
+    const CudaTexture<uint8_t> &plateIds = *r_plateIdsPtr;
     const Vec2<int> coord = r_height.indexToCoordinate(invokeIndex);
 
     const PlateData plateAData = r_plateLookup[plateA];
@@ -412,40 +439,55 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
     float value = heightA;
     uint8_t plate = plateA;
 
-    if (plateB != MAX_PLATE_COUNT) {
+
+    if (plateB != MAX_PLATE_COUNT)
+    {
         const PlateData plateBData = r_plateLookup[plateB];
         const float heightB = r_height[Vec2<float>(coord.x, coord.y) - plateBData.direction * plateBData.velocity];
-        if (value < heightB) {
+        if (value < heightB)
+        {
             value = heightB;
             plate = plateB;
         }
     }
 
-    if (plateC != MAX_PLATE_COUNT) {
+    if (plateC != MAX_PLATE_COUNT)
+    {
         const PlateData plateCData = r_plateLookup[plateC];
         const float heightC = r_height[Vec2<float>(coord.x, coord.y) - plateCData.direction * plateCData.velocity];
-        if (value < heightC) {
+        if (value < heightC)
+        {
             value = heightC;
             plate = plateC;
         }
     }
 
-    if (plateD != MAX_PLATE_COUNT) {
+    if (plateD != MAX_PLATE_COUNT)
+    {
         const PlateData plateDData = r_plateLookup[plateD];
         const float heightD = r_height[Vec2<float>(coord.x, coord.y) - plateDData.direction * plateDData.velocity];
-        if (value < heightD) {
+        if (value < heightD)
+        {
             value = heightD;
             plate = plateD;
         }
     }
 
-    CudaTexture<float>& w_height = *w_heightMapPtr;
+    CudaTexture<float> &w_height = *w_heightMapPtr;
     w_height[invokeIndex] = value;
 
     (*w_convergenceMapPtr)[invokeIndex] = 1.0f;
     (*w_plateIdsPtr)[invokeIndex] = plate;
 
     atomicAdd(&localSizeChange[plateB], -1);
+
+    // Reporting the collision to the platesHaveCollided texture
+    // Only the first two plates are reported for simplicity and efficiency reasons
+    const Vec2<int> accessVec(min(plateA, plateB), max(plateA, plateB));
+    if (!(*w_platesHaveCollidedPtr)[accessVec])
+    {
+        (*w_platesHaveCollidedPtr)[accessVec] = 1;
+    }
 
     if (plateC == MAX_PLATE_COUNT)
         return;
@@ -456,7 +498,6 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
         return;
 
     atomicAdd(&localSizeChange[plateD], -1);
-
 }
 
 __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
@@ -465,23 +506,25 @@ __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const
                                 const unsigned int invokeIndex)
 {
     (*w_plateIdsPtr)[invokeIndex] = originId;
-    const CudaTexture<float>& r_height = *r_heightMapPtr;
+    const CudaTexture<float> &r_height = *r_heightMapPtr;
     const CudaTexture<uint8_t> &plateIds = *r_plateIdsPtr;
     const Vec2<int> textureIndex = getTextureIndex(plateIds.size());
 
     Vec2<int> coord = r_height.indexToCoordinate(invokeIndex);
 
-    CudaTexture<float>& w_height = *w_heightMapPtr;
+    CudaTexture<float> &w_height = *w_heightMapPtr;
 
     // Struct is small, so a copy is likely faster than referencing in Cuda
     const PlateData plateDataOrigin = r_plateLookup[originId];
 
-    w_height[invokeIndex] = r_height[Vec2<float>(coord.x, coord.y) - plateDataOrigin.direction * plateDataOrigin.velocity];
+    w_height[invokeIndex] = r_height[Vec2<float>(coord.x, coord.y) - plateDataOrigin.direction * plateDataOrigin.
+                                     velocity];
 }
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *plateLookup,
-                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr, CudaTexture<float>* w_convergenceMapPtr)
+                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr,
+                                  CudaTexture<float> *w_convergenceMapPtr, CudaTexture<uint8_t> *w_platesHaveCollidedPtr)
 {
     __shared__ int localSizeChange[MAX_PLATE_COUNT]; // MAX_SEEDS is numSeeds
     // Cache dereference since used more than once
@@ -491,7 +534,8 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
     if (!isWithinBounds(invokeIndex, r_collisions.size()))
         return;
 
-    if (threadIdx.x < MAX_PLATE_COUNT) {
+    if (threadIdx.x < MAX_PLATE_COUNT)
+    {
         localSizeChange[threadIdx.x] = 0;
     }
 
@@ -499,7 +543,8 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
 
     if (const uint32_t collisionValue = r_collisions[invokeIndex]; collisionValue == 0)
     // Collision value is zero, indicating no plate moved onto this pixel. Thus, this pixel is a divergence zone.
-        processDivergence(r_plateIdsPtr, plateLookup, r_collisionsPtr, w_plateIdsPtr, w_heightMapPtr, invokeIndex, localSizeChange);
+        processDivergence(r_plateIdsPtr, plateLookup, r_collisionsPtr, w_plateIdsPtr, w_heightMapPtr, invokeIndex,
+                          localSizeChange);
     else
     {
         // Extract the four packed values
@@ -517,9 +562,11 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
         // If plateB is not undefined, it means at least two plates move into the same pixel, indicating a divergent boundary.
         if (plateB != MAX_PLATE_COUNT)
         {
-            applyInelasticCollision(r_plateIdsPtr, r_heightMapPtr, plateLookup, plateA, plateB, plateC, plateD, invokeIndex);
-            processConvergence(r_plateIdsPtr, r_heightMapPtr, plateLookup, w_plateIdsPtr, w_heightMapPtr, w_convergenceMapPtr, plateA,
-                plateB, plateC, plateD, invokeIndex, localSizeChange);
+            applyInelasticCollision(r_plateIdsPtr, r_heightMapPtr, plateLookup, plateA, plateB, plateC, plateD,
+                                    invokeIndex);
+            processConvergence(r_plateIdsPtr, r_heightMapPtr, plateLookup, w_plateIdsPtr, w_heightMapPtr,
+                               w_convergenceMapPtr, w_platesHaveCollidedPtr, plateA,
+                               plateB, plateC, plateD, invokeIndex, localSizeChange);
         }
         // Otherwise, only one plate moves into the pixel, indicating ordinary movement
         else
@@ -528,15 +575,17 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
     }
 
     __syncthreads();
-    if (threadIdx.x < MAX_PLATE_COUNT and localSizeChange[threadIdx.x] != 0) {
+    if (threadIdx.x < MAX_PLATE_COUNT and localSizeChange[threadIdx.x] != 0)
+    {
         atomicAdd(&plateLookup[threadIdx.x].size, localSizeChange[threadIdx.x]);
     }
 }
 
-__global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<float>* w_heightMapPtr, const int size, const float noiseFrequency, const float noiseIntensity, const int seed)
+__global__ void processUplift(CudaTexture<float> *w_upliftMapPtr, CudaTexture<float> *w_heightMapPtr, const int size,
+                              const float noiseFrequency, const float noiseIntensity, const int seed)
 {
-    CudaTexture<float>& r_uplift = *w_upliftMapPtr;
-    CudaTexture<float>& r_height = *w_heightMapPtr;
+    CudaTexture<float> &r_uplift = *w_upliftMapPtr;
+    CudaTexture<float> &r_height = *w_heightMapPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_uplift.size()))
@@ -544,11 +593,13 @@ __global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<fl
 
     Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
 
-    int offset = noiseIntensity + cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) * noiseIntensity;
+    int offset = noiseIntensity + cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) *
+                 noiseIntensity;
 
     int dim(size + offset);
     float size2 = dim * dim;
-    if (dim % 2 == 1) {
+    if (dim % 2 == 1)
+    {
         dim--;
     }
     dim *= 0.5;
@@ -562,7 +613,7 @@ __global__ void processUplift(CudaTexture<float>* w_upliftMapPtr, CudaTexture<fl
         {
             Vec2<int> sample(x, y);
             float weight = clamp01(1.0f - sample.magnitude() / dim);
-            if(weight > EPSILON)
+            if (weight > EPSILON)
                 value += (r_uplift[sample + center] * weight);
         }
     }
@@ -616,12 +667,49 @@ __global__ void updatePlateData(PlateData *plateLookup, curandState *const rngSt
 
     // printf("%d original: (%f %f) change: (%f %f) new: (%f %f)\n",invokeIndex, original.x, original.y, current.velocityChange.x, current.velocityChange.y, newVelocityVector.x, newVelocityVector.y);
 
-    current.velocityChange = {0,0};
+    current.velocityChange = {0, 0};
 
     current.mass = 0; // Will be updated in the next pixel kernel.
+    current.size = 0; // Will be updated in the next pixel kernel.
 
     plateLookup[invokeIndex] = current;
 }
+
+__global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveCollidedPtr, const PlateData *r_plateLookup,
+                                    uint8_t *w_plateMergeIds)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    const CudaTexture<uint8_t> &r_platesHaveCollided = *r_platesHaveCollidedPtr;
+
+    if (!isWithinBounds(invokeIndex, r_platesHaveCollided.size()))
+        return;
+
+    // Check if the current plate pair has a collision
+    if (!(*r_platesHaveCollidedPtr)[invokeIndex])
+        return;
+
+    const Vec2<int> texIndex = getTextureIndex(invokeIndex, r_platesHaveCollided.size());
+    const PlateData &plateDataA = r_plateLookup[texIndex.x];
+    const PlateData &plateDataB = r_plateLookup[texIndex.y];
+
+    float dot = plateDataA.direction.dot(plateDataB.direction);
+    float velocity_diff = abs(plateDataA.velocity - plateDataB.velocity);
+
+    // printf("dot: %.5f plateADir: (%.5f, %.5f) plateBDir: (%.5f, %.5f) plateAVel: %.5f plateBVel: %.5f  %.5f\n", dot, plateDataA.direction.x, plateDataA.direction.y, plateDataB.direction.x, plateDataB.direction.y, plateDataA.velocity, plateDataB.velocity, velocity_diff);
+
+
+    if (dot >= .995f and velocity_diff <= 0.025)
+    {
+        printf("MERGING (%d,%d): dot: %.5f plateADir: (%.5f, %.5f) plateBDir: (%.5f, %.5f) plateAVel: %.5f plateBVel: %.5f  %.5f\n", texIndex.x, texIndex.y, dot, plateDataA.direction.x, plateDataA.direction.y, plateDataB.direction.x, plateDataB.direction.y, plateDataA.velocity, plateDataB.velocity, velocity_diff);
+        // Merge, the plate with lower mass merges into the plate with higher mass
+        if (plateDataA.mass > plateDataB.mass)
+            w_plateMergeIds[texIndex.y] = texIndex.x;
+        else
+            w_plateMergeIds[texIndex.x] = texIndex.y;
+    }
+}
+
 
 __global__ void createVelocityTexture(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateData,
                                       CudaTexture<float> *w_velocityPtr)
