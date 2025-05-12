@@ -47,6 +47,8 @@ public:
 
     void executeIteration();
 
+    Vec2<float> getPlateCenter(uint8_t plateId, int numBlocksPixels, int m_threadsPerBlock);
+
 private:
 
     void initializeTectonics();

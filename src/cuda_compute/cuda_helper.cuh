@@ -2,7 +2,7 @@
 #define CUDA_HELPER_CUH
 
 #include "vec2.cuh"
-
+#include <curand_kernel.h>
 
 __device__ __inline__ unsigned int getInvokeIndex()
 {
@@ -31,6 +31,15 @@ __device__ __inline__ bool isWithinBounds(const Vec2<int> &textureSize)
 {
     const unsigned int invokeIndex = getInvokeIndex();
     return isWithinBounds(invokeIndex, textureSize);
+}
+
+__device__ __inline__ float Deg2Rad(const float degrees)
+{
+    return degrees * CURAND_PI_DOUBLE / 180.0;
+}
+
+__device__ __inline__ float rad2deg(const float radians) {
+    return radians * 180.0 / CURAND_PI_DOUBLE;
 }
 
 template<typename T>

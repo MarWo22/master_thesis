@@ -11,6 +11,7 @@ struct PlateData
     unsigned int divergenceRandomPlate; // 0 or 1, indicates to which plate the new crust will belong
     int size;
     float mass;
+    Vec2<float> center;
 
     PlateData()
         : velocity(0)

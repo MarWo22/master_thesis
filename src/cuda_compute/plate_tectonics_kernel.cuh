@@ -47,6 +47,10 @@ __global__ void createVelocityTexture(const CudaTexture<uint8_t> *r_plateIdsPtr,
 __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateData,
                                        CudaTexture<float2> *w_velocityPtr);
 
+__global__ void findPlateCenter(uint8_t plateId, PlateData* plateLookup, const CudaTexture<uint8_t>* r_plateIdsPtr, float4* samples);
+
+__global__ void intersectPlate(uint8_t r_plateId, Vec2<float> r_pivot, const Vec2<float> r_dir, const CudaTexture<uint8_t>* r_plateIdsPtr, float* w_output);
+
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *r_plateLookup,
                                   CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr,

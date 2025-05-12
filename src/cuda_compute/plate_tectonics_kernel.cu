@@ -409,38 +409,37 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
     const PlateData plateAData = r_plateLookup[plateA];
     const float heightA = r_height[Vec2<float>(coord.x, coord.y) - plateAData.direction * plateAData.velocity];
 
-    float value = heightA;
+    float value = plateAData.mass;
     uint8_t plate = plateA;
 
     if (plateB != MAX_PLATE_COUNT) {
         const PlateData plateBData = r_plateLookup[plateB];
-        const float heightB = r_height[Vec2<float>(coord.x, coord.y) - plateBData.direction * plateBData.velocity];
-        if (value < heightB) {
-            value = heightB;
+        if (value < plateBData.mass) {
+            value = plateBData.mass;
             plate = plateB;
         }
     }
 
     if (plateC != MAX_PLATE_COUNT) {
         const PlateData plateCData = r_plateLookup[plateC];
-        const float heightC = r_height[Vec2<float>(coord.x, coord.y) - plateCData.direction * plateCData.velocity];
-        if (value < heightC) {
-            value = heightC;
+        if (value < plateCData.mass) {
+            value = plateCData.mass;
             plate = plateC;
         }
     }
 
     if (plateD != MAX_PLATE_COUNT) {
         const PlateData plateDData = r_plateLookup[plateD];
-        const float heightD = r_height[Vec2<float>(coord.x, coord.y) - plateDData.direction * plateDData.velocity];
-        if (value < heightD) {
-            value = heightD;
+        if (value < plateDData.mass) {
+            value = plateDData.mass;
             plate = plateD;
         }
     }
 
+    const PlateData plateData = r_plateLookup[plate];
+
     CudaTexture<float>& w_height = *w_heightMapPtr;
-    w_height[invokeIndex] = value;
+    w_height[invokeIndex] = r_height[Vec2<float>(coord.x, coord.y) - plateData.direction * plateData.velocity];
 
     (*w_convergenceMapPtr)[invokeIndex] = 1.0f;
     (*w_plateIdsPtr)[invokeIndex] = plate;
@@ -518,8 +517,8 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
         if (plateB != MAX_PLATE_COUNT)
         {
             applyInelasticCollision(r_plateIdsPtr, r_heightMapPtr, plateLookup, plateA, plateB, plateC, plateD, invokeIndex);
-            processConvergence(r_plateIdsPtr, r_heightMapPtr, plateLookup, w_plateIdsPtr, w_heightMapPtr, w_convergenceMapPtr, plateA,
-                plateB, plateC, plateD, invokeIndex, localSizeChange);
+            processConvergence(r_plateIdsPtr, r_heightMapPtr, plateLookup, w_plateIdsPtr, w_heightMapPtr, w_convergenceMapPtr, 
+                plateA, plateB, plateC, plateD, invokeIndex, localSizeChange);
         }
         // Otherwise, only one plate moves into the pixel, indicating ordinary movement
         else
@@ -650,3 +649,121 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
     const PlateData plateData = r_plateData[plateIndex];
     (*w_velocityPtr)[invokeIndex] = {plateData.direction.x, plateData.direction.x};
 }
+
+__global__ void findPlateCenter(uint8_t plateId, PlateData* plateLookup, const CudaTexture<uint8_t>* r_plateIdsPtr, float4* samples) {
+    __shared__ float4 angularCoords[256];
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_plateIdsPtr->size()))
+        return;
+
+    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    Vec2<int> coord = r_plateIds.indexToCoordinate(invokeIndex);
+
+    uint8_t currentId = r_plateIds[invokeIndex];
+    if (coord.x % 10 == 0 && coord.y % 10 == 0 && currentId == plateId) {
+        Vec2<float> floatCoord = Vec2<float>(coord.x, coord.y);
+
+        float angleX = CURAND_2PI * floatCoord.x / r_plateIds.size().x;
+        float angleY = CURAND_2PI * floatCoord.y / r_plateIds.size().y;
+
+        float sinX = sinf(angleX);
+        float cosX = cosf(angleX);
+        float sinY = sinf(angleY);
+        float cosY = cosf(angleY);
+
+        angularCoords[threadIdx.x] = make_float4(sinX, cosX, sinY, cosY);
+    }
+    else {
+        angularCoords[threadIdx.x] = make_float4(0, 0, 0, 0);
+    }
+
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        float4 sum = {};
+        for (int i = 0; i < blockDim.x; ++i) {
+            sum.x += angularCoords[i].x;
+            sum.y += angularCoords[i].y;
+            sum.z += angularCoords[i].z;
+            sum.w += angularCoords[i].w;
+        }
+        samples[blockIdx.x] = sum;
+    }
+}
+
+__global__ void intersectPlate(const uint8_t r_plateId, const Vec2<float> r_pivot, const Vec2<float> r_dir, const CudaTexture<uint8_t>* r_plateIdsPtr, float* w_output) {
+    const unsigned int invokeIndex = getInvokeIndex();
+    const float minStepsize = 2.0f;
+    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    const int reverse = invokeIndex % 2;
+
+    const int n = gridDim.x * gridDim.y * gridDim.z * blockDim.x * blockDim.y * blockDim.z;
+
+    const float radiansOffset = Deg2Rad((360.0f / n) * invokeIndex);
+    const float c = cos(radiansOffset);
+    const float s = sin(radiansOffset);
+
+    Vec2<float> dir = Vec2<float>(
+        (r_dir.x * c) - (r_dir.y * s), 
+        (r_dir.x * s) - (r_dir.y * c));
+
+    float stepsize = 10.0f;
+    uint8_t foundPlate = r_plateId;
+
+    Vec2<float> point = r_pivot + dir * stepsize;
+    float distance = stepsize;
+    
+    int iterations = 0;
+    while (iterations < 100 && stepsize > minStepsize) {
+        foundPlate = r_plateIds[Vec2<int>(point.x, point.y)];
+        if (foundPlate == r_plateId) {
+            point += dir * stepsize;
+            distance += stepsize;
+        }
+        else {
+            stepsize *= 0.5f;
+            point = point - (dir * stepsize);
+            distance -= stepsize;
+            stepsize *= 0.5f;
+        }
+
+        iterations++;
+    }
+
+    w_output[invokeIndex] = distance;
+
+    __syncthreads();
+
+    float approcimateWeight = 0;
+
+    int end = invokeIndex + (n / 2);
+    int samples = 0;
+    for (size_t i = invokeIndex + 1; i < end; i++)
+    {
+        approcimateWeight += w_output[i % n];
+        samples++;
+    }
+
+    float score = (approcimateWeight / samples) / distance;
+
+    __syncthreads();
+
+    w_output[invokeIndex] = score;
+
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+        int thread = 0;
+        float best = w_output[0];
+        for (size_t i = 1; i < n; i++)
+        {
+            if (w_output[i] > best) {
+                best = w_output[i];
+                thread = i;
+            }
+        }
+
+        printf("Best: %.i score: %.2f", thread, best);
+    }
+}
+

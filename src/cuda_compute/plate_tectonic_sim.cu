@@ -129,6 +129,10 @@ void PlateTectonicSim::executeIteration()
 
     processUplift << <numBlocksPixels, m_threadsPerBlock >> > (uplift.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
 
+
+    
+
+
     // TODO: Add when heightmap stuff is implemented
     if (const cudaError_t err = cudaMemcpy(m_heightMapTexture.getPointer(), heightMapTextureWrite.getPointer(), sizeof(float) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
         std::cerr << "Error memcpy heightmap: " << cudaGetErrorString(err) << std::endl;
@@ -140,9 +144,22 @@ void PlateTectonicSim::executeIteration()
     plateIdsTextureWrite.free();
     uplift.free();
 
+    
+
     updatePlateData<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, m_randStatesPlates, Vec2(m_maxPlates, 1));
 
     updatePlateMass<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), m_plateDataLookup);
+
+    Vec2<float> center = getPlateCenter(1, numBlocksPixels, m_threadsPerBlock);
+
+    Vec2<float> pivot;
+    Vec2<float> dir;
+    float* output;
+
+    cudaMalloc(&output, sizeof(float) * 10 * 10);
+
+    intersectPlate<<<1, 10>>>(1, center, Vec2<float>(1,0), m_plateIdsTexture.deviceTexture(), output);
+
 
     cudaDeviceSynchronize();
 
@@ -167,6 +184,36 @@ void PlateTectonicSim::executeIteration()
     const auto finish{std::chrono::steady_clock::now()};
     const std::chrono::duration<double> elapsed_seconds{finish - start};
     std::cout << "Iteration duration: " << elapsed_seconds.count() << std::endl;
+}
+
+Vec2<float> PlateTectonicSim::getPlateCenter(uint8_t plateId, int numBlocksPixels, int m_threadsPerBlock) {
+    float4* d_samples;
+    cudaMalloc(&d_samples, sizeof(float4) * numBlocksPixels);
+    findPlateCenter<<<numBlocksPixels, m_threadsPerBlock>>>(1, m_plateDataLookup, m_plateIdsTexture.deviceTexture(), d_samples);
+    float4* h_samples = new float4[numBlocksPixels];
+    cudaMemcpy(h_samples, d_samples, sizeof(float4) * numBlocksPixels, cudaMemcpyDeviceToHost);
+
+    float sinX = 0, cosX = 0, sinY = 0, cosY = 0;
+    for (int i = 0; i < numBlocksPixels; ++i) {
+        sinX += h_samples[i].x;
+        cosX += h_samples[i].y;
+        sinY += h_samples[i].z;
+        cosY += h_samples[i].w;
+    }
+
+    float angleX = atan2f(sinX, cosX);
+    float angleY = atan2f(sinY, cosY);
+
+    if (angleX < 0) angleX += CURAND_2PI;
+    if (angleY < 0) angleY += CURAND_2PI;
+
+    float midX = m_width * angleX / CURAND_2PI;
+    float midY = m_height * angleY / CURAND_2PI;
+
+    cudaFree(d_samples);
+    delete[] h_samples;
+
+    return Vec2<float>(midX, midY);
 }
 
 void PlateTectonicSim::copyPlateIdsGL() const
