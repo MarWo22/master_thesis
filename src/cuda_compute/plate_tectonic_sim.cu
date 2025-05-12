@@ -65,22 +65,46 @@ void PlateTectonicSim::initialize()
 
 void PlateTectonicSim::executeIteration()
 {
+    /*
+     * Initialization of textures and such
+     */
+
     const auto start{std::chrono::steady_clock::now()};
     std::cout << "Executing iteration" << std::endl;
 
     // Determine block numbers
     int numBlocksPixels = (m_width * m_height + 1) / m_threadsPerBlock;
     int numBlocksPlates = (m_maxPlates + m_threadsPerBlock - 1) / m_threadsPerBlock;
+    int numBlocksMaxPlatesMatrix = (MAX_PLATE_COUNT * MAX_PLATE_COUNT +1) / m_threadsPerBlock;
+
 
     // Allocate the pixel plate pairs as separate arrays
     CudaTextureHost<unsigned int> pixelIndicesCollisions;
     CudaTextureHost<uint8_t> plateIdsCollisions;
     pixelIndicesCollisions.initialize(m_width, m_height);
     plateIdsCollisions.initialize(m_width, m_height);
+
+    /*
+     * STEP ONE
+     * Move the pixels of plates according to their velocities and directions. Register any collisions into the
+     * pixelIndicesCollisions and plateIdsCollisions textures. pixelIndices holds the unsigned int index of the pixel in
+     * the original texture, and plateIds holds the plate moving to that pixel. The two textures are aligned, meaning that
+     * the pixelIndex at position n corresponds to the plateId ate position n.
+     */
+
     // Execute plate movement kernel
     testingPlateMovement<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_plateDataLookup,
                                                                  pixelIndicesCollisions.deviceTexture(),
                                                                  plateIdsCollisions.deviceTexture());
+
+    /*
+     * STEP TWO
+     * Perform a sort by key on the pixelIndices and plateIds textures to align the pixelIndices in ascending order while
+     * remaining the alignment. Position n in pixelIndices still corresponds to position n in plateIds
+     * This is followed by an exclusive prefix sum by key. The prefix sum output is stored in the exclusivePrefixSum texture
+     * This texture will now contain the occurrence index of the pixel, aligned with the pixelIndicesCollision and
+     * plateIdsCollisions texture
+     */
 
     const thrust::device_ptr<unsigned int> pixelIndicesThrust(pixelIndicesCollisions.getPointer());
     const thrust::device_ptr<uint8_t> plateIdsThrust(plateIdsCollisions.getPointer());
@@ -98,6 +122,15 @@ void PlateTectonicSim::executeIteration()
                                   exclusivePrefixSumThrust);
 
 
+    /*
+     * STEP THREE
+     * Go through each pair of entries of the pixelIndices, exclusivePrefixSum and plateCollisions textures and register
+     * the collisions to the associated pixels. The collisions are stored in plateCollisions, a 32bit texture where each
+     * entry has four packed 8bit values, indicating the presence of a plate in that pixel. A byte with value  0-255
+     * indicates the presence of plate (255-n) in that position . A value of n=0 indicates there is no plate in that
+     * specific byte. This allows for the detection of 0-4 plates in a pixel, any exceeds will be ignored.
+     */
+
     CudaTextureHost<uint32_t> plateCollisions;
     plateCollisions.initialize(m_width, m_height, 0);
 
@@ -114,10 +147,21 @@ void PlateTectonicSim::executeIteration()
     CudaTextureHost<float> heightMapTextureWrite;
     CudaTextureHost<uint8_t> plateIdsTextureWrite;
     CudaTextureHost<float> uplift;
+    CudaTextureHost<uint8_t> platesHaveCollided;
 
     heightMapTextureWrite.initialize(m_width, m_height);
     plateIdsTextureWrite.initialize(m_width, m_height);
     uplift.initialize(m_width, m_height, 0);
+    platesHaveCollided.initialize(m_maxPlates, m_maxPlates, 0);
+
+    /*
+     * STEP FOUR
+     * Main bulk of work. Each pixel updates depending on the presence of plates. If there are no plates present in
+     * a pixel, it indicates the divergence of plates, triggering the creation of new oceanic crust in that plate. This
+     * new crust is assigned to the plate last seen in this location (CURRENTLY RANDOM CHOSEN, BUT SHOULD LIKELY CHANGE).
+     * The presence of one plate indicates a simple movement, and more indicates a convergence. Generation of new crust
+     * and movement of original crust is dealt with in this step.
+     */
 
 
     processCollisions<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(),
@@ -125,7 +169,12 @@ void PlateTectonicSim::executeIteration()
                                                               plateCollisions.deviceTexture(), m_plateDataLookup,
                                                               plateIdsTextureWrite.deviceTexture(),
                                                               heightMapTextureWrite.deviceTexture(),
-                                                              uplift.deviceTexture());
+                                                              uplift.deviceTexture(), platesHaveCollided.deviceTexture());
+
+    /*
+     * STEP FIVE
+     * Perform uplift
+     */
 
     processUplift << <numBlocksPixels, m_threadsPerBlock >> > (uplift.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
 
@@ -144,11 +193,27 @@ void PlateTectonicSim::executeIteration()
     plateIdsTextureWrite.free();
     uplift.free();
 
-    
-
+    /*
+     * STEP SIX
+     * Apply the movement to the plates, and update the velocities and directions according to collisions.
+     */
     updatePlateData<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, m_randStatesPlates, Vec2(m_maxPlates, 1));
 
-    updatePlateMass<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), m_plateDataLookup);
+    uint8_t *plateMergeIds;
+    if (const cudaError_t err = cudaMalloc(&plateMergeIds, sizeof(uint8_t) * MAX_PLATE_COUNT); err != cudaSuccess)
+        std::cerr << "Error malloc plateMergeIds: " << cudaGetErrorString(err) << std::endl;
+    if (const cudaError_t err = cudaMemset(plateMergeIds, MAX_PLATE_COUNT, MAX_PLATE_COUNT * sizeof(uint8_t)); err != cudaSuccess)
+        std::cerr << "Error memset cuda texture: " << cudaGetErrorString(err) << std::endl;
+
+    /*
+     * STEP SEVEN
+     * Final maxplatematrix and full-pixel pass that allow for the merging and splitting of plates, and the updates of
+     * mass and sizes
+     */
+
+    determinePlateMerge<<<numBlocksMaxPlatesMatrix, m_threadsPerBlock>>>(platesHaveCollided.deviceTexture(), m_plateDataLookup, plateMergeIds);
+
+    finalPixelPass<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), plateMergeIds, m_plateDataLookup);
 
     Vec2<float> center = getPlateCenter(1, numBlocksPixels, m_threadsPerBlock);
 

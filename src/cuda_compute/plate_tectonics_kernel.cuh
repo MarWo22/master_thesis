@@ -6,6 +6,7 @@
 #include "plate_data.h"
 #include "vec2.cuh"
 
+#define MAX_PLATE_COUNT 255
 
 __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData *plateData, const Vec2<float> *seeds,
                              int numSeeds);
@@ -14,7 +15,8 @@ __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idText
                                             const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData);
 
 
-__global__ void updatePlateMass(const CudaTexture<uint8_t> *r_idTexturePtr, const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData);
+__global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
+                                const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds, PlateData *w_plateData);
 
 __global__ void initPlatesRngGen(curandState *rngStates, unsigned int seed, Vec2<int> callSize);
 
@@ -54,7 +56,7 @@ __global__ void intersectPlate(uint8_t r_plateId, Vec2<float> r_pivot, const Vec
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *r_plateLookup,
                                   CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr,
-                                  CudaTexture<float> *w_convergenceMapPtr);
+                                  CudaTexture<float> *w_convergenceMapPtr, CudaTexture<uint8_t> *w_platesHaveCollidedPtr);
 
 __global__ void processUplift(CudaTexture<float> *w_upliftMapPtr, CudaTexture<float> *w_heightMapPtr, int size,
                               float noiseFrequency, float noiseIntensity, int seed);
@@ -66,11 +68,15 @@ __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, Cud
 __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                    const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
                                    CudaTexture<float> *w_heightMapPtr, CudaTexture<float> *w_convergenceMapPtr,
+                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
                                    uint8_t plateA, uint8_t plateB, uint8_t plateC,
                                    uint8_t plateD, unsigned int invokeIndex, int *localSizeChange);
 
 __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                 const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
                                 CudaTexture<float> *w_heightMapPtr, uint8_t originId, unsigned int invokeIndex);
+
+__global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveCollidedPtr, const PlateData *r_plateLookup,
+                                    uint8_t *w_plateMergeIds);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH
