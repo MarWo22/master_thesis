@@ -57,6 +57,7 @@ add_executable(PlateTectonics
         src/config.h
         src/cuda_compute/vec2.cuh
         src/cuda_compute/plate_data.h
+        src/cuda_compute/iteration_statistics.h
         src/cuda_compute/plate_tectonics_kernel.cu
         src/cuda_compute/plate_tectonics_kernel.cuh
         src/cuda_compute/cuda_helper.cuh
@@ -67,7 +68,7 @@ add_executable(PlateTectonics
         src/generation_settings.h
         src/cuda_compute/erosion_kernel.cu
         src/cuda_compute/erosion_kernel.cuh
-)
+ )
 
 set_target_properties(PlateTectonics PROPERTIES
         LINKER_LANGUAGE CXX

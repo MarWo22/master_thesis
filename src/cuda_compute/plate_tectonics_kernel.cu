@@ -8,6 +8,7 @@
 #include "cuda_noise.cuh"
 
 #include "math_functions.h"
+#include "iteration_statistics.h"
 
 
 // These should become dynamic or as input parameters:
@@ -85,7 +86,9 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
 }
 
 __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
-                                const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds, PlateData *w_plateData)
+                                const CudaTexture<float> *r_heightTexturePtr, 
+                                const uint8_t *r_plateMergeIds, 
+                                PlateData *w_plateData)
 {
     __shared__ float localMassSum[MAX_PLATE_COUNT];
     __shared__ int localSize[MAX_PLATE_COUNT];
@@ -667,6 +670,7 @@ __global__ void updatePlateData(PlateData *plateLookup, curandState *const rngSt
 
     current.mass = 0; // Will be updated in the next pixel kernel.
     current.size = 0; // Will be updated in the next pixel kernel.
+    current.used = false;
 
     plateLookup[invokeIndex] = current;
 }
@@ -735,7 +739,7 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
     (*w_velocityPtr)[invokeIndex] = {plateData.direction.x, plateData.direction.x};
 }
 
-__global__ void findPlateCenter(uint8_t plateId, PlateData* plateLookup, const CudaTexture<uint8_t>* r_plateIdsPtr, float4* samples) {
+__global__ void findPlateCenter(const IterationStatistics* r_stats, PlateData* plateLookup, const CudaTexture<uint8_t>* r_plateIdsPtr, float4* samples) {
     __shared__ float4 angularCoords[256];
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_plateIdsPtr->size()))
@@ -745,7 +749,7 @@ __global__ void findPlateCenter(uint8_t plateId, PlateData* plateLookup, const C
     Vec2<int> coord = r_plateIds.indexToCoordinate(invokeIndex);
 
     uint8_t currentId = r_plateIds[invokeIndex];
-    if (coord.x % 10 == 0 && coord.y % 10 == 0 && currentId == plateId) {
+    if (coord.x % 10 == 0 && coord.y % 10 == 0 && currentId == r_stats->largestPlateId) {
         Vec2<float> floatCoord = Vec2<float>(coord.x, coord.y);
 
         float angleX = CURAND_2PI * floatCoord.x / r_plateIds.size().x;
@@ -776,32 +780,38 @@ __global__ void findPlateCenter(uint8_t plateId, PlateData* plateLookup, const C
     }
 }
 
-__global__ void intersectPlate(const uint8_t r_plateId, const Vec2<float> r_pivot, const Vec2<float> r_dir, const CudaTexture<uint8_t>* r_plateIdsPtr, float* w_output) {
-    const unsigned int invokeIndex = getInvokeIndex();
-    const float minStepsize = 2.0f;
-    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
-    const int reverse = invokeIndex % 2;
-
-    const int n = gridDim.x * gridDim.y * gridDim.z * blockDim.x * blockDim.y * blockDim.z;
-
-    const float radiansOffset = Deg2Rad((360.0f / n) * invokeIndex);
+__device__ Vec2<float> getDirForInvokeIndex(int index, Vec2<float> start, int n) 
+{
+    const float radiansOffset = Deg2Rad((360.0f / n) * index);
     const float c = cos(radiansOffset);
     const float s = sin(radiansOffset);
 
-    Vec2<float> dir = Vec2<float>(
-        (r_dir.x * c) - (r_dir.y * s), 
-        (r_dir.x * s) - (r_dir.y * c));
+    return Vec2<float>(
+        (start.x * c) - (start.y * s),
+        (start.x * s) - (start.y * c));
+}
+
+__global__ void findPlausibleSplitLine(const IterationStatistics* r_stats, const Vec2<float> r_pivot, const CudaTexture<uint8_t>* r_plateIdsPtr, Vec2<float>* output) {
+    extern __shared__ float w_l_buffer[];
+    float* bufferPtr = w_l_buffer;
+    
+    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    const unsigned int invokeIndex = getInvokeIndex();
+    const int n = gridDim.x * gridDim.y * gridDim.z * blockDim.x * blockDim.y * blockDim.z;
+    const Vec2<float> baseDir = Vec2<float>(1, 0);
+    const float minStepsize = 2.0f;
+
+    Vec2<float> dir = getDirForInvokeIndex(invokeIndex, baseDir, n);
 
     float stepsize = 10.0f;
-    uint8_t foundPlate = r_plateId;
-
+    uint8_t foundPlate = r_stats->largestPlateId;
     Vec2<float> point = r_pivot + dir * stepsize;
     float distance = stepsize;
     
     int iterations = 0;
     while (iterations < 100 && stepsize > minStepsize) {
         foundPlate = r_plateIds[Vec2<int>(point.x, point.y)];
-        if (foundPlate == r_plateId) {
+        if (foundPlate == r_stats->largestPlateId) {
             point += dir * stepsize;
             distance += stepsize;
         }
@@ -815,7 +825,7 @@ __global__ void intersectPlate(const uint8_t r_plateId, const Vec2<float> r_pivo
         iterations++;
     }
 
-    w_output[invokeIndex] = distance;
+    bufferPtr[invokeIndex] = distance;
 
     __syncthreads();
 
@@ -825,7 +835,7 @@ __global__ void intersectPlate(const uint8_t r_plateId, const Vec2<float> r_pivo
     int samples = 0;
     for (size_t i = invokeIndex + 1; i < end; i++)
     {
-        approcimateWeight += w_output[i % n];
+        approcimateWeight += bufferPtr[i % n];
         samples++;
     }
 
@@ -833,22 +843,109 @@ __global__ void intersectPlate(const uint8_t r_plateId, const Vec2<float> r_pivo
 
     __syncthreads();
 
-    w_output[invokeIndex] = score;
+    bufferPtr[invokeIndex] = score;
 
     __syncthreads();
 
-    if (threadIdx.x == 0) {
+    if (invokeIndex == 0) {
         int thread = 0;
-        float best = w_output[0];
-        for (size_t i = 1; i < n; i++)
+        int oppposite = n * 0.5;
+        float best = bufferPtr[0] + bufferPtr[oppposite];
+        for (size_t i = 1; i < n * 0.5; i++)
         {
-            if (w_output[i] > best) {
-                best = w_output[i];
+            if (bufferPtr[i] + bufferPtr[i + oppposite] > best) {
+                best = bufferPtr[i] + bufferPtr[i + oppposite];
                 thread = i;
             }
         }
 
-        printf("Best: %.i score: %.2f", thread, best);
+        *output = getDirForInvokeIndex(thread, baseDir, n);
+        
+        printf("PlateId: %.i score: %.2f pivot: %.2f %.2f size: %.i \n", r_stats->largestPlateId, best, output->x, output->y, r_stats->largestValue);
     }
 }
 
+__global__ void splitPlate(const IterationStatistics* r_stats, const uint8_t* r_newPlateId, const Vec2<float> r_pivot, const Vec2<float>* r_dir, CudaTexture<uint8_t>* w_plateIdsPtr, PlateData* plateLookup) 
+{    
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    CudaTexture<uint8_t>& w_plateIds = *w_plateIdsPtr;
+    
+    if (invokeIndex == 0) 
+    {
+        printf("splitting from %.i to %.i \n", r_stats->largestPlateId, *r_newPlateId);
+
+        plateLookup[*r_newPlateId].direction += Vec2<float>(r_dir->y, -r_dir->x);
+        plateLookup[*r_newPlateId].direction = plateLookup[*r_newPlateId].direction.normalized();
+
+        plateLookup[*r_newPlateId].mass = plateLookup[r_stats->largestPlateId].mass * 0.5;
+        plateLookup[*r_newPlateId].size = plateLookup[r_stats->largestPlateId].size * 0.5;
+        plateLookup[*r_newPlateId].velocity = plateLookup[r_stats->largestPlateId].velocity;
+
+
+
+        plateLookup[r_stats->largestPlateId].direction += Vec2<float>(-r_dir->y, r_dir->x);
+        plateLookup[r_stats->largestPlateId].direction = plateLookup[r_stats->largestPlateId].direction.normalized();
+
+        plateLookup[r_stats->largestPlateId].mass = plateLookup[r_stats->largestPlateId].mass * 0.5;
+        plateLookup[r_stats->largestPlateId].size = plateLookup[r_stats->largestPlateId].size * 0.5;
+
+
+
+
+
+        
+
+    }
+
+    if (w_plateIds[invokeIndex] == r_stats->largestPlateId) 
+    {
+        const Vec2<int> coordinate = w_plateIds.indexToCoordinate(invokeIndex);
+
+        float distanceToLine = (coordinate.x - r_pivot.x) * r_dir->y - (coordinate.y - r_pivot.y) * r_dir->x;
+
+        float halfDistance = min(w_plateIds.size().x / abs(r_dir->x), w_plateIds.size().y / abs(r_dir->y)) * sqrt(r_dir->x * r_dir->x + r_dir->y * r_dir->y);
+
+        if ((distanceToLine > 0.0) ^ (distanceToLine > halfDistance)) {
+            w_plateIds[invokeIndex] = *r_newPlateId;
+        }
+    }
+}
+
+__global__ void statisticsPass(PlateData* w_plateData, IterationStatistics* w_stats) {
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (invokeIndex == 0) {
+        w_stats->heaviestValue = 0;
+        w_stats->largestValue = 0;
+        for (size_t i = 0; i < MAX_PLATE_COUNT; i++)
+        {
+            if (w_stats->heaviestValue < w_plateData[i].mass) {
+                w_stats->heaviestValue = w_plateData[i].mass;
+                w_stats->heaviestPlateId = i;
+            }
+
+            if (w_stats->largestValue < w_plateData[i].size) {
+                w_stats->largestValue = w_plateData[i].size;
+                w_stats->largestPlateId = i;
+            }
+            w_plateData[i].used = w_plateData[i].size > 0;
+        }
+        printf("biggest: %d heaviest: %d \n", static_cast<int>(w_stats->largestPlateId), static_cast<int>(w_stats->heaviestPlateId));
+    }
+}
+
+__global__ void selectUnusedPlateId(PlateData* plateLookup, uint8_t* plateId) {
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (invokeIndex == 0) {
+        for (size_t i = 0; i < MAX_PLATE_COUNT; i++)
+        {
+            if (!plateLookup[i].used) {
+                *plateId = i;
+                plateLookup[i].used = true;
+                printf("Selected: %.i \n", i);
+                break;
+            }
+        }
+    }
+}

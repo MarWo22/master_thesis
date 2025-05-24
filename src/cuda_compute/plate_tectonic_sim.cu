@@ -24,6 +24,7 @@ PlateTectonicSim::PlateTectonicSim(const int width, const int height, int seed, 
     , m_numStartingPlates(numStartingPlates)
     , m_interopManager(interopManager)
     , m_randStatesPlates(nullptr)
+    , m_iterationStats(nullptr)
 {
     // FluxVelocityErosion erosion = FluxVelocityErosion(height, width);
     //
@@ -214,17 +215,34 @@ void PlateTectonicSim::executeIteration()
     determinePlateMerge<<<numBlocksMaxPlatesMatrix, m_threadsPerBlock>>>(platesHaveCollided.deviceTexture(), m_plateDataLookup, plateMergeIds);
 
     finalPixelPass<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), plateMergeIds, m_plateDataLookup);
+    
+    statisticsPass << <1, 1 >> > (m_plateDataLookup, m_iterationStats);
 
-    Vec2<float> center = getPlateCenter(1, numBlocksPixels, m_threadsPerBlock);
+    int h_largest;
+    int* d_largest = &(m_iterationStats->largestValue);
+    cudaMemcpy(&h_largest, d_largest, sizeof(int), cudaMemcpyDeviceToHost);
 
-    Vec2<float> pivot;
-    Vec2<float> dir;
-    float* output;
+    printf("largest: %.i", h_largest);
+    if (h_largest > 120000) {
+        Vec2<float> h_pivot = getPlateCenter(numBlocksPixels, m_threadsPerBlock);
+        Vec2<float>* d_dir;
 
-    cudaMalloc(&output, sizeof(float) * 10 * 10);
+        if (const cudaError_t err = cudaMalloc(&d_dir, sizeof(Vec2<float>)); err != cudaSuccess)
+            std::cerr << "Error malloc plateMergeIds: " << cudaGetErrorString(err) << std::endl;
 
-    intersectPlate<<<1, 10>>>(1, center, Vec2<float>(1,0), m_plateIdsTexture.deviceTexture(), output);
+        findPlausibleSplitLine << <1, 10, 10 * sizeof(float) >> > (m_iterationStats, h_pivot, m_plateIdsTexture.deviceTexture(), d_dir);
 
+        uint8_t* newPlateId;
+        if (const cudaError_t err = cudaMalloc(&newPlateId, sizeof(uint8_t)); err != cudaSuccess)
+            std::cerr << "Error malloc plateMergeIds: " << cudaGetErrorString(err) << std::endl;
+
+        selectUnusedPlateId << <1, 1 >> > (m_plateDataLookup, newPlateId);
+
+        splitPlate << <numBlocksPixels, m_threadsPerBlock >> > (m_iterationStats, newPlateId, h_pivot, d_dir, m_plateIdsTexture.deviceTexture(), m_plateDataLookup);
+
+        cudaFree(newPlateId);
+        cudaFree(d_dir);
+    }
 
     cudaDeviceSynchronize();
 
@@ -251,10 +269,10 @@ void PlateTectonicSim::executeIteration()
     std::cout << "Iteration duration: " << elapsed_seconds.count() << std::endl;
 }
 
-Vec2<float> PlateTectonicSim::getPlateCenter(uint8_t plateId, int numBlocksPixels, int m_threadsPerBlock) {
+Vec2<float> PlateTectonicSim::getPlateCenter(int numBlocksPixels, int m_threadsPerBlock) {
     float4* d_samples;
     cudaMalloc(&d_samples, sizeof(float4) * numBlocksPixels);
-    findPlateCenter<<<numBlocksPixels, m_threadsPerBlock>>>(1, m_plateDataLookup, m_plateIdsTexture.deviceTexture(), d_samples);
+    findPlateCenter<<<numBlocksPixels, m_threadsPerBlock>>>(m_iterationStats, m_plateDataLookup, m_plateIdsTexture.deviceTexture(), d_samples);
     float4* h_samples = new float4[numBlocksPixels];
     cudaMemcpy(h_samples, d_samples, sizeof(float4) * numBlocksPixels, cudaMemcpyDeviceToHost);
 
@@ -352,6 +370,10 @@ void PlateTectonicSim::initializeTectonics()
 
     cudaFree(voronoiSeedsDevice);
     cudaDeviceSynchronize();
+
+    if (const cudaError_t err = cudaMalloc(&m_iterationStats, sizeof(IterationStatistics)); err != cudaSuccess)
+        std::cerr << "Error malloc Simulation Stats: " << cudaGetErrorString(err) << std::endl;
+
 }
 
 std::vector<PlateData> PlateTectonicSim::initializePlateData(std::default_random_engine &generator,

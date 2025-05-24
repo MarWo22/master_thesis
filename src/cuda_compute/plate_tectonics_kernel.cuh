@@ -5,6 +5,7 @@
 #include "cuda_texture.cuh"
 #include "plate_data.h"
 #include "vec2.cuh"
+#include "iteration_statistics.h"
 
 #define MAX_PLATE_COUNT 255
 
@@ -16,7 +17,11 @@ __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idText
 
 
 __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
-                                const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds, PlateData *w_plateData);
+                                const CudaTexture<float> *r_heightTexturePtr, 
+                                const uint8_t *r_plateMergeIds, 
+                                PlateData *w_plateData);
+
+__global__ void statisticsPass(PlateData* w_plateData, IterationStatistics* w_stats);
 
 __global__ void initPlatesRngGen(curandState *rngStates, unsigned int seed, Vec2<int> callSize);
 
@@ -49,9 +54,13 @@ __global__ void createVelocityTexture(const CudaTexture<uint8_t> *r_plateIdsPtr,
 __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateData,
                                        CudaTexture<float2> *w_velocityPtr);
 
-__global__ void findPlateCenter(uint8_t plateId, PlateData* plateLookup, const CudaTexture<uint8_t>* r_plateIdsPtr, float4* samples);
+__global__ void findPlateCenter(const IterationStatistics* r_stats, PlateData* plateLookup, const CudaTexture<uint8_t>* r_plateIdsPtr, float4* samples);
 
-__global__ void intersectPlate(uint8_t r_plateId, Vec2<float> r_pivot, const Vec2<float> r_dir, const CudaTexture<uint8_t>* r_plateIdsPtr, float* w_output);
+__global__ void findPlausibleSplitLine(const IterationStatistics* r_stats, const Vec2<float> r_pivot, const CudaTexture<uint8_t>* r_plateIdsPtr, Vec2<float>* output);
+
+__global__ void splitPlate(const IterationStatistics* r_stats, const uint8_t* r_newPlateId, const Vec2<float> r_pivot, const Vec2<float>* r_dir, CudaTexture<uint8_t>* r_plateIdsPtr, PlateData* plateLookup);
+
+__global__ void selectUnusedPlateId(PlateData* plateLookup, uint8_t* plateId);
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *r_plateLookup,
