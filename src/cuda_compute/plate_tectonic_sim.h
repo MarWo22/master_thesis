@@ -8,6 +8,7 @@
 #include "cuda_texture.cuh"
 #include "plate_data.h"
 #include "vec2.cuh"
+#include "iteration_statistics.h"
 
 class PlateTectonicSim {
 
@@ -28,6 +29,7 @@ class PlateTectonicSim {
 
     PlateData *m_plateDataLookup;
     curandState *m_randStatesPlates;
+    IterationStatistics *m_iterationStats;
 
     // General execution parameters
     int m_threadsPerBlock = 256;
@@ -50,6 +52,8 @@ public:
     void executeIteration();
 
     void copyCCL() const;
+    
+    Vec2<float> getPlateCenter(int numBlocksPixels, int m_threadsPerBlock);
 
 private:
 

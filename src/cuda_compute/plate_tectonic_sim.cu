@@ -27,6 +27,7 @@ PlateTectonicSim::PlateTectonicSim(const int width, const int height, int seed, 
     , m_numStartingPlates(numStartingPlates)
     , m_interopManager(interopManager)
     , m_randStatesPlates(nullptr)
+    , m_iterationStats(nullptr)
 {
     // FluxVelocityErosion erosion = FluxVelocityErosion(height, width);
     //
@@ -181,6 +182,10 @@ void PlateTectonicSim::executeIteration()
 
     processUplift << <numBlocksPixels, m_threadsPerBlock >> > (uplift.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
 
+
+    
+
+
     // TODO: Add when heightmap stuff is implemented
     if (const cudaError_t err = cudaMemcpy(m_heightMapTexture.getPointer(), heightMapTextureWrite.getPointer(), sizeof(float) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
         std::cerr << "Error memcpy heightmap: " << cudaGetErrorString(err) << std::endl;
@@ -213,6 +218,34 @@ void PlateTectonicSim::executeIteration()
     determinePlateMerge<<<numBlocksMaxPlatesMatrix, m_threadsPerBlock>>>(platesHaveCollided.deviceTexture(), m_plateDataLookup, plateMergeIds);
 
     finalPixelPass<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), plateMergeIds, m_plateDataLookup);
+    
+    statisticsPass << <1, 1 >> > (m_plateDataLookup, m_iterationStats);
+
+    int h_largest;
+    int* d_largest = &(m_iterationStats->largestValue);
+    cudaMemcpy(&h_largest, d_largest, sizeof(int), cudaMemcpyDeviceToHost);
+
+    printf("largest: %.i", h_largest);
+    if (h_largest > 120000) {
+        Vec2<float> h_pivot = getPlateCenter(numBlocksPixels, m_threadsPerBlock);
+        Vec2<float>* d_dir;
+
+        if (const cudaError_t err = cudaMalloc(&d_dir, sizeof(Vec2<float>)); err != cudaSuccess)
+            std::cerr << "Error malloc plateMergeIds: " << cudaGetErrorString(err) << std::endl;
+
+        findPlausibleSplitLine << <1, 10, 10 * sizeof(float) >> > (m_iterationStats, h_pivot, m_plateIdsTexture.deviceTexture(), d_dir);
+
+        uint8_t* newPlateId;
+        if (const cudaError_t err = cudaMalloc(&newPlateId, sizeof(uint8_t)); err != cudaSuccess)
+            std::cerr << "Error malloc plateMergeIds: " << cudaGetErrorString(err) << std::endl;
+
+        selectUnusedPlateId << <1, 1 >> > (m_plateDataLookup, newPlateId);
+
+        splitPlate << <numBlocksPixels, m_threadsPerBlock >> > (m_iterationStats, newPlateId, h_pivot, d_dir, m_plateIdsTexture.deviceTexture(), m_plateDataLookup);
+
+        cudaFree(newPlateId);
+        cudaFree(d_dir);
+    }
 
     cudaDeviceSynchronize();
 
@@ -379,6 +412,36 @@ void PlateTectonicSim::copyCCL() const // TODO: DEBUGGING ONLY
     m_interopManager->copyConnection("cclTexture", m_cllPlateIds.getPointer());
 }
 
+Vec2<float> PlateTectonicSim::getPlateCenter(int numBlocksPixels, int m_threadsPerBlock) {
+    float4* d_samples;
+    cudaMalloc(&d_samples, sizeof(float4) * numBlocksPixels);
+    findPlateCenter<<<numBlocksPixels, m_threadsPerBlock>>>(m_iterationStats, m_plateDataLookup, m_plateIdsTexture.deviceTexture(), d_samples);
+    float4* h_samples = new float4[numBlocksPixels];
+    cudaMemcpy(h_samples, d_samples, sizeof(float4) * numBlocksPixels, cudaMemcpyDeviceToHost);
+
+    float sinX = 0, cosX = 0, sinY = 0, cosY = 0;
+    for (int i = 0; i < numBlocksPixels; ++i) {
+        sinX += h_samples[i].x;
+        cosX += h_samples[i].y;
+        sinY += h_samples[i].z;
+        cosY += h_samples[i].w;
+    }
+
+    float angleX = atan2f(sinX, cosX);
+    float angleY = atan2f(sinY, cosY);
+
+    if (angleX < 0) angleX += CURAND_2PI;
+    if (angleY < 0) angleY += CURAND_2PI;
+
+    float midX = m_width * angleX / CURAND_2PI;
+    float midY = m_height * angleY / CURAND_2PI;
+
+    cudaFree(d_samples);
+    delete[] h_samples;
+
+    return Vec2<float>(midX, midY);
+}
+
 void PlateTectonicSim::copyPlateIdsGL() const
 {
     m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
@@ -452,6 +515,10 @@ void PlateTectonicSim::initializeTectonics()
     cudaDeviceSynchronize();
 
     m_cllPlateIds.initialize(m_width, m_height); // TODO: ONLY FOR DEBUG
+    
+    if (const cudaError_t err = cudaMalloc(&m_iterationStats, sizeof(IterationStatistics)); err != cudaSuccess)
+        std::cerr << "Error malloc Simulation Stats: " << cudaGetErrorString(err) << std::endl;
+
 }
 
 std::vector<PlateData> PlateTectonicSim::initializePlateData(std::default_random_engine &generator,
