@@ -15,7 +15,8 @@ void Terrain::Vertex::init(const int xPos, const int zPos, const int sizeX, cons
 
 Terrain::Terrain(const int sizeX, const int sizeZ)
     : m_heightmapShader(nullptr)
-    , m_platesShader(nullptr)
+    , m_platesColoredShader(nullptr)
+    , m_platesBorderShader(nullptr)
     , m_regionShader(nullptr)
     , m_velocityShader(nullptr)
     , m_directionShader(nullptr)
@@ -25,7 +26,7 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
     , m_velocityTexture(nullptr)
     , m_directionTexture(nullptr)
     , m_upliftTexture(nullptr)
-    , m_sizeX(sizeX)
+    , m_cclTexture(nullptr), m_sizeX(sizeX)
     , m_sizeZ(sizeZ)
     , m_vao(0)
     , m_vb(0)
@@ -35,7 +36,8 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
 void Terrain::init()
 {
     m_heightmapShader = getShader("heightMap");
-    m_platesShader = getShader("plates");
+    m_platesColoredShader = getShader("platesColored");
+    m_platesBorderShader = getShader("platesBorder");
     m_regionShader = getShader("region");
     m_velocityShader = getShader("velocity");
     m_directionShader = getShader("direction");
@@ -45,6 +47,7 @@ void Terrain::init()
     m_velocityTexture = getTexture("velocityTexture");
     m_directionTexture = getTexture("directionTexture");
     m_upliftTexture = getTexture("upliftTexture");
+    m_cclTexture = getTexture("cclTexture");
     createGlState();
     populateBuffers();
 }
@@ -59,8 +62,8 @@ void Terrain::render(const Camera &camera)
             m_heightmapTexture->bind(GL_TEXTURE0);
             break;
         case GenerationSettings::RenderMode::SHOW_PLATES:
-            m_platesShader->bind();
-            m_platesShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+            m_platesColoredShader->bind();
+            m_platesColoredShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_platesTexture->bind(GL_TEXTURE1);
             break;
@@ -87,6 +90,13 @@ void Terrain::render(const Camera &camera)
             m_velocityShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_upliftTexture->bind(GL_TEXTURE1);
+            break;
+        case GenerationSettings::RenderMode::SHOW_CCL_AREAS:
+            m_platesColoredShader->bind();
+            m_platesColoredShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+            m_heightmapTexture->bind(GL_TEXTURE0);
+            m_cclTexture
+        ->bind(GL_TEXTURE1);
             break;
         default:
             std::cerr << "Undefined render mode" << std::endl;

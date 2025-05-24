@@ -24,6 +24,8 @@ class PlateTectonicSim {
     CudaTextureHost<uint8_t> m_plateIdsTexture;
     CudaTextureHost<float> m_overlapCrustTexture;
 
+    CudaTextureHost<uint8_t> m_cllPlateIds; // TODO: ONLY FOR DEDUG
+
     PlateData *m_plateDataLookup;
     curandState *m_randStatesPlates;
 
@@ -46,6 +48,8 @@ public:
     void initialize();
 
     void executeIteration();
+
+    void copyCCL() const;
 
 private:
 

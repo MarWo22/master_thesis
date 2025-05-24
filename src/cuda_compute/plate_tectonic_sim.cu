@@ -1,8 +1,10 @@
 #include "plate_tectonic_sim.h"
 
 #include <iostream>
+#include <map>
 #include <random>
 
+#include "ccl.cuh"
 #include "random_texture.h"
 #include "cuda_gl_interop_manager.h"
 #include "plate_data.h"
@@ -14,6 +16,7 @@ extern GenerationSettings generationSettings;
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
+#include <thrust/iterator/constant_iterator.h>
 
 PlateTectonicSim::PlateTectonicSim(const int width, const int height, int seed, const int numStartingPlates,
                                    CudaGlInteropManager *interopManager)
@@ -213,6 +216,137 @@ void PlateTectonicSim::executeIteration()
 
     cudaDeviceSynchronize();
 
+    /*
+     * CCL SECTION
+     */
+    CudaTextureHost<unsigned int> labels;
+    labels.initialize(m_width , m_height);
+
+    // First, apply 8-way CCL to generate a texture of labels
+    initializeCCL<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+    analysisCCL<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+    labelReductionCCL<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+    analysisCCL<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+
+    // Allocate two arrays to hold the counts of labels and unique labels. Allocating 1% of the original texture size
+    // This is with the assumption that it is nearly impossible for 1% of all pixels to become unique plates
+    unsigned int *labelCounts;
+    unsigned int *uniqueLabels;
+    unsigned int *labelsCopy;
+
+    if (const cudaError_t err = cudaMalloc(&labelCounts, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
+        std::cerr << "Error malloc labelCounts: " << cudaGetErrorString(err) << "\n";
+
+    if (const cudaError_t err = cudaMalloc(&uniqueLabels, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
+        std::cerr << "Error malloc uniqueLabels: " << cudaGetErrorString(err) << "\n";
+
+    if (const cudaError_t err = cudaMalloc(&labelsCopy, sizeof(unsigned int) * m_width * m_height); err != cudaSuccess)
+        std::cerr << "Error malloc labelsCopy: " << cudaGetErrorString(err) << "\n";
+
+    if (const cudaError_t err = cudaMemcpy(labelsCopy, labels.getPointer(), sizeof(unsigned int) * m_width * m_height, cudaMemcpyDeviceToDevice); err != cudaSuccess)
+        std::cerr << "Error memcpy labelsCopy: " << cudaGetErrorString(err) << "\n";
+
+    // Create thrust device ptr wrappers
+    const thrust::device_ptr<unsigned int> labelsCopyThrust(labelsCopy);
+    const thrust::device_ptr<unsigned int> labelCountsThrust(labelCounts);
+    const thrust::device_ptr<unsigned int> uniqueLabelsThrust(uniqueLabels);
+
+    std::vector<unsigned int> labelsHost(m_width * m_height);
+
+    if (const cudaError_t err = cudaMemcpy(labelsHost.data(), labelsCopy, sizeof(unsigned int) * m_width * m_height, cudaMemcpyDeviceToHost); err != cudaSuccess)
+        std::cerr << "Error memcpy labelsHost: " << cudaGetErrorString(err) << "\n";
+
+    // First, sort the labels
+    sort(labelsCopyThrust, labelsCopyThrust + m_height * m_width,
+                        thrust::greater<unsigned int>());
+
+
+    // Second, apply a reduce by key to create an array of key:count pairs. Capture the end iterator such that we are
+    // aware of the size of the final array.
+    const auto resultEnd = reduce_by_key(labelsCopyThrust, labelsCopyThrust + m_height * m_width, thrust::make_constant_iterator<int>(1), uniqueLabelsThrust, labelCountsThrust);
+    cudaFree(labelsCopy);
+    // We can use the iterator to calculate the number of unique labels. This is clamped to max_plate_count, as we cannot
+    // allocate more plates than the max count anyway.
+    const int numUniqueLabels = min(static_cast<int>(resultEnd.first - uniqueLabelsThrust), MAX_PLATE_COUNT);
+
+    // Third, sort the section of the labels:count pairs that has been initialized in the previous step. This gives us
+    // the pairs sorted by counts, in descending order
+    sort_by_key(labelCountsThrust, labelCountsThrust + numUniqueLabels, uniqueLabelsThrust, thrust::greater<unsigned int>());
+
+    uint8_t *originalPlateIds;
+
+    if (const cudaError_t err = cudaMalloc(&originalPlateIds, sizeof(uint8_t) * MAX_PLATE_COUNT); err != cudaSuccess)
+        std::cerr << "Error malloc originalPlateIds: " << cudaGetErrorString(err) << "\n";
+
+    if (const cudaError_t err = cudaMemset(originalPlateIds, MAX_PLATE_COUNT, sizeof(uint8_t)); err != cudaSuccess)
+        std::cerr << "Error memset originalPlateIds: " << cudaGetErrorString(err) << "\n";
+
+    unsigned int *unassignedIndices;
+
+    if (const cudaError_t err = cudaMalloc(&unassignedIndices, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
+        std::cerr << "Error malloc unassignedIndices: " << cudaGetErrorString(err) << "\n";
+
+    int *unassignedIndicesCount;
+
+    if (const cudaError_t err = cudaMalloc(&unassignedIndicesCount, sizeof(int)); err != cudaSuccess)
+        std::cerr << "Error malloc unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
+
+    if (const cudaError_t err = cudaMemset(unassignedIndicesCount, 0, sizeof(int)); err != cudaSuccess)
+        std::cerr << "Error memset unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
+
+
+    assignNewPlateIds<<<numBlocksPixels, m_threadsPerBlock>>>(labels.deviceTexture(), uniqueLabels, labelCounts, originalPlateIds, m_plateIdsTexture.deviceTexture(), unassignedIndices, unassignedIndicesCount, numUniqueLabels);
+
+    copyToUint8Texture<<<numBlocksPixels, m_threadsPerBlock>>>(labels.deviceTexture(), m_cllPlateIds.deviceTexture(), uniqueLabels, numUniqueLabels);
+
+
+    cudaFree(labelCounts);
+    cudaFree(uniqueLabels);
+
+
+    int unassignedIndicesCountHost;
+
+    if (const cudaError_t err = cudaMemcpy(&unassignedIndicesCountHost, unassignedIndicesCount, sizeof(int), cudaMemcpyDeviceToHost); err != cudaSuccess)
+        std::cerr << "Error memcpy unassignedIndicesCountHost: " << cudaGetErrorString(err) << "\n";
+    cudaFree(unassignedIndicesCount);
+    if (unassignedIndicesCountHost != 0)
+    {
+        int hasWork = 1;
+        const int gridSize = (unassignedIndicesCountHost + m_threadsPerBlock - 1) / m_threadsPerBlock;
+
+        int *hasRemainingWork;
+        if (const cudaError_t err = cudaMalloc(&hasRemainingWork, sizeof(int)); err != cudaSuccess)
+            std::cerr << "Error malloc unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
+
+        while (hasWork)
+        {
+            if (const cudaError_t err = cudaMemset(hasRemainingWork, 0, sizeof(int)); err != cudaSuccess)
+                std::cerr << "Error memset unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
+
+            assignUnassignedIdsToNeighbor<<<gridSize, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), unassignedIndices, unassignedIndicesCountHost, hasRemainingWork);
+
+            if (const cudaError_t err = cudaMemcpy(&hasWork, hasRemainingWork, sizeof(int), cudaMemcpyDeviceToHost); err != cudaSuccess)
+                std::cerr << "Error memcpy hasWork: " << cudaGetErrorString(err) << "\n";
+        }
+        cudaFree(hasRemainingWork);
+    }
+    cudaFree(unassignedIndices);
+
+
+    PlateData *plateDataWrite;
+
+    if (const cudaError_t err = cudaMalloc(&plateDataWrite, sizeof(PlateData) * MAX_PLATE_COUNT); err != cudaSuccess)
+        std::cerr << "Error malloc plateDataWrite: " << cudaGetErrorString(err) << "\n";
+
+    copyNewPlateIdLookup<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, originalPlateIds, plateDataWrite);
+
+    if (const cudaError_t err = cudaMemcpy(m_plateDataLookup, plateDataWrite, sizeof(PlateData) * MAX_PLATE_COUNT, cudaMemcpyDeviceToDevice); err != cudaSuccess)
+        std::cerr << "Error memcpy plateData: " << cudaGetErrorString(err) << "\n";
+
+    cudaFree(plateDataWrite);
+    cudaFree(originalPlateIds);
+
+
     if (m_interopManager)
     {
         if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_COLLISION_AREAS)
@@ -228,12 +362,21 @@ void PlateTectonicSim::executeIteration()
         {
             m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
         }
+        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_CCL_AREAS) // TODO: DEBUG
+        {
+            m_interopManager->copyConnection("cclTexture", m_cllPlateIds.getPointer());
+        }
         m_interopManager->copyConnection("heightMap", m_heightMapTexture.getPointer());
     }
 
     const auto finish{std::chrono::steady_clock::now()};
     const std::chrono::duration<double> elapsed_seconds{finish - start};
     std::cout << "Iteration duration: " << elapsed_seconds.count() << std::endl;
+}
+
+void PlateTectonicSim::copyCCL() const // TODO: DEBUGGING ONLY
+{
+    m_interopManager->copyConnection("cclTexture", m_cllPlateIds.getPointer());
 }
 
 void PlateTectonicSim::copyPlateIdsGL() const
@@ -307,6 +450,8 @@ void PlateTectonicSim::initializeTectonics()
 
     cudaFree(voronoiSeedsDevice);
     cudaDeviceSynchronize();
+
+    m_cllPlateIds.initialize(m_width, m_height); // TODO: ONLY FOR DEBUG
 }
 
 std::vector<PlateData> PlateTectonicSim::initializePlateData(std::default_random_engine &generator,
@@ -369,6 +514,11 @@ void PlateTectonicSim::setupToggleCallbacks() const
     generationSettings.registerCallback("toggleUpliftMode", [this]
     {
         m_interopManager->toggleSubTextures("upliftTexture");
+    });
+    generationSettings.registerCallback("toggleCCLMode", [this]// TODO: DEBUGGING ONLY
+    {
+        m_interopManager->toggleSubTextures("cclTexture");
+        copyCCL();
     });
 }
 

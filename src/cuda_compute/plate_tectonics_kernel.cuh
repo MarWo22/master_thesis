@@ -16,7 +16,8 @@ __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idText
 
 
 __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
-                                const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds, PlateData *w_plateData);
+                               const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds,
+                               PlateData *w_plateData);
 
 __global__ void initPlatesRngGen(curandState *rngStates, unsigned int seed, Vec2<int> callSize);
 
@@ -52,7 +53,8 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *r_plateLookup,
                                   CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr,
-                                  CudaTexture<float> *w_convergenceMapPtr, CudaTexture<uint8_t> *w_platesHaveCollidedPtr);
+                                  CudaTexture<float> *w_convergenceMapPtr,
+                                  CudaTexture<uint8_t> *w_platesHaveCollidedPtr);
 
 __global__ void processUplift(CudaTexture<float> *w_upliftMapPtr, CudaTexture<float> *w_heightMapPtr, int size,
                               float noiseFrequency, float noiseIntensity, int seed);
@@ -74,5 +76,19 @@ __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const
 
 __global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveCollidedPtr, const PlateData *r_plateLookup,
                                     uint8_t *w_plateMergeIds);
+
+__device__ int getNewPlateId(const unsigned int *labelsShared, const unsigned int *labelCountsShared,
+                             unsigned int label, unsigned int numUniqueLabels);
+
+__global__ void assignNewPlateIds(CudaTexture<unsigned int> *r_labelsPtr, const unsigned int *r_uniqueLabels,
+                                  const unsigned int *r_labelCounts, uint8_t *w_originalPlateIds,
+                                  CudaTexture<uint8_t> *plateIdsPtr, unsigned int *w_unassignedIndices,
+                                  int *unassignedIndicesCount, int numUniqueLabels);
+
+__global__ void assignUnassignedIdsToNeighbor(CudaTexture<uint8_t> *plateIdsPtr, const unsigned int *unassignedIndices,
+                                              unsigned int unassignedIndicesLen, int *hasRemainingWorkFlag);
+
+__global__ void copyNewPlateIdLookup(const PlateData *r_plateData, const uint8_t *r_originalPlateIds,
+                                     PlateData *w_plateData);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH

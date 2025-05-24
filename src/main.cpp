@@ -16,7 +16,8 @@ void loadShaders()
 {
     Renderer::addShader("background", new Shader("./shaders/fullscreenQuad.vert", "./shaders/background.frag"));
     Renderer::addShader("heightMap", new Shader("./shaders/heightMap.vert", "./shaders/heightMap.frag"));
-    Renderer::addShader("plates", new Shader("./shaders/heightMap.vert", "./shaders/plates.frag"));
+    Renderer::addShader("platesColored", new Shader("./shaders/heightMap.vert", "./shaders/platesColored.frag"));
+    Renderer::addShader("platesBorder", new Shader("./shaders/heightMap.vert", "./shaders/platesBorder.frag"));
     Renderer::addShader("region", new Shader("./shaders/heightMap.vert", "./shaders/region.frag"));
     Renderer::addShader("velocity", new Shader("./shaders/heightMap.vert", "./shaders/velocity.frag"));
     Renderer::addShader("direction", new Shader("./shaders/heightMap.vert", "./shaders/direction.frag"));
@@ -71,6 +72,11 @@ void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tecton
     directionTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     interopManager.addConnection("directionTexture", directionTexture->id(), sizeof(float2), heightmapDimensions.x, heightmapDimensions.y, GL_RG32F, GL_RG, GL_FLOAT);
     Renderer::addTexture("directionTexture", directionTexture);
+
+    auto *cclTexture = new Texture();
+    cclTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("cclTexture", cclTexture->id(), sizeof(uint8_t), heightmapDimensions.x, heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
+    Renderer::addTexture("cclTexture", cclTexture);
 
     // interopManager.copyConnection("cudaHeightMap");
 }

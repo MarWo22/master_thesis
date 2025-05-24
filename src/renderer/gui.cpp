@@ -61,6 +61,10 @@ void Gui::gui()
         {
             generationSettings.callCallback("toggleUpliftMode");
         }
+        if (ImGui::RadioButton("Show CCL Areas", &generationSettings.renderMode, GenerationSettings::RenderMode::SHOW_CCL_AREAS))
+        {
+            generationSettings.callCallback("toggleCCLMode");
+        }
     }
 
     ImGui::SetNextItemWidth(250);

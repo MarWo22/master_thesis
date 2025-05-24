@@ -12,7 +12,7 @@ struct PlateData
     int size;
     float mass;
 
-    PlateData()
+    __host__ __device__ PlateData()
         : velocity(0)
         , divergenceRandomPlate(0)
         , size(0)

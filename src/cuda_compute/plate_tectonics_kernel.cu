@@ -710,6 +710,124 @@ __global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveColl
     }
 }
 
+#define MIN_PLATE_SIZE 10
+
+__device__ int getNewPlateId(const unsigned int *labelsShared, const unsigned int *labelCountsShared,
+                             const unsigned int label, const unsigned int numUniqueLabels)
+{
+    for (int i = 0; i != numUniqueLabels; ++i)
+        if (labelsShared[i] == label && labelCountsShared[i] >= MIN_PLATE_SIZE)
+            return i;
+
+    return -1;
+}
+
+__global__ void assignNewPlateIds(CudaTexture<unsigned int> *r_labelsPtr, const unsigned int *r_uniqueLabels,
+                                  const unsigned int *r_labelCounts,
+                                  uint8_t *w_originalPlateIds, CudaTexture<uint8_t> *plateIdsPtr,
+                                  unsigned int *w_unassignedIndices, int *unassignedIndicesCount,
+                                  const int numUniqueLabels)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+    CudaTexture<uint8_t> &plateIds = *plateIdsPtr;
+
+    if (!isWithinBounds(invokeIndex, plateIds.size()))
+        return;
+
+    __shared__ unsigned int labelsShared[MAX_PLATE_COUNT];
+    __shared__ unsigned int labelCountsShared[MAX_PLATE_COUNT];
+
+    const unsigned int label = (*r_labelsPtr)[invokeIndex];
+
+    if (threadIdx.x < numUniqueLabels)
+    {
+        labelsShared[threadIdx.x] = r_uniqueLabels[threadIdx.x];
+        labelCountsShared[threadIdx.x] = r_labelCounts[threadIdx.x];
+    }
+
+    __syncthreads();
+
+    if (const int newPlateId = getNewPlateId(labelsShared, labelCountsShared, label, numUniqueLabels); newPlateId != -1)
+    {
+        const uint8_t originalPlateId = plateIds[invokeIndex];
+        plateIds[invokeIndex] = static_cast<uint8_t>(newPlateId);
+        w_originalPlateIds[newPlateId] = originalPlateId;
+    } else
+    {
+        plateIds[invokeIndex] = static_cast<uint8_t>(MAX_PLATE_COUNT);
+        const unsigned int index = atomicAdd(unassignedIndicesCount, 1);
+        w_unassignedIndices[index] = invokeIndex;
+    }
+}
+
+__global__ void assignUnassignedIdsToNeighbor(CudaTexture<uint8_t> *plateIdsPtr,
+                                              const unsigned int *unassignedIndices,
+                                              const unsigned int unassignedIndicesLen,
+                                              int *hasRemainingWorkFlag)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (invokeIndex >= unassignedIndicesLen)
+        return;
+
+    const unsigned int unassignedIndex = unassignedIndices[invokeIndex];
+
+    CudaTexture<uint8_t> &plateIds = *plateIdsPtr;
+
+    // Exit if the plate has already been assigned
+    if (plateIds[unassignedIndex] != MAX_PLATE_COUNT)
+        return;
+
+    const Vec2<int> textureIndex = getTextureIndex(unassignedIndex, plateIds.size());
+
+    Vec2<int> neighborOffsets[] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
+
+    uint8_t neighbors[8];
+    int assignedNeighbors = 0;
+
+    for (auto neighborOffset: neighborOffsets)
+        if (const uint8_t plateId = plateIds[textureIndex + neighborOffset]; plateId != MAX_PLATE_COUNT)
+            neighbors[assignedNeighbors++] = plateId;
+
+    if (assignedNeighbors == 0)
+    {
+        *hasRemainingWorkFlag = 1;
+        return;
+    }
+
+    uint8_t selectedNeighbor = 0;
+    int count = 0;
+
+    for (int i = 0; i != assignedNeighbors; ++i)
+    {
+        int localCount = 1;
+        const uint8_t neighbor = neighbors[i];
+        for (int j = 0; j != assignedNeighbors; ++j)
+            if (i != j && neighbors[j] == neighbor)
+                localCount++;
+
+        if (localCount > count)
+        {
+            count = localCount;
+            selectedNeighbor = neighbor;
+        }
+    }
+
+    plateIds[unassignedIndex] = selectedNeighbor;
+}
+
+__global__ void copyNewPlateIdLookup(const PlateData *r_plateData, const uint8_t *r_originalPlateIds,
+                                     PlateData *w_plateData)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (invokeIndex >= MAX_PLATE_COUNT)
+        return;
+
+    if (const uint8_t originalPlateId = r_originalPlateIds[invokeIndex]; originalPlateId != MAX_PLATE_COUNT)
+        w_plateData[invokeIndex] = r_plateData[originalPlateId];
+    else
+        w_plateData[invokeIndex] = PlateData();
+}
 
 __global__ void createVelocityTexture(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateData,
                                       CudaTexture<float> *w_velocityPtr)
