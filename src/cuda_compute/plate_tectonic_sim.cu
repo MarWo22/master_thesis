@@ -399,6 +399,14 @@ void PlateTectonicSim::executeIteration()
         {
             m_interopManager->copyConnection("cclTexture", m_cllPlateIds.getPointer());
         }
+        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_PLATE_VELOCITIES)
+        {
+            copyVelocitiesGL();
+        }
+        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_PLATE_DIRECTIONS)
+        {
+            copyDirectionGL();
+        }
         m_interopManager->copyConnection("heightMap", m_heightMapTexture.getPointer());
     }
 

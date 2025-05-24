@@ -62,8 +62,8 @@ void Terrain::render(const Camera &camera)
             m_heightmapTexture->bind(GL_TEXTURE0);
             break;
         case GenerationSettings::RenderMode::SHOW_PLATES:
-            m_platesColoredShader->bind();
-            m_platesColoredShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+            m_platesBorderShader->bind();
+            m_platesBorderShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_platesTexture->bind(GL_TEXTURE1);
             break;

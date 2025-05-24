@@ -232,8 +232,8 @@ __global__ void testingPlateMovement(const CudaTexture<uint8_t> *r_idTexturePtr,
     const Vec2<float> pixelMovement = plateData.direction * plateData.velocity;
     // Calculate the new pixel center in integers
     const Vec2 newPixelCenter(
-        static_cast<int>(floorf(plateData.pixelCenter.x + pixelMovement.x)),
-        static_cast<int>(floorf(plateData.pixelCenter.y + pixelMovement.y))
+        static_cast<int>(plateData.pixelCenter.x + pixelMovement.x),
+        static_cast<int>(plateData.pixelCenter.y + pixelMovement.y)
     );
 
     // Determine the new texture index
