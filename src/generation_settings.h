@@ -7,19 +7,22 @@
 
 
 
-class GenerationSettings {
+class  RenderSettings {
       std::unordered_map<std::string, std::vector<std::function<void()>>> m_callbacks;
 public:
       enum RenderMode
       {
             NORMAL,
-            SHOW_PLATES,
             SHOW_COLLISION_AREAS,
             SHOW_PLATE_DIRECTIONS,
             SHOW_PLATE_VELOCITIES,
             SHOW_UPLIFT_AREAS,
             SHOW_CCL_AREAS,
       };
+
+      bool renderHeight = true;
+      bool renderBorders = false;
+      float heightMultiplier = 200;
 
       // The actual settings. Could make them private with getter/setters, but I think this is sufficient
       int executionIterations = 1;
@@ -32,6 +35,12 @@ public:
 
 };
 
+struct SimulationSettings
+{
+      int numStartingPlates = 16;
+      unsigned int seed = 1000;
 
+      std::function<void(unsigned int, int)> resetCallback;
+};
 
 #endif //GENERATION_SETTINGS_H

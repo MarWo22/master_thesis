@@ -9,10 +9,10 @@
 
 #include "math_functions.h"
 #include "iteration_statistics.h"
+#include "kernel_settings.cuh"
 
 
 // These should become dynamic or as input parameters:
-#define SCALING_FACTOR 10
 
 __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData *plateData, const Vec2<float> *seeds,
                              const int numSeeds)
@@ -231,9 +231,9 @@ __global__ void testingPlateMovement(const CudaTexture<uint8_t> *r_idTexturePtr,
     // Calculate the movement of the pixel in this iteration
     const Vec2<float> pixelMovement = plateData.direction * plateData.velocity;
     // Calculate the new pixel center in integers
-    const Vec2 newPixelCenter(
-        static_cast<int>(plateData.pixelCenter.x + pixelMovement.x),
-        static_cast<int>(plateData.pixelCenter.y + pixelMovement.y)
+    const Vec2<int> newPixelCenter(
+        floor(plateData.pixelCenter.x + pixelMovement.x),
+        floor(plateData.pixelCenter.y + pixelMovement.y)
     );
 
     // Determine the new texture index
@@ -337,6 +337,7 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
                                         const uint8_t plateC,
                                         const uint8_t plateD, const unsigned int invokeIndex)
 {
+    printf("%f\n", kernelSettings.inelasticCollisionMultiplier);
     const Vec2 currentTexIndex = r_plateIdsPtr->indexToCoordinate(invokeIndex);
 
     PlateData &plateAData = plateLookup[plateA];
@@ -386,9 +387,9 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
     const float vel = finalVelocity.magnitude();
 
     const Vec2<float> velocityChangePlateA = (finalVelocity - plateAVelocityVector) * (plateAMass / plateAData.mass) *
-                                             SCALING_FACTOR;
+                                             kernelSettings.inelasticCollisionMultiplier;
     const Vec2<float> velocityChangePlateB = (finalVelocity - plateBVelocityVector) * (plateBMass / plateBData.mass) *
-                                             SCALING_FACTOR;
+                                             kernelSettings.inelasticCollisionMultiplier;
 
     // printf("Plate %d: (%f %f) %f (%f %f), Plate %d: (%f %f) %f (%f %f), Plate C - %d, Plate D - %d, finalVelocity: (%f %f)\n", plateA, plateAVelocityVector.x, plateAVelocityVector.y, plateAMass, velocityChangePlateA.x, velocityChangePlateA.y, plateB, plateBVelocityVector.x, plateBVelocityVector.y, plateBMass, velocityChangePlateB.x, velocityChangePlateB.y, plateC != MAX_PLATE_COUNT, plateD != MAX_PLATE_COUNT, finalVelocity.x, finalVelocity.y);
 
@@ -407,7 +408,7 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
         PlateData &plateCData = plateLookup[plateC];
         const Vec2<float> velocityChangePlateC =
                 (finalVelocity - plateCData.direction * plateCData.velocity) * (plateCMass / plateCData.mass) *
-                SCALING_FACTOR;
+                kernelSettings.inelasticCollisionMultiplier;
         // printf("C: (%f %f) final: (%f %f), Mass: (%f %f)\n", velocityChangePlateC.x, velocityChangePlateC.y, finalVelocity.x, finalVelocity.y, plateCMass, plateCData.mass);
 
         atomicAddVec2(&plateCData.velocityChange, velocityChangePlateC);
@@ -418,7 +419,7 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
         PlateData &plateDData = plateLookup[plateD];
         const Vec2<float> velocityChangePlateD =
                 (finalVelocity - plateDData.direction * plateDData.velocity) * (plateDMass / plateDData.mass) *
-                SCALING_FACTOR;
+                kernelSettings.inelasticCollisionMultiplier;
         // printf("D: (%f %f) final: (%f %f), Mass: (%f %f)\n", velocityChangePlateD.x, velocityChangePlateD.y, finalVelocity.x, finalVelocity.y, plateDMass, plateDData.mass);
 
         atomicAddVec2(&plateDData.velocityChange, velocityChangePlateD);
@@ -649,8 +650,8 @@ __global__ void updatePlateData(PlateData *plateLookup, curandState *const rngSt
 
     const Vec2 center = current.pixelCenter + current.direction * current.velocity;
     current.pixelCenter = {
-        center.x - static_cast<float>(static_cast<int>(center.x)),
-        center.y - static_cast<float>(static_cast<int>(center.y))
+        center.x - floor(center.x),
+        center.y - floor(center.y)
     };
 
     current.divergenceRandomPlate = curand(&rngStates[invokeIndex]) % 2;
@@ -699,7 +700,7 @@ __global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveColl
     // printf("dot: %.5f plateADir: (%.5f, %.5f) plateBDir: (%.5f, %.5f) plateAVel: %.5f plateBVel: %.5f  %.5f\n", dot, plateDataA.direction.x, plateDataA.direction.y, plateDataB.direction.x, plateDataB.direction.y, plateDataA.velocity, plateDataB.velocity, velocity_diff);
 
 
-    if (dot >= .995f and velocity_diff <= 0.025)
+    if (dot >= kernelSettings.mergeDotDirectionThreshold and velocity_diff <= kernelSettings.mergeVelocityDiffThreshold)
     {
         printf("MERGING (%d,%d): dot: %.5f plateADir: (%.5f, %.5f) plateBDir: (%.5f, %.5f) plateAVel: %.5f plateBVel: %.5f  %.5f\n", texIndex.x, texIndex.y, dot, plateDataA.direction.x, plateDataA.direction.y, plateDataB.direction.x, plateDataB.direction.y, plateDataA.velocity, plateDataB.velocity, velocity_diff);
         // Merge, the plate with lower mass merges into the plate with higher mass
@@ -710,13 +711,11 @@ __global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveColl
     }
 }
 
-#define MIN_PLATE_SIZE 10
-
 __device__ int getNewPlateId(const unsigned int *labelsShared, const unsigned int *labelCountsShared,
                              const unsigned int label, const unsigned int numUniqueLabels)
 {
     for (int i = 0; i != numUniqueLabels; ++i)
-        if (labelsShared[i] == label && labelCountsShared[i] >= MIN_PLATE_SIZE)
+        if (labelsShared[i] == label && labelCountsShared[i] >= kernelSettings.minPlateSize)
             return i;
 
     return -1;

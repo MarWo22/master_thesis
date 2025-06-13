@@ -70,6 +70,8 @@ add_executable(PlateTectonics
         src/cuda_compute/erosion_kernel.cuh
         src/cuda_compute/ccl.cu
         src/cuda_compute/ccl.cuh
+        src/cuda_compute/kernel_settings.cuh
+        src/cuda_compute/kernel_settings.cu
 )
 
 set_target_properties(PlateTectonics PROPERTIES

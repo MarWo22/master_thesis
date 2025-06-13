@@ -3,7 +3,7 @@
 #include <iostream>
 
 
-void GenerationSettings::registerCallback(const std::string &ident, const std::function<void()> &callback)
+void RenderSettings::registerCallback(const std::string &ident, const std::function<void()> &callback)
 
 {
     if (!m_callbacks.contains(ident))
@@ -11,7 +11,7 @@ void GenerationSettings::registerCallback(const std::string &ident, const std::f
 
     m_callbacks[ident].push_back(callback);
 }
-void GenerationSettings::callCallback(const std::string &ident)
+void RenderSettings::callCallback(const std::string &ident)
 {
 
     if (m_callbacks.contains(ident))
