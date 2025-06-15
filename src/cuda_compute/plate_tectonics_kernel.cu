@@ -580,20 +580,150 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
     }
 }
 
-__global__ void processUplift(CudaTexture<float> *w_upliftMapPtr, CudaTexture<float> *w_heightMapPtr, const int size,
-                              const float noiseFrequency, const float noiseIntensity, const int seed)
+__global__ void createUpliftGrid(const CudaTexture<float>* r_upliftMapPtr, CudaTexture<bool>* w_gridMapPtr) {
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, w_gridMapPtr->size()))
+        return;
+    Vec2<int> coord = w_gridMapPtr->indexToCoordinate(invokeIndex);
+
+    CudaTexture<float> r_upliftMap = *r_upliftMapPtr;
+    Vec2<int> mapSize = r_upliftMapPtr->size();
+    Vec2<int> gridSize = w_gridMapPtr->size();
+
+    Vec2<int> sampleSize = Vec2<int>(mapSize.x / gridSize.x, mapSize.y / gridSize.y);
+
+    bool value = false;
+    int samples = 0;
+
+    for (int y = 0; y < sampleSize.y && !value; y++)
+    {
+        for (int x = 0; x < sampleSize.x && !value; x++)
+        {
+            value = r_upliftMap[Vec2<int>(coord.x * sampleSize.x + x, coord.y * sampleSize.y + y)] > 0;
+            samples++;
+        }
+    }
+    
+    (*w_gridMapPtr)[coord] = value;
+}
+
+__device__ bool collisionContains(const uint32_t collision, const uint8_t plateId) 
 {
-    CudaTexture<float> &r_uplift = *w_upliftMapPtr;
-    CudaTexture<float> &r_height = *w_heightMapPtr;
+    uint8_t plateA = MAX_PLATE_COUNT - collision & 0xFF;
+    if (plateA == plateId) return true;
+    uint8_t plateB = MAX_PLATE_COUNT - (collision >> 8) & 0xFF;
+    if (plateB == plateId) return true;
+    uint8_t plateC = MAX_PLATE_COUNT - (collision >> 16) & 0xFF;
+    if (plateC == plateId) return true;
+    uint8_t plateD = MAX_PLATE_COUNT - (collision >> 24) & 0xFF;
+    if (plateD == plateId) return true;
+
+    return false;
+}
+
+
+__global__ void VerticalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const CudaTexture<uint32_t>* r_collisionsPtr, const CudaTexture<float>* r_upliftMapPtr, const CudaTexture<bool>* r_gridMapPtr, CudaTexture<BlurBuffer>* w_bufferPtr, int range)
+{
+    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    const CudaTexture<uint32_t>& r_collisions = *r_collisionsPtr;
+    const CudaTexture<float>& r_uplift = *r_upliftMapPtr;
+    const CudaTexture<bool>& r_grid = *r_gridMapPtr;
+    CudaTexture<BlurBuffer>& w_buffer = *w_bufferPtr;
+
 
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_uplift.size()))
         return;
 
-    Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
+    const Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
+    const uint8_t plateId = r_plateIds[invokeIndex];
+    
+    
 
-    int offset = noiseIntensity + cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) *
-                 noiseIntensity;
+    /*Vec2<double> ratio = Vec2<double>(static_cast<double>(r_gridMapPtr->size().x) / r_upliftMapPtr->size().x, static_cast<double>(r_gridMapPtr->size().y) / r_upliftMapPtr->size().y);
+    if ((*r_gridMapPtr)[Vec2<float>(center.x * ratio.x, center.y * ratio.y)] == 0) {
+        return;
+    }*/
+    
+    const float multiplier = 1.0f / range;
+    float value = 0;
+    int point = 0;
+    for (int i = -range; i <= range; i++)
+    {
+        Vec2<int> sample = center + Vec2<int>(0, i);
+        float x = r_uplift[sample] - (abs((float)i) * multiplier);
+
+        
+
+        if (x > value && collisionContains(r_collisions[sample], plateId)) 
+        {
+            value = x;
+            point = i;
+        }
+    }
+
+    w_buffer[invokeIndex] = BlurBuffer(point, value);
+}
+
+__global__ void HorizontalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const CudaTexture<uint32_t>* r_collisionsPtr, const CudaTexture<bool>* r_gridMapPtr, const CudaTexture<BlurBuffer>* r_bufferPtr, CudaTexture<float>* w_heightMapPtr, int range)
+{
+    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    const CudaTexture<uint32_t>& r_collisions = *r_collisionsPtr;
+    const CudaTexture<bool>& r_grid = *r_gridMapPtr;
+    const CudaTexture<BlurBuffer>& r_buffer = *r_bufferPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_buffer.size()))
+        return;
+
+    const Vec2<int> center = r_buffer.indexToCoordinate(invokeIndex);
+    const uint8_t plateId = r_plateIds[invokeIndex];
+
+    /*Vec2<double> ratio = Vec2<double>(static_cast<double>(r_gridMapPtr->size().x) / w_heightMapPtr->size().x, static_cast<double>(r_gridMapPtr->size().y) / w_heightMapPtr->size().y);
+    if ((*r_gridMapPtr)[Vec2<float>(center.x * ratio.x, center.y * ratio.y)] == 0) {
+        return;
+    }*/
+
+    const float multiplier = 1.0f / range;
+    float value = 0;
+
+    for (int i = -range; i <= range; i++)
+    {
+        Vec2<int> sample = center + Vec2<int>(i, 0);
+        BlurBuffer buffer = r_buffer[sample];
+        
+        //float x = buffer.value + (abs((float)buffer.offset) * multiplier) - pythagoras[abs(buffer.offset)][abs(i)] * multiplier;
+        float x = buffer.value - abs((float)i) * multiplier;
+
+        if (x > value && collisionContains(r_collisions[sample], plateId)) 
+        {
+            value = x;
+        }
+    }
+
+    (*w_heightMapPtr)[invokeIndex] += value * 0.001f;
+}
+
+
+__global__ void processUplift(const CudaTexture<float> *r_upliftMapPtr, const CudaTexture<bool>* r_gridMapPtr, CudaTexture<float> *w_heightMapPtr, const int size,
+                              const float noiseFrequency, const float noiseIntensity, const int seed)
+{
+    const CudaTexture<float> &r_uplift = *r_upliftMapPtr;
+    CudaTexture<float> &w_height = *w_heightMapPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, w_height.size()))
+        return;
+
+    Vec2<int> center = w_height.indexToCoordinate(invokeIndex);
+    
+    Vec2<double> ratio = Vec2<double>(static_cast<double>(r_gridMapPtr->size().x) / w_heightMapPtr->size().x, static_cast<double>(r_gridMapPtr->size().y) / w_heightMapPtr->size().y);
+    if ((*r_gridMapPtr)[Vec2<float>(center.x * ratio.x, center.y * ratio.y)] == 0) {
+        return;
+    }
+    //w_height[invokeIndex] = (*r_gridMapPtr)[f] ? 0.11 : 0;
+
+    int offset = noiseIntensity + cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) *  noiseIntensity;
 
     int dim(size + offset);
     float size2 = dim * dim;
@@ -618,7 +748,62 @@ __global__ void processUplift(CudaTexture<float> *w_upliftMapPtr, CudaTexture<fl
     }
 
     float noise = clamp(cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), 0.1f, 100), 1.0f, 0.1f);
-    r_height[invokeIndex] += clamp01(value / size2) * 0.2f;
+    w_height[invokeIndex] = clamp01(value / size2) * 0.1f;
+}
+
+__global__ void downscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTexture<float>* w_outputMapPtr, int inWidth, int inHeight, int outWidth, int outHeight) {
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, Vec2<int>(inWidth, inHeight))) {
+        printf("Problem! Out of bounds");
+        return;
+    }
+
+    const CudaTexture<float>& r_inputMap = *r_inputMapPtr;
+    
+    /*if (size.x % outWidth != 0 || size.y % outWidth != 0) {
+        printf("Problem!");
+        return;
+    }*/
+
+    Vec2<int> samples = Vec2<int>(inWidth / outWidth, inHeight / outHeight);
+
+    Vec2<int> coord = Vec2<int>(fmodf(invokeIndex, outWidth), invokeIndex / outWidth);
+
+    Vec2<int> sampleCoord = Vec2<int>(coord.x * samples.x, coord.y * samples.y);
+
+    float value = 0;    
+    
+    for (size_t x = 0; x < samples.x; x++)
+    {
+        for (size_t y = 0; y < samples.y; y++)
+        {
+            value += r_inputMap[sampleCoord + Vec2<int>(x, y)];
+        }
+    }
+    
+    (*w_outputMapPtr)[coord] = value / (samples.x * samples.y);
+}
+
+__global__ void upscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTexture<float>* w_outputMapPtr, int inWidth, int inHeight, int outWidth, int outHeight) {
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, Vec2<int>(outWidth, outHeight))) {
+        printf("Problem! Out of bounds");
+        return;
+    }
+
+    Vec2<int> coord = Vec2<int>(fmodf(invokeIndex, outWidth), invokeIndex / outWidth);
+
+    if (coord.x > outWidth || coord.y > outHeight) {
+        printf("somethign wrong with the write coord: %.i x %.i \n", coord.x, coord.y);
+    }
+
+    Vec2<float> sampleCoord = Vec2<float>(coord.x * (inWidth / outWidth), coord.y * (inHeight / outHeight));
+
+    if (sampleCoord.x > inWidth || sampleCoord.y > inHeight) {
+        printf("somethign wrong with the sample coord: %.1f x %.1f \n", sampleCoord.x, sampleCoord.y);
+    }
+
+    (*w_outputMapPtr)[coord] = (*r_inputMapPtr)[sampleCoord];
 }
 
 __global__ void convertCollisionMapForGL(const CudaTexture<uint32_t> *r_texturePtr, CudaTexture<uint8_t> *w_texturePtr)
@@ -998,33 +1183,40 @@ __global__ void splitPlate(const IterationStatistics* r_stats, const uint8_t* r_
 
         plateLookup[*r_newPlateId].mass = plateLookup[r_stats->largestPlateId].mass * 0.5;
         plateLookup[*r_newPlateId].size = plateLookup[r_stats->largestPlateId].size * 0.5;
-        plateLookup[*r_newPlateId].velocity = plateLookup[r_stats->largestPlateId].velocity;
-
-
+        plateLookup[*r_newPlateId].velocity = plateLookup[r_stats->largestPlateId].velocity * 1.1;
 
         plateLookup[r_stats->largestPlateId].direction += Vec2<float>(-r_dir->y, r_dir->x);
         plateLookup[r_stats->largestPlateId].direction = plateLookup[r_stats->largestPlateId].direction.normalized();
 
-        plateLookup[r_stats->largestPlateId].mass = plateLookup[r_stats->largestPlateId].mass * 0.5;
-        plateLookup[r_stats->largestPlateId].size = plateLookup[r_stats->largestPlateId].size * 0.5;
+        plateLookup[r_stats->largestPlateId].mass *= 0.5;
+        plateLookup[r_stats->largestPlateId].size *= 0.5;
 
-
-
-
-
-        
-
+        plateLookup[r_stats->largestPlateId].velocity *= 1.1;
     }
 
     if (w_plateIds[invokeIndex] == r_stats->largestPlateId) 
     {
         const Vec2<int> coordinate = w_plateIds.indexToCoordinate(invokeIndex);
 
-        float distanceToLine = (coordinate.x - r_pivot.x) * r_dir->y - (coordinate.y - r_pivot.y) * r_dir->x;
+        float dx = coordinate.x - r_pivot.x;
+        float dy = coordinate.y - r_pivot.y;
+
+        float distanceToLine = dx * r_dir->y - dy * r_dir->x;
+        float distanceOnLine = dx * r_dir->y + dy * r_dir->x;
 
         float halfDistance = min(w_plateIds.size().x / abs(r_dir->x), w_plateIds.size().y / abs(r_dir->y)) * sqrt(r_dir->x * r_dir->x + r_dir->y * r_dir->y);
 
-        if ((distanceToLine > 0.0) ^ (distanceToLine > halfDistance)) {
+        float breakFreq = 0.132;
+        float breakScale = 4;
+        float CurveFreq = 0.1;
+        float CurveScale = 10.0;
+
+        float noise = cudaNoise::perlinNoise(make_float3(distanceOnLine * 0.1, 0, 0), 1, 123124);
+
+
+        float offset = round(sin(distanceOnLine * breakFreq * noise)) * breakScale + sin(distanceOnLine * CurveFreq) * CurveScale;
+
+        if ((distanceToLine > noise * 30) ^ (distanceToLine > halfDistance)) {
             w_plateIds[invokeIndex] = *r_newPlateId;
         }
     }

@@ -6,6 +6,7 @@
 #include "plate_data.h"
 #include "vec2.cuh"
 #include "iteration_statistics.h"
+#include "blur_buffer.h"
 
 #define MAX_PLATE_COUNT 255
 
@@ -68,11 +69,21 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
                                   CudaTexture<float> *w_convergenceMapPtr,
                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr);
 
-__global__ void processUplift(CudaTexture<float> *w_upliftMapPtr, CudaTexture<float> *w_heightMapPtr, int size,
-                              float noiseFrequency, float noiseIntensity, int seed);
+__global__ void VerticalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const CudaTexture<uint32_t>* r_collisionsPtr, const CudaTexture<float>* r_upliftMapPtr, const CudaTexture<bool>* r_gridMapPtr, CudaTexture<BlurBuffer>* w_bufferPtr, int range);
+__global__ void HorizontalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const CudaTexture<uint32_t>* r_collisionsPtr, const CudaTexture<bool>* r_gridMapPtr, const CudaTexture<BlurBuffer>* r_bufferPtr, CudaTexture<float>* w_heightMapPtr, int range);
 
-__device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                  CudaTexture<float> *w_heightMapPtr, unsigned int invokeIndex, int *localSizeChange);
+__global__ void processUplift(const CudaTexture<float> *w_upliftMapPtr, const CudaTexture<bool>* r_gridMapPtr, CudaTexture<float> *w_heightMapPtr, int size,
+                              float noiseFrequency, float noiseIntensity, int seed);
+__global__ void createUpliftGrid(const CudaTexture<float>* r_upliftMapPtr, CudaTexture<bool>* w_gridMapPtr);
+
+__device__ bool collisionContains(const uint32_t collision, const uint8_t plateId);
+__global__ void downscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTexture<float>* w_outputMapPtr, int inWidth, int inHeight, int outWidth, int outHeight);
+__global__ void upscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTexture<float>* w_outputMapPtr, int inWidth, int inHeight, int outWidth, int outHeight);
+
+__device__ void processDivergence(const CudaTexture<uint8_t>* r_plateIdsPtr, const PlateData* r_plateLookup,
+                                const CudaTexture<uint32_t>* r_collisionsPtr, CudaTexture<uint8_t>* w_plateIdsPtr,
+                                CudaTexture<float>* w_heightMapPtr, const unsigned int invokeIndex,
+                                int* localSizeChange);
 
 
 __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,

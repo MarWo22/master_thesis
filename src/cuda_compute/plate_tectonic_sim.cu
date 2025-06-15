@@ -150,12 +150,22 @@ void PlateTectonicSim::executeIteration()
 
     CudaTextureHost<float> heightMapTextureWrite;
     CudaTextureHost<uint8_t> plateIdsTextureWrite;
-    CudaTextureHost<float> uplift;
+    CudaTextureHost<float> upliftBufferA;
+    CudaTextureHost<float> upliftBufferB;
+    CudaTextureHost<bool> upliftGrid;
+    CudaTextureHost<BlurBuffer> blurBuffer;
+
+
     CudaTextureHost<uint8_t> platesHaveCollided;
+
+    int de = 6;
 
     heightMapTextureWrite.initialize(m_width, m_height);
     plateIdsTextureWrite.initialize(m_width, m_height);
-    uplift.initialize(m_width, m_height, 0);
+    upliftBufferA.initialize(m_width, m_height, 0);
+    upliftBufferB.initialize(m_width, m_height, 0);
+    upliftGrid.initialize(static_cast<int>(m_width * powf(0.5, de)), static_cast<int>(m_height * powf(0.5, de)));
+    blurBuffer.initialize(m_width, m_height);
     platesHaveCollided.initialize(m_maxPlates, m_maxPlates, 0);
 
     /*
@@ -173,14 +183,71 @@ void PlateTectonicSim::executeIteration()
                                                               plateCollisions.deviceTexture(), m_plateDataLookup,
                                                               plateIdsTextureWrite.deviceTexture(),
                                                               heightMapTextureWrite.deviceTexture(),
-                                                              uplift.deviceTexture(), platesHaveCollided.deviceTexture());
+                                                              upliftBufferA.deviceTexture(), platesHaveCollided.deviceTexture());
 
     /*
      * STEP FIVE
      * Perform uplift
      */
 
-    processUplift << <numBlocksPixels, m_threadsPerBlock >> > (uplift.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
+    createUpliftGrid<<<static_cast<int>(numBlocksPixels * 0.125), static_cast<int>(m_threadsPerBlock * 0.125)>>>(upliftBufferA.deviceTexture(), upliftGrid.deviceTexture());
+
+
+    VerticalBlur << <numBlocksPixels, m_threadsPerBlock >> > (m_plateIdsTexture.deviceTexture(), plateCollisions.deviceTexture(), upliftBufferA.deviceTexture(), upliftGrid.deviceTexture(), blurBuffer.deviceTexture(), 50);
+    HorizontalBlur << <numBlocksPixels, m_threadsPerBlock >> > (m_plateIdsTexture.deviceTexture(), plateCollisions.deviceTexture(), upliftGrid.deviceTexture(), blurBuffer.deviceTexture(), heightMapTextureWrite.deviceTexture(), 50);
+
+    /*int scale = 3;
+    bool side = true;
+    float x = 1;
+    for (size_t i = 0; i < scale; i++)
+    {
+        printf("%.0f x %.0f \n", m_width * x, m_height * x);
+        if (side) {
+            printf("A \n");
+            downscaleUplift << <numBlocksPixels * x * 0.5, m_threadsPerBlock* x * 0.5 >> > (upliftBufferA.deviceTexture(), upliftBufferB.deviceTexture(), m_width * x, m_height * x, m_width * x * 0.5, m_height * x * 0.5);
+        }
+        else {
+            printf("B \n");
+            downscaleUplift << <numBlocksPixels * x * 0.5, m_threadsPerBlock* x * 0.5 >> > (upliftBufferB.deviceTexture(), upliftBufferA.deviceTexture(), m_width * x, m_height * x, m_width * x * 0.5, m_height * x * 0.5);
+        }
+
+        side = !side;
+        x *= 0.5;
+    }
+
+
+
+    for (size_t i = 0; i < scale; i++)
+    {
+        
+
+
+        printf("%.0f x %.0f \n", m_width * x, m_height * x);
+        if (side) {
+            printf("A \n");
+            upscaleUplift << <numBlocksPixels * x * 2, m_threadsPerBlock* x * 2 >> > (upliftBufferA.deviceTexture(), upliftBufferB.deviceTexture(), m_width * x, m_height * x, m_width * x * 2, m_height * x * 2);
+        }
+        else {
+            printf("B \n");
+            upscaleUplift << <numBlocksPixels * x * 2, m_threadsPerBlock* x * 2 >> > (upliftBufferB.deviceTexture(), upliftBufferA.deviceTexture(), m_width * x, m_height * x, m_width * x * 2, m_height * x * 2);
+        }
+
+        side = !side;
+        x *= 2;
+    }
+    printf("%.0f x %.0f \n", m_width * x, m_height * x);*/
+
+    //downscaleUplift << <numBlocksPixels * 0.25, m_threadsPerBlock * 0.25 >> > (upliftBlur.deviceTexture(), uplift.deviceTexture(), m_width * 0.25, m_height * 0.25);
+    //upscaleUplift << <numBlocksPixels * 0.5, m_threadsPerBlock * 0.5 >> > (uplift.deviceTexture(), upliftBlur.deviceTexture(), m_width * 0.5, m_height * 0.5);
+    //upscaleUplift << <numBlocksPixels, m_threadsPerBlock >> > (upliftBlur.deviceTexture(), uplift.deviceTexture(), m_width, m_height);
+    
+    //processUplift << <numBlocksPixels, m_threadsPerBlock >> > (upliftBufferA.deviceTexture(), upliftGrid.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
+    
+    /*if (side) {
+    }
+    else {
+        processUplift << <numBlocksPixels, m_threadsPerBlock >> > (upliftBufferB.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
+    }*/
 
 
     
@@ -195,7 +262,8 @@ void PlateTectonicSim::executeIteration()
 
     heightMapTextureWrite.free();
     plateIdsTextureWrite.free();
-    uplift.free();
+    upliftBufferA.free();
+    upliftBufferB.free();
 
     /*
      * STEP SIX
@@ -226,7 +294,7 @@ void PlateTectonicSim::executeIteration()
     cudaMemcpy(&h_largest, d_largest, sizeof(int), cudaMemcpyDeviceToHost);
 
     printf("largest: %.i", h_largest);
-    if (h_largest > 120000) {
+    if (h_largest > 220000) {
         Vec2<float> h_pivot = getPlateCenter(numBlocksPixels, m_threadsPerBlock);
         Vec2<float>* d_dir;
 
