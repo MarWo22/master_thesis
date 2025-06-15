@@ -58,6 +58,7 @@ add_executable(PlateTectonics
         src/cuda_compute/vec2.cuh
         src/cuda_compute/plate_data.h
         src/cuda_compute/iteration_statistics.h
+        src/cuda_compute/blur_buffer.h
         src/cuda_compute/plate_tectonics_kernel.cu
         src/cuda_compute/plate_tectonics_kernel.cuh
         src/cuda_compute/cuda_helper.cuh
@@ -70,7 +71,9 @@ add_executable(PlateTectonics
         src/cuda_compute/erosion_kernel.cuh
         src/cuda_compute/ccl.cu
         src/cuda_compute/ccl.cuh
- "src/cuda_compute/blur_buffer.h")
+        src/cuda_compute/kernel_settings.cuh
+        src/cuda_compute/kernel_settings.cu
+)
 
 set_target_properties(PlateTectonics PROPERTIES
         LINKER_LANGUAGE CXX

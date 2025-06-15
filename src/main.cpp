@@ -5,12 +5,13 @@
 #include "config.h"
 #include "generation_settings.h"
 #include "cuda_compute/cuda_gl_interop_manager.h"
+#include "cuda_compute/kernel_settings.cuh"
 #include "cuda_compute/plate_tectonic_sim.h"
 #include "renderer/background.h"
 #include "renderer/renderer.h"
 #include "renderer/terrain.h"
 
-extern GenerationSettings generationSettings;
+extern RenderSettings renderSettings;
 
 void loadShaders()
 {
@@ -24,7 +25,7 @@ void loadShaders()
 
 }
 
-void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tectonicSim)
+void loadTextures(CudaGlInteropManager &interopManager)
 {
     const glm::ivec2 heightmapDimensions = Config::getInstance().HEIGHTMAP_DIMENSIONS;
 
@@ -44,7 +45,7 @@ void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tecton
     Renderer::addTexture("heightMap", cudaHeightMap);
 
     // interopManager.addConnection(cudaHeightMap->id(), tectonicSim.heightMapDevice(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y);
-    interopManager.addConnection("heightMap", cudaHeightMap->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
+    interopManager.addConnection("heightMap", cudaHeightMap->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
 
     // The following textures are not initially allocated. They are allocated through toggling them on or off on the GUI
     // These are only for visualization purposes, and will draw unnecessary memory and computing power to allocate and copy constantly when not used
@@ -78,7 +79,6 @@ void loadTextures(CudaGlInteropManager &interopManager, PlateTectonicSim &tecton
     interopManager.addConnection("cclTexture", cclTexture->id(), sizeof(uint8_t), heightmapDimensions.x, heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
     Renderer::addTexture("cclTexture", cclTexture);
 
-    // interopManager.copyConnection("cudaHeightMap");
 }
 
 
@@ -102,13 +102,12 @@ int main()
         renderer.initRenderer();
         CudaGlInteropManager interopManager;
 
+        loadShaders();
+        loadTextures(interopManager);
+
         auto const size = Config::getInstance().HEIGHTMAP_DIMENSIONS;
         PlateTectonicSim tectonicSim(size.x, size.y, 1000, 16, &interopManager);
         tectonicSim.initialize();
-
-
-        loadShaders();
-        loadTextures(interopManager, tectonicSim);
 
         initRenderComponents(renderer);
 
@@ -120,11 +119,11 @@ int main()
         float time_between_executions = 0;
         while (!renderer.shouldClose())
         {
-            if (generationSettings.isExecutingRealtime)
+            if (renderSettings.isExecutingRealtime)
             {
                 time_between_executions += renderer.deltaTime();
-                if (time_between_executions > 1 / generationSettings.iterationsPerSecond)
-                    generationSettings.callCallback("executeIterations");
+                if (time_between_executions > 1.f / static_cast<float>(renderSettings.iterationsPerSecond))
+                    renderSettings.callCallback("executeIterations");
             }
             renderer.render();
         }

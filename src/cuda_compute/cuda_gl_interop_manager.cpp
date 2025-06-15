@@ -41,38 +41,45 @@ void CudaGlInteropManager::addConnection(const std::string &identifier,
 
 void CudaGlInteropManager::copyConnection(const std::string &identifier, const void *cudaDeviceTexture)
 {
-    if (const auto connectionIt = m_connections.find(identifier); connectionIt != m_connections.end())
-    {
-        Connection *connection = connectionIt->second.get();
-        if (!connection->isRegistered)
-        {
-            std::cout << connection->openGlTexture << std::endl;
-            cudaGraphicsGLRegisterImage(&connection->cudaGR, connection->openGlTexture, GL_TEXTURE_2D,  cudaGraphicsRegisterFlagsSurfaceLoadStore);
-            cudaGraphicsMapResources(1, &connection->cudaGR, nullptr);
-            cudaGraphicsSubResourceGetMappedArray(&connection->cudaArr, connection->cudaGR, 0, 0);
-            cudaGraphicsUnmapResources(1, &connection->cudaGR, nullptr);
-            connection->isRegistered = true;
-        }
-
-
-        cudaGraphicsMapResources(1, &connection->cudaGR, nullptr);
-
-        const cudaError_t err = cudaMemcpy2DToArray(
-            connection->cudaArr,
-            0, 0,
-            cudaDeviceTexture,
-            connection->textureWidth * connection->typeSize,
-            connection->textureWidth * connection->typeSize,
-            connection->textureHeight,
-            cudaMemcpyDeviceToDevice
-        );
-
-        if (err != cudaSuccess)
-            std::cerr << "Error copying texture to openGLL: " << cudaGetErrorString(err) << std::endl;
-        cudaGraphicsUnmapResources(1, &connection->cudaGR, nullptr);
+    if (std::find(m_activeConnections.begin(), m_activeConnections.end(), identifier) == m_activeConnections.end()) {
+        std::cerr << "Connection not active during copy: " << identifier << std::endl;
+        return;
     }
-    else
+
+    auto it = m_connections.find(identifier);
+    if (it == m_connections.end()) {
         std::cerr << "Connection not found during copy: " << identifier << std::endl;
+        return;
+    }
+
+    Connection *connection = it->second.get();
+
+    if (!connection->isRegistered)
+    {
+        std::cout << connection->openGlTexture << std::endl;
+        cudaGraphicsGLRegisterImage(&connection->cudaGR, connection->openGlTexture, GL_TEXTURE_2D,  cudaGraphicsRegisterFlagsSurfaceLoadStore);
+        cudaGraphicsMapResources(1, &connection->cudaGR, nullptr);
+        cudaGraphicsSubResourceGetMappedArray(&connection->cudaArr, connection->cudaGR, 0, 0);
+        cudaGraphicsUnmapResources(1, &connection->cudaGR, nullptr);
+        connection->isRegistered = true;
+    }
+
+
+    cudaGraphicsMapResources(1, &connection->cudaGR, nullptr);
+
+    const cudaError_t err = cudaMemcpy2DToArray(
+        connection->cudaArr,
+        0, 0,
+        cudaDeviceTexture,
+        connection->textureWidth * connection->typeSize,
+        connection->textureWidth * connection->typeSize,
+        connection->textureHeight,
+        cudaMemcpyDeviceToDevice
+    );
+
+    if (err != cudaSuccess)
+        std::cerr << "Error copying texture to openGLL: " << cudaGetErrorString(err) << std::endl;
+    cudaGraphicsUnmapResources(1, &connection->cudaGR, nullptr);
 }
 
 void CudaGlInteropManager::removeConnection(const std::string &identifier)
@@ -83,38 +90,39 @@ void CudaGlInteropManager::removeConnection(const std::string &identifier)
         m_connections.erase(identifier);
 }
 
-void CudaGlInteropManager::toggleSubTextures(const std::string &identifier)
+void CudaGlInteropManager::toggleSubTextures(const std::vector<std::string> &identifiers)
 {
-    static std::string lastIdentifier;
-
-    std::cout << "Toggling\n";
-    std::cout << identifier << std::endl;
     auto texture_map = Renderer::getTextures();
 
-    if (const auto textureIt = texture_map.find(lastIdentifier); textureIt != texture_map.end())
-    {
-        textureIt->second->regenerate();
+    // Call regenerate on each texture in m_activeConnections that are not in identifiers
+    for (const auto &activeId : m_activeConnections) {
+        if (std::find(identifiers.begin(), identifiers.end(), activeId) == identifiers.end()) {
+            if (const auto textureIt = texture_map.find(activeId); textureIt != texture_map.end()) {
+                textureIt->second->regenerate();
+            }
+        }
     }
 
-    if (!identifier.empty())
+    if (!identifiers.empty())
     {
-        if (const auto textureIt = texture_map.find(identifier); textureIt != texture_map.end()) {
-            Texture *texture = textureIt->second;
-            if (const auto connectionIt = m_connections.find(identifier); connectionIt != m_connections.end())
-            {
-                Connection *connection = connectionIt->second.get();
-                texture->load2DEmpty(connection->internalFormat, connection->format, connection->type, {connection->textureWidth, connection->textureHeight});
-                if (connection->isRegistered)
-                    cudaGraphicsUnregisterResource(connection->cudaGR);
+        for (const auto& identifier : identifiers)
+            if (const auto textureIt = texture_map.find(identifier); textureIt != texture_map.end()) {
+                Texture *texture = textureIt->second;
+                if (const auto connectionIt = m_connections.find(identifier); connectionIt != m_connections.end())
+                {
+                    Connection *connection = connectionIt->second.get();
+                    texture->load2DEmpty(connection->internalFormat, connection->format, connection->type, {connection->textureWidth, connection->textureHeight});
+                    if (connection->isRegistered)
+                        cudaGraphicsUnregisterResource(connection->cudaGR);
 
-                connection->openGlTexture = texture->id();
-                connection->isRegistered = false;
+                    connection->openGlTexture = texture->id();
+                    connection->isRegistered = false;
+                }
+                else
+                    std::cerr << "Connection not found: " << identifier << std::endl;
             }
             else
-                std::cerr << "Connection not found: " << identifier << std::endl;
-        }
-        else
-            std::cerr << "Texture not found: " << identifier << std::endl;
+                std::cerr << "Texture not found: " << identifier << std::endl;
     }
-    lastIdentifier = identifier;
+    m_activeConnections = identifiers;
 }

@@ -7,16 +7,25 @@ class Gui {
     float m_avgFramerate;
 
     float m_timeSum;
+
 public:
     Gui();
     ~Gui();
-    void gui();
-
 
     void render();
 
+private:
+    void gui();
     static void preRenderGUI();
+
+    static void renderSettingsSection();
+    static void simulationSettingsSection();
+    void executionSettingsSection();
+
+    static void resetSimulationSection();
+    static unsigned int generateRandomSeed();
 };
+
 
 
 

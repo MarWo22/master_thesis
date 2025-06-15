@@ -10,24 +10,25 @@
 #include "plate_data.h"
 #include "plate_tectonics_kernel.cuh"
 #include "../generation_settings.h"
-
-extern GenerationSettings generationSettings;
 #include "flux_erosion.h"
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 #include <thrust/iterator/constant_iterator.h>
 
-PlateTectonicSim::PlateTectonicSim(const int width, const int height, int seed, const int numStartingPlates,
+extern RenderSettings renderSettings;
+extern SimulationSettings simulationSettings;
+
+PlateTectonicSim::PlateTectonicSim(const int width, const int height, const unsigned int seed, const int numStartingPlates,
                                    CudaGlInteropManager *interopManager)
     : m_width(width)
     , m_height(height)
     , m_seed(seed)
     , m_plateDataLookup(nullptr)
-    , m_numStartingPlates(numStartingPlates)
-    , m_interopManager(interopManager)
     , m_randStatesPlates(nullptr)
     , m_iterationStats(nullptr)
+    , m_numStartingPlates(numStartingPlates)
+    , m_interopManager(interopManager)
 {
     // FluxVelocityErosion erosion = FluxVelocityErosion(height, width);
     //
@@ -46,25 +47,34 @@ PlateTectonicSim::PlateTectonicSim(const int width, const int height, int seed, 
 void PlateTectonicSim::initialize()
 {
     initializeTectonics();
-    generationSettings.registerCallback("executeIterations", [this]
+    renderSettings.registerCallback("executeIterations", [this]
     {
-        if (!generationSettings.isExecutingRealtime)
-            for (int i = 0; i < generationSettings.executionIterations; ++i)
+        if (!renderSettings.isExecutingRealtime)
+            for (int i = 0; i < renderSettings.executionIterations; ++i)
                 executeIteration();
         else
         {
-            if (generationSettings.executionIterations > 0)
+            if (renderSettings.executionIterations > 0)
             {
                 executeIteration();
-                generationSettings.executionIterations -= 1;
+                renderSettings.executionIterations -= 1;
             }
-            if (generationSettings.executionIterations <= 0)
-                generationSettings.isExecutingRealtime = false;
+            if (renderSettings.executionIterations <= 0)
+                renderSettings.isExecutingRealtime = false;
 
         }
     });
+
+    simulationSettings.resetCallback = [this](unsigned int seed, int numPlates) {
+        resetSim(seed, numPlates);
+    };
+
     if (m_interopManager != nullptr)
+    {
+        m_interopManager->toggleSubTextures({"heightMap", "cudaPlateTexture"});
+        copyConstantTexturesInterop();
         setupToggleCallbacks();
+    }
 }
 
 void PlateTectonicSim::executeIteration()
@@ -177,7 +187,6 @@ void PlateTectonicSim::executeIteration()
      * and movement of original crust is dealt with in this step.
      */
 
-
     processCollisions<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(),
                                                               m_heightMapTexture.deviceTexture(),
                                                               plateCollisions.deviceTexture(), m_plateDataLookup,
@@ -269,6 +278,7 @@ void PlateTectonicSim::executeIteration()
      * STEP SIX
      * Apply the movement to the plates, and update the velocities and directions according to collisions.
      */
+
     updatePlateData<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, m_randStatesPlates, Vec2(m_maxPlates, 1));
 
     uint8_t *plateMergeIds;
@@ -320,17 +330,17 @@ void PlateTectonicSim::executeIteration()
     /*
      * CCL SECTION
      */
+
+
     CudaTextureHost<unsigned int> labels;
     labels.initialize(m_width , m_height);
 
     // First, apply 8-way CCL to generate a texture of labels
-    initializeCCL<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
-    analysisCCL<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
-    labelReductionCCL<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
-    analysisCCL<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+    init<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+    analyzeClamped<<<numBlocksPixels, m_threadsPerBlock>>>(labels.deviceTexture());
+    reduce<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+    analyzeUnclamped<<<numBlocksPixels, m_threadsPerBlock>>>(labels.deviceTexture());
 
-    // Allocate two arrays to hold the counts of labels and unique labels. Allocating 1% of the original texture size
-    // This is with the assumption that it is nearly impossible for 1% of all pixels to become unique plates
     unsigned int *labelCounts;
     unsigned int *uniqueLabels;
     unsigned int *labelsCopy;
@@ -450,7 +460,7 @@ void PlateTectonicSim::executeIteration()
 
     if (m_interopManager)
     {
-        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_COLLISION_AREAS)
+        if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_COLLISION_AREAS)
         {
             CudaTextureHost<uint8_t> glTexture;
             glTexture.initialize(m_width, m_height);
@@ -459,28 +469,34 @@ void PlateTectonicSim::executeIteration()
 
             m_interopManager->copyConnection("collisionMap", glTexture.getPointer());
         }
-        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_PLATES)
-        {
-            m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
-        }
-        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_CCL_AREAS) // TODO: DEBUG
-        {
-            m_interopManager->copyConnection("cclTexture", m_cllPlateIds.getPointer());
-        }
-        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_PLATE_VELOCITIES)
-        {
-            copyVelocitiesGL();
-        }
-        if (generationSettings.renderMode == GenerationSettings::RenderMode::SHOW_PLATE_DIRECTIONS)
-        {
-            copyDirectionGL();
-        }
-        m_interopManager->copyConnection("heightMap", m_heightMapTexture.getPointer());
+        copyConstantTexturesInterop();
     }
 
     const auto finish{std::chrono::steady_clock::now()};
     const std::chrono::duration<double> elapsed_seconds{finish - start};
     std::cout << "Iteration duration: " << elapsed_seconds.count() << std::endl;
+}
+
+void PlateTectonicSim::copyConstantTexturesInterop() const
+{
+    if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_CCL_AREAS)
+    {
+        m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
+    }
+    if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_CCL_AREAS) // TODO: DEBUG
+    {
+        m_interopManager->copyConnection("cclTexture", m_cllPlateIds.getPointer());
+    }
+    if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_PLATE_VELOCITIES)
+    {
+        copyVelocitiesGL();
+    }
+    if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_PLATE_DIRECTIONS)
+    {
+        copyDirectionGL();
+    }
+    m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
+    m_interopManager->copyConnection("heightMap", m_heightMapTexture.getPointer());
 }
 
 void PlateTectonicSim::copyCCL() const // TODO: DEBUGGING ONLY
@@ -544,6 +560,33 @@ void PlateTectonicSim::copyVelocitiesGL() const
 
     m_interopManager->copyConnection("velocityTexture", glTexture.getPointer());
 }
+
+void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPlates)
+{
+    m_seed = seed;
+    m_numStartingPlates = numStartingPlates;
+    m_heightMapTexture.free();
+
+    // Plate tectonic sim specific device arrays
+    m_plateIdsTexture.free();
+    m_overlapCrustTexture.free();
+
+    m_cllPlateIds.free(); // TODO: ONLY FOR DEDUG
+
+    if (m_plateDataLookup)
+        cudaFree(m_plateDataLookup);
+
+    if (m_randStatesPlates)
+        cudaFree(m_randStatesPlates);
+
+    if (m_iterationStats)
+        cudaFree(m_iterationStats);
+
+    initializeTectonics();
+    if (m_interopManager)
+        copyConstantTexturesInterop();
+}
+
 
 void PlateTectonicSim::initializeTectonics()
 {
@@ -624,43 +667,35 @@ std::vector<PlateData> PlateTectonicSim::initializePlateData(std::default_random
 
 void PlateTectonicSim::setupToggleCallbacks() const
 {
-    generationSettings.registerCallback("toggleDefaultMode", [this]
+    renderSettings.registerCallback("toggleDefaultMode", [this]
     {
-        // Empty string identifier to trigger a memory free of the previous texture
-        m_interopManager->toggleSubTextures("");
+        m_interopManager->toggleSubTextures({"cudaPlateTexture", "heightMap"});
     });
 
-    generationSettings.registerCallback("togglePlateMode", [this]
+    renderSettings.registerCallback("toggleCollisionMode", [this]
     {
-        std::cout << "Plate mode!" << std::endl;
-        m_interopManager->toggleSubTextures("cudaPlateTexture");
-        copyPlateIdsGL();
+        m_interopManager->toggleSubTextures({"collisionMap"});
     });
 
-    generationSettings.registerCallback("toggleCollisionMode", [this]
+    renderSettings.registerCallback("toggleDirectionMode", [this]
     {
-        m_interopManager->toggleSubTextures("collisionMap");
-    });
-
-    generationSettings.registerCallback("toggleDirectionMode", [this]
-    {
-        m_interopManager->toggleSubTextures("directionTexture");
+        m_interopManager->toggleSubTextures({"directionTexture"});
         copyDirectionGL();
     });
 
-    generationSettings.registerCallback("toggleVelocityMode", [this]
+    renderSettings.registerCallback("toggleVelocityMode", [this]
     {
-        m_interopManager->toggleSubTextures("velocityTexture");
+        m_interopManager->toggleSubTextures({"velocityTexture"});
         copyVelocitiesGL();
     });
 
-    generationSettings.registerCallback("toggleUpliftMode", [this]
+    renderSettings.registerCallback("toggleUpliftMode", [this]
     {
-        m_interopManager->toggleSubTextures("upliftTexture");
+        m_interopManager->toggleSubTextures({"upliftTexture"});
     });
-    generationSettings.registerCallback("toggleCCLMode", [this]// TODO: DEBUGGING ONLY
+    renderSettings.registerCallback("toggleCCLMode", [this]// TODO: DEBUGGING ONLY
     {
-        m_interopManager->toggleSubTextures("cclTexture");
+        m_interopManager->toggleSubTextures({"cclTexture"});
         copyCCL();
     });
 }

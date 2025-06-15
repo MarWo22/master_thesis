@@ -4,7 +4,7 @@
 
 #include "../generation_settings.h"
 
-extern GenerationSettings generationSettings;
+extern RenderSettings renderSettings;
 
 void Terrain::Vertex::init(const int xPos, const int zPos, const int sizeX, const int sizeZ)
 {
@@ -54,44 +54,42 @@ void Terrain::init()
 
 void Terrain::render(const Camera &camera)
 {
-    switch (generationSettings.renderMode)
+    switch (renderSettings.renderMode)
     {
-        case GenerationSettings::RenderMode::NORMAL:
+        case RenderSettings::RenderMode::NORMAL:
             m_heightmapShader->bind();
             m_heightmapShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
-            m_heightmapTexture->bind(GL_TEXTURE0);
-            break;
-        case GenerationSettings::RenderMode::SHOW_PLATES:
-            m_platesBorderShader->bind();
-            m_platesBorderShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+            m_heightmapShader->setUniform("displaceHeight", renderSettings.renderHeight ? 1 : 0);
+            m_heightmapShader->setUniform("showBorders", renderSettings.renderBorders ? 1 : 0);
+            m_heightmapShader->setUniform("heightMultiplier", renderSettings.heightMultiplier);
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_platesTexture->bind(GL_TEXTURE1);
             break;
-        case GenerationSettings::RenderMode::SHOW_COLLISION_AREAS:
+        case RenderSettings::RenderMode::SHOW_COLLISION_AREAS:
             m_regionShader->bind();
             m_regionShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_collisionTexture->bind(GL_TEXTURE1);
             break;
-        case GenerationSettings::RenderMode::SHOW_PLATE_DIRECTIONS:
+        case RenderSettings::RenderMode::SHOW_PLATE_DIRECTIONS:
             m_directionShader->bind();
             m_directionShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_directionTexture->bind(GL_TEXTURE1);
             break;
-        case GenerationSettings::RenderMode::SHOW_PLATE_VELOCITIES:
+        case RenderSettings::RenderMode::SHOW_PLATE_VELOCITIES:
             m_velocityShader->bind();
             m_velocityShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_velocityTexture->bind(GL_TEXTURE1);
             break;
-        case GenerationSettings::RenderMode::SHOW_UPLIFT_AREAS:
+        case RenderSettings::RenderMode::SHOW_UPLIFT_AREAS:
             m_velocityShader->bind();
             m_velocityShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_upliftTexture->bind(GL_TEXTURE1);
             break;
-        case GenerationSettings::RenderMode::SHOW_CCL_AREAS:
+        case RenderSettings::RenderMode::SHOW_CCL_AREAS:
             m_platesColoredShader->bind();
             m_platesColoredShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);

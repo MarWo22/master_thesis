@@ -16,7 +16,7 @@ class PlateTectonicSim {
     int m_width;
     int m_height;
 
-    int m_seed;
+    unsigned int m_seed;
 
     // Main heightmap on device
     CudaTextureHost<float> m_heightMapTexture;
@@ -42,7 +42,7 @@ class PlateTectonicSim {
 
 public:
 
-    PlateTectonicSim(int width, int height, int seed, int numStartingPlates, CudaGlInteropManager *interopManager);
+    PlateTectonicSim(int width, int height, unsigned int seed, int numStartingPlates, CudaGlInteropManager *interopManager);
 
     [[nodiscard]] CudaTextureHost<float> &heightMapCudaTexture() { return m_heightMapTexture; }
     [[nodiscard]] CudaTextureHost<uint8_t> &plateIdsCudaTexture() { return m_plateIdsTexture; }
@@ -51,9 +51,14 @@ public:
 
     void executeIteration();
 
+    void copyConstantTexturesInterop() const;
+
     void copyCCL() const;
     
     Vec2<float> getPlateCenter(int numBlocksPixels, int m_threadsPerBlock);
+
+    void resetSim(unsigned int seed, int numStartingPlates);
+
 
 private:
 

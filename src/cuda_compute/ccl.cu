@@ -4,142 +4,6 @@
 
 // https://www-sciencedirect-com.ezproxy.ub.gu.se/science/article/pii/S0010465515001472?via%3Dihub
 
-__global__ void initializeCCL(const CudaTexture<uint8_t> *idsPtr, CudaTexture<unsigned int> *labelsPtr)
-{
-    const unsigned int invokeIndex = getInvokeIndex();
-
-    const CudaTexture<uint8_t> &ids = *idsPtr;
-    CudaTexture<unsigned int> &labels = *labelsPtr;
-
-    if (!isWithinBounds(invokeIndex, ids.size()))
-        return;
-
-    // Get the pixel coordinate
-    const Vec2<int> textureIndex = getTextureIndex(invokeIndex, ids.size());
-
-    // ID of the current pixel
-    const uint8_t id = ids[invokeIndex];
-
-    // if the top left index is connected, assign that label
-
-    Vec2 neighborTextureIndex = {textureIndex.x - 1, textureIndex.y - 1};
-    if (const uint8_t neighborId = ids[neighborTextureIndex]; id == neighborId)
-    {
-        labels[invokeIndex] = ids.coordinateToIndex(neighborTextureIndex);
-        return;
-    }
-
-    // if the top index is connected, assign that label
-
-    neighborTextureIndex = {textureIndex.x, textureIndex.y - 1};
-    if (const uint8_t neighborId = ids[neighborTextureIndex]; id == neighborId)
-    {
-        labels[invokeIndex] = ids.coordinateToIndex(neighborTextureIndex);
-        return;
-    }
-
-    // if the left index is connected, assign that label
-    neighborTextureIndex = {textureIndex.x - 1, textureIndex.y};
-    if (const uint8_t neighborId = ids[neighborTextureIndex]; id == neighborId)
-    {
-        labels[invokeIndex] = ids.coordinateToIndex(neighborTextureIndex);
-        return;
-    }
-
-    labels[invokeIndex] = invokeIndex;
-}
-
-__global__ void analysisCCL(const CudaTexture<uint8_t> *idsPtr, CudaTexture<unsigned int> *labelsPtr)
-{
-    const unsigned int invokeIndex = getInvokeIndex();
-
-    const CudaTexture<uint8_t> &ids = *idsPtr;
-    CudaTexture<unsigned int> &labels = *labelsPtr;
-
-    if (!isWithinBounds(invokeIndex, ids.size()))
-        return;
-
-    unsigned int label = labels[invokeIndex];
-    unsigned int newLabel = labels[label];
-
-    while (label != newLabel)
-    {
-        label = newLabel;
-        newLabel = labels[label];
-    }
-
-    labels[invokeIndex] = label;
-}
-
-__global__ void labelReductionCCL(const CudaTexture<uint8_t> *idsPtr, CudaTexture<unsigned int> *labelsPtr)
-{
-    const unsigned int invokeIndex = getInvokeIndex();
-
-    const CudaTexture<uint8_t> &ids = *idsPtr;
-    CudaTexture<unsigned int> &labels = *labelsPtr;
-
-    if (!isWithinBounds(invokeIndex, ids.size()))
-        return;
-
-    // Get the pixel coordinate
-    const Vec2<int> textureIndex = getTextureIndex(invokeIndex, ids.size());
-
-    const Vec2 topLeftIndex = {textureIndex.x - 1, textureIndex.y + 1};
-    // const Vec2 bottomLeftIndex = {textureIndex.x - 1, textureIndex.y - 1};
-
-    const Vec2 leftIndex = {textureIndex.x - 1, textureIndex.y};
-
-    reduction(ids, labels, invokeIndex, topLeftIndex);
-    // reduction(ids, labels, invokeIndex, bottomLeftIndex);
-
-    reduction(ids, labels, invokeIndex, leftIndex);
-}
-
-__device__ void reduction(const CudaTexture<uint8_t> &ids, CudaTexture<unsigned int> &labels,
-                          const unsigned int invokeIndex, const Vec2<int> &neighborIndex)
-{
-    unsigned int label1 = labels[invokeIndex];
-
-    unsigned int newLabel = labels[label1];
-    while (label1 != newLabel)
-    {
-        label1 = newLabel;
-        newLabel = labels[label1];
-    }
-
-    unsigned int label2 = labels[neighborIndex];
-    newLabel = labels[label2];
-    while (label2 != newLabel)
-    {
-        label2 = newLabel;
-        newLabel = labels[label2];
-    }
-
-    bool flag = true;
-    if (ids[label1] == ids[label2] and label1 != label2)
-        flag = false;
-
-    if (label1 < label2)
-    {
-        const unsigned int tmp = label1;
-
-        label1 = label2;
-        label2 = tmp;
-    }
-
-    while (flag == false)
-    {
-        if (unsigned int label3 = atomicMin(&labels[label1], label2); label3 == label2)
-            flag = true;
-        else if (label3 > label2)
-            label1 = label3;
-        else if (label3 < label2)
-        {
-            label1 = label2;
-            label2 = label3;
-        }
-    }
-}
 
 __global__ void copyToUint8Texture(const CudaTexture<unsigned int> *labelsPtr, CudaTexture<uint8_t> *writePtr,
                                    const unsigned int *labelIndices,
@@ -163,4 +27,152 @@ __global__ void copyToUint8Texture(const CudaTexture<unsigned int> *labelsPtr, C
         }
 
     printf("Did not get a label assigned");
+}
+
+
+
+// Return the root of a tree
+__device__ unsigned findClamped(CudaTexture<unsigned int> &labels, unsigned int index) {
+
+    unsigned int label = labels[index];
+
+    while (label != index && label < index) {
+        index = label;
+        label = labels[index];
+    }
+
+    return index;
+}
+
+__device__ unsigned findUnclamped(CudaTexture<unsigned int> &labels, unsigned int index) {
+
+    unsigned int label = labels[index];
+
+    while (label != index) {
+        index = label;
+        label = labels[index];
+    }
+
+    return index;
+}
+
+// Links together trees containing a and b
+__device__ void unionStep(CudaTexture<unsigned int> &labels, unsigned int index_a, unsigned index_b) {
+
+    bool done;
+
+    do {
+
+        index_a = findClamped(labels, index_a);
+        index_b = findUnclamped(labels, index_b);
+
+        if (index_a < index_b) {
+            const unsigned int old = atomicMin(&labels[index_b], index_a);
+            done = old == index_b;
+            index_b = old;
+        }
+        else if (index_b < index_a) {
+            const unsigned int old = atomicMin(&labels[index_a], index_b );
+            done = old == index_a;
+            index_a = old;
+        }
+        else {
+            done = true;
+        }
+
+    } while (!done);
+
+}
+
+
+// Init phase.
+// Labels start at value 1, to differentiate them from background, that has value 0.
+__global__ void init(const CudaTexture<uint8_t> *r_inputPtr, CudaTexture<unsigned int> *w_labelsPtr) {
+    const CudaTexture<uint8_t> &r_input = *r_inputPtr;
+    CudaTexture<unsigned int> &w_labels = *w_labelsPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (!isWithinBounds(invokeIndex, r_input.size()))
+        return;
+
+    const Vec2<int> textureIdx = getTextureIndex(invokeIndex, r_input.size());
+    const uint8_t currentId = r_input[invokeIndex];
+
+    const Vec2<int> textureIdx_l = textureIdx + Vec2<int>(-1, 0);
+    const Vec2<int> textureIdx_t = textureIdx + Vec2<int>(0, -1);
+    const Vec2<int> textureIdx_tl = textureIdx + Vec2<int>(-1, -1);
+    const Vec2<int> textureIdx_tr = textureIdx + Vec2<int>(1, -1);
+
+    if (currentId == r_input[textureIdx_tl])
+        w_labels[invokeIndex] = w_labels.coordinateToIndex(textureIdx_tl);
+    else if (currentId == r_input[textureIdx_t])
+        w_labels[invokeIndex] = w_labels.coordinateToIndex(textureIdx_t);
+    else if (currentId == r_input[textureIdx_tr])
+        w_labels[invokeIndex] = w_labels.coordinateToIndex(textureIdx_tr);
+    else if (currentId == r_input[textureIdx_l])
+        w_labels[invokeIndex] = w_labels.coordinateToIndex(textureIdx_l);
+    else
+        w_labels[invokeIndex] = invokeIndex;
+}
+
+
+// Analysis phase.
+__global__ void analyzeClamped(CudaTexture<unsigned int> *w_labelsPtr) {
+    CudaTexture<unsigned int> &w_labels = *w_labelsPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (!isWithinBounds(invokeIndex, w_labels.size()))
+        return;
+
+    w_labels[invokeIndex] = findClamped(w_labels, invokeIndex);
+}
+
+// Analysis phase.
+__global__ void AnalyzeUnclamped(CudaTexture<unsigned int> *w_labelsPtr) {
+    CudaTexture<unsigned int> &w_labels = *w_labelsPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (!isWithinBounds(invokeIndex, w_labels.size()))
+        return;
+
+    w_labels[invokeIndex] = findUnclamped(w_labels, invokeIndex);
+}
+
+
+__global__ void reduce(const CudaTexture<uint8_t> *r_inputPtr, CudaTexture<unsigned int> *w_labelsPtr) {
+
+    const CudaTexture<uint8_t> &r_input = *r_inputPtr;
+    CudaTexture<unsigned int> &w_labels = *w_labelsPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (!isWithinBounds(invokeIndex, r_input.size()))
+        return;
+
+    const Vec2<int> textureIdx = getTextureIndex(invokeIndex, r_input.size());
+    const uint8_t currentId = r_input[invokeIndex];
+
+    const Vec2<int> textureIdx_l = textureIdx + Vec2<int>(-1, 0);
+    const Vec2<int> textureIdx_tl = textureIdx + Vec2<int>(-1, -1);
+
+    if (textureIdx.y == 0)
+    {
+        const Vec2<int> textureIdx_t = textureIdx + Vec2<int>(0, -1);
+        const Vec2<int> textureIdx_tr = textureIdx + Vec2<int>(1, -1);
+        if (currentId == r_input[textureIdx_t])
+            unionStep(w_labels, invokeIndex, r_input.coordinateToIndex(textureIdx_t));
+
+        if (currentId == r_input[textureIdx_tr])
+            unionStep(w_labels, invokeIndex, r_input.coordinateToIndex(textureIdx_tr));
+    }
+
+    if (currentId == r_input[textureIdx_tl])
+        unionStep(w_labels, invokeIndex, r_input.coordinateToIndex(textureIdx_tl));
+
+    if (currentId == r_input[textureIdx_l])
+        unionStep(w_labels, invokeIndex, r_input.coordinateToIndex(textureIdx_l));
+
 }

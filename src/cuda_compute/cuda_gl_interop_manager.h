@@ -27,15 +27,18 @@ class CudaGlInteropManager {
     };
 
     std::unordered_map<std::string, std::unique_ptr<Connection>> m_connections;
+    std::vector<std::string> m_activeConnections;
 
 public:
     CudaGlInteropManager() = default;
 
     void addConnection(const std::string &identifier, GLuint openGlTexture, size_t typeSize, int textureWidth, int textureHeight, GLint
                        internalFormat, GLenum format, GLenum type);
+
     void copyConnection(const std::string &identifier, const void *cudaDeviceTexture);
     void removeConnection(const std::string &identifier);
-    void toggleSubTextures(const std::string &identifier);
+    void toggleSubTextures(const std::vector<std::string> &identifiers);
+
 };
 
 
