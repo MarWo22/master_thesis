@@ -130,7 +130,7 @@ __global__ void analyzeClamped(CudaTexture<unsigned int> *w_labelsPtr) {
 }
 
 // Analysis phase.
-__global__ void AnalyzeUnclamped(CudaTexture<unsigned int> *w_labelsPtr) {
+__global__ void analyzeUnclamped(CudaTexture<unsigned int> *w_labelsPtr) {
     CudaTexture<unsigned int> &w_labels = *w_labelsPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();

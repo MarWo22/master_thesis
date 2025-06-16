@@ -337,7 +337,7 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
                                         const uint8_t plateC,
                                         const uint8_t plateD, const unsigned int invokeIndex)
 {
-    printf("%f\n", kernelSettings.inelasticCollisionMultiplier);
+    //printf("%f\n", kernelSettings.inelasticCollisionMultiplier);
     const Vec2 currentTexIndex = r_plateIdsPtr->indexToCoordinate(invokeIndex);
 
     PlateData &plateAData = plateLookup[plateA];
