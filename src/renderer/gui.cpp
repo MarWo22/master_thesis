@@ -104,6 +104,8 @@ void Gui::renderSettingsSection()
         {
             ImGui::Checkbox("Displace Height", &renderSettings.renderHeight);
             ImGui::Checkbox("Show Plate Borders", &renderSettings.renderBorders);
+            ImGui::Checkbox("Show Water", &renderSettings.renderWater);
+
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Height Displacement Multiplier", &renderSettings.heightMultiplier, 0.1f, 0.f, 500.f);
         }
@@ -133,6 +135,22 @@ void Gui::simulationSettingsSection()
             // velocity_threshold_merge
             // min_size
         }
+        if (ImGui::CollapsingHeader("Erosion Properties"))
+        {
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Water pipe cross section", &newSettings.hydrationPipeCrossSection, 0.005f, 0.f, 50.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Water pipe length", &newSettings.hydrationPipeLength, 0.005f, 0.f, 500.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Rainfall", &newSettings.hydrationRainfall, 0.005f, 0.f, 500.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Evaporation", &newSettings.hydrationEvaporation, 0.005f, 0.f, 500.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Capacity", &newSettings.sedimentCapacity, 0.05f, 0.f, 10.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Dissolving constant", &newSettings.sedimentDissolving, 0.001f, 0.f, 10.f);
+        }
+
         ImGui::Unindent(15.0f);
 
     }

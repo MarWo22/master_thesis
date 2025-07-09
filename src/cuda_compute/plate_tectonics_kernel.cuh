@@ -114,4 +114,17 @@ __global__ void assignUnassignedIdsToNeighbor(CudaTexture<uint8_t> *plateIdsPtr,
 __global__ void copyNewPlateIdLookup(const PlateData *r_plateData, const uint8_t *r_originalPlateIds,
                                      PlateData *w_plateData);
 
+__global__ void rain(CudaTexture<float>* hydration, float deltatime, unsigned int seed);
+
+__global__ void flux(const CudaTexture<float>* r_materialPtr, const CudaTexture<float>* r_hydrationPtr, const CudaTexture<float4>* r_fluxPtr, CudaTexture<float4>* w_fluxPtr, float deltatime);
+
+__global__ void flow(CudaTexture<float>* w_hydrationPtr, const CudaTexture<float4>* r_fluxPtr, CudaTexture<float4>* w_fluxPtr, CudaTexture<Vec2<float>>* w_velocityPtr, float deltatime);
+
+__global__ void sediment(CudaTexture<float>* w_materialPtr, CudaTexture<float>* w_sedimentPtr, CudaTexture<Vec2<float>>* r_velocityPtr, float deltatime);
+
+__global__ void transport(CudaTexture<float>* r_sedimentPtr, CudaTexture<float>* w_sedimentPtr, CudaTexture<Vec2<float>>* r_velocityPtr, float deltatime);
+
+__global__ void evaporate(CudaTexture<float>* hydration, float deltatime);
+
+
 #endif //PLATE_TECTONICS_KERNEL_CUH

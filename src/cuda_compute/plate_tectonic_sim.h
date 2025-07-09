@@ -17,6 +17,7 @@ class PlateTectonicSim {
     int m_height;
 
     unsigned int m_seed;
+    unsigned int m_iterations;
 
     // Main heightmap on device
     CudaTextureHost<float> m_heightMapTexture;
@@ -26,6 +27,11 @@ class PlateTectonicSim {
     CudaTextureHost<float> m_overlapCrustTexture;
 
     CudaTextureHost<uint8_t> m_cllPlateIds; // TODO: ONLY FOR DEDUG
+
+    CudaTextureHost<float> m_hydrationLevel;
+    CudaTextureHost<float4> m_hydrationFlux;
+    CudaTextureHost<Vec2<float>> m_hydrationVelocity;
+    CudaTextureHost<float> m_sedimentLevel;
 
     PlateData *m_plateDataLookup;
     curandState *m_randStatesPlates;
@@ -63,6 +69,7 @@ public:
 private:
 
     void initializeTectonics();
+    void initializeHydration();
 
     std::vector<Vec2<float>> initializeVoronoiSeeds(
         std::default_random_engine &generator) const;
@@ -74,6 +81,9 @@ private:
     void copyPlateIdsGL() const;
     void copyDirectionGL() const;
     void copyVelocitiesGL() const;
+
+    void HydrationSubSim() const;
+    void UpliftSubSim() const;
 };
 
 

@@ -23,7 +23,7 @@ FluxVelocityErosion::FluxVelocityErosion(int width, int height)
     m_fluxDevice.initialize(width, height);
     m_velocityDevice.initialize(width, height);
     
-    initMaterial << <mWidth, mHeight >> > (m_materialDevice.deviceTexture(), 212312);
+    //initMaterial << <mWidth, mHeight >> > (m_materialDevice.deviceTexture(), 212312);
 }
 
 FluxVelocityErosion::~FluxVelocityErosion() {
@@ -33,7 +33,7 @@ FluxVelocityErosion::~FluxVelocityErosion() {
 void FluxVelocityErosion::simulate(int iterations) {
     for (unsigned int i = 0; i < iterations; i++)
     {
-        rainComputation << <mWidth, mHeight >> > (m_hydrationDevice.deviceTexture(), 0.02, 212312);
+        /*rainComputation << <mWidth, mHeight >> > (m_hydrationDevice.deviceTexture(), 0.02, 212312);
 
         fluxComputation << <mWidth, mHeight >> > (m_materialDevice.deviceTexture(), m_hydrationDevice.deviceTexture(), m_fluxDevice.deviceTexture(), 0.02, mGravityConstant, mPipeCrossSectionConstant, mPipeLengthConstant);
 
@@ -44,7 +44,7 @@ void FluxVelocityErosion::simulate(int iterations) {
         transportComputation << <mWidth, mHeight >> > (m_sedimentDevice.deviceTexture(), m_sedimentBufferDevice.deviceTexture(), m_velocityDevice.deviceTexture(), 0.02);
         cudaMemcpy(m_sedimentDevice.deviceTexture(), m_sedimentBufferDevice.deviceTexture(), sizeof(float) * mWidth * mHeight, cudaMemcpyDeviceToDevice);
 
-        evaporateComputation << <mWidth, mHeight >> > (m_hydrationDevice.deviceTexture(), 0.02, mEvaporationConstant);
+        evaporateComputation << <mWidth, mHeight >> > (m_hydrationDevice.deviceTexture(), 0.02, mEvaporationConstant);*/
 
         completed++;
         printf("Batch: %4i/%4i Total: %.i \n", i + 1, iterations, completed);

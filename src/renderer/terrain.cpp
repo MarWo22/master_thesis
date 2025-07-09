@@ -26,6 +26,7 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
     , m_velocityTexture(nullptr)
     , m_directionTexture(nullptr)
     , m_upliftTexture(nullptr)
+    , m_waterTexture(nullptr)
     , m_cclTexture(nullptr), m_sizeX(sizeX)
     , m_sizeZ(sizeZ)
     , m_vao(0)
@@ -47,6 +48,7 @@ void Terrain::init()
     m_velocityTexture = getTexture("velocityTexture");
     m_directionTexture = getTexture("directionTexture");
     m_upliftTexture = getTexture("upliftTexture");
+    m_waterTexture = getTexture("waterTexture");
     m_cclTexture = getTexture("cclTexture");
     createGlState();
     populateBuffers();
@@ -61,9 +63,11 @@ void Terrain::render(const Camera &camera)
             m_heightmapShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapShader->setUniform("displaceHeight", renderSettings.renderHeight ? 1 : 0);
             m_heightmapShader->setUniform("showBorders", renderSettings.renderBorders ? 1 : 0);
+            m_heightmapShader->setUniform("showWater", renderSettings.renderWater ? 1 : 0);
             m_heightmapShader->setUniform("heightMultiplier", renderSettings.heightMultiplier);
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_platesTexture->bind(GL_TEXTURE1);
+            m_waterTexture->bind(GL_TEXTURE2);
             break;
         case RenderSettings::RenderMode::SHOW_COLLISION_AREAS:
             m_regionShader->bind();

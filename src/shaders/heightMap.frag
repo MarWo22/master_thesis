@@ -3,8 +3,10 @@
 layout(location = 0) out vec4 fragmentColor;
 layout(binding = 0) uniform sampler2D heightMap;
 layout(binding = 1) uniform sampler2D platesTexture;
+layout(binding = 2) uniform sampler2D waterTexture;
 
 uniform bool showBorders;
+uniform bool showWater;
 
 in vec2 texCoord;
 in vec4 color;
@@ -36,17 +38,31 @@ void main() {
 
     vec3 colorNew = vec3(color.r, color.g, color.b);
 
-    if (height < 0.1) {
-        colorNew = mix(vec3(0.0, 0.0, 0.3), vec3(0.0, 0.5, 1.0), height / 0.1);
-    } else if (height < 0.6) {
-        colorNew = mix(vec3(0.0, 0.5, 0.0), vec3(0.4, 0.3, 0.2), (height - 0.1) / 0.3);
-    } else if (height < 0.85) {
-        colorNew = mix(vec3(0.4, 0.3, 0.2), vec3(0.5, 0.5, 0.5), (height - 0.6) / 0.25);
+    if (height < 100) {
+        colorNew = mix(vec3(0.612, 0.6, 0.514), vec3(0.878, 0.859, 0.722), height / 100);
+    } else if (height < 200) {
+        colorNew = mix(vec3(0.878, 0.859, 0.722), vec3(0.949, 0.933, 0.82), (height - 100) / 100);
+    } else if (height < 300) {
+        colorNew = mix(vec3(0.102, 0.541, 0.141), vec3(0.216, 0.478, 0.239), (height - 200) / 100);
     } else {
-        colorNew = mix(vec3(0.5, 0.5, 0.5), vec3(1.0, 1.0, 1.0), (height - 0.85) / 0.15);
+        colorNew = mix(vec3(0.451, 0.451, 0.451), vec3(0.71, 0.71, 0.71), (height - 300) / 500);
     }
-
+    
+    if (showWater){
+        float hydration = texture(waterTexture, texCoord).r;
+        if(hydration > 20)
+        {
+            vec4 water = mix(vec4(0.639, 0.949, 1, 0.6), vec4(0, 0.588, 0.588, 1.0), clamp(hydration, 0, 100) / 100);
+            colorNew = mix(colorNew, water.rgb, water.a);
+        }
+        
+    }
+    
+    
     fragmentColor = vec4(colorNew, 1.0);    
     if (showBorders)
         renderBorder();
+
+    
+    
 }

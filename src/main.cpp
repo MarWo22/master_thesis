@@ -69,6 +69,11 @@ void loadTextures(CudaGlInteropManager &interopManager)
     interopManager.addConnection("upliftTexture", upliftTexture->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
     Renderer::addTexture("upliftTexture", upliftTexture);
 
+    auto* waterTexture = new Texture();
+    waterTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("waterTexture", waterTexture->id(), sizeof(float), heightmapDimensions.x, heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
+    Renderer::addTexture("waterTexture", waterTexture);
+
     auto *directionTexture = new Texture();
     directionTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     interopManager.addConnection("directionTexture", directionTexture->id(), sizeof(float2), heightmapDimensions.x, heightmapDimensions.y, GL_RG32F, GL_RG, GL_FLOAT);

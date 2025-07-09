@@ -41,8 +41,7 @@ __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData
         const float wrapAdjustedX = min(diffX, static_cast<float>(idTexture.size().x) - diffX);
         const float wrapAdjustedY = min(diffY, static_cast<float>(idTexture.size().y) - diffY);
 
-        if (const float distanceSq = wrapAdjustedX * wrapAdjustedX + wrapAdjustedY * wrapAdjustedY;
-            distanceSq < minDistance)
+        if (const float distanceSq = wrapAdjustedX * wrapAdjustedX + wrapAdjustedY * wrapAdjustedY; distanceSq < minDistance)
         {
             minIndex = i;
             minDistance = distanceSq;
@@ -82,7 +81,7 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
         freq *= 10.f;
     }
 
-    r_height[invokeIndex] = value;
+    r_height[invokeIndex] = value * 2000;
 }
 
 __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
@@ -287,7 +286,7 @@ __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, con
     const uint8_t previousPlateId = (*r_plateIdsPtr)[invokeIndex];
     (*w_plateIdsPtr)[invokeIndex] = previousPlateId;
     CudaTexture<float> &w_height = *w_heightMapPtr;
-    w_height[invokeIndex] = 0.0f;
+    w_height[invokeIndex] = 1.0f;
     const PlateData plateData = r_plateLookup[previousPlateId];
 
     // Zero indicates the new crust will be part of the plate moving away, 1 indicates it will be part of the other plate
@@ -441,12 +440,14 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
     const float heightA = r_height[Vec2<float>(coord.x, coord.y) - plateAData.direction * plateAData.velocity];
 
     float value = plateAData.mass;
+    float force = 0;
     uint8_t plate = plateA;
 
 
     if (plateB != MAX_PLATE_COUNT)
     {
         const PlateData plateBData = r_plateLookup[plateB];
+        
         if (value < plateBData.mass) {
             value = plateBData.mass;
             plate = plateB;
@@ -510,15 +511,22 @@ __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const
     const CudaTexture<uint8_t> &plateIds = *r_plateIdsPtr;
     const Vec2<int> textureIndex = getTextureIndex(plateIds.size());
 
-    Vec2<int> coord = r_height.indexToCoordinate(invokeIndex);
-
     CudaTexture<float> &w_height = *w_heightMapPtr;
 
     // Struct is small, so a copy is likely faster than referencing in Cuda
     const PlateData plateDataOrigin = r_plateLookup[originId];
 
-    w_height[invokeIndex] = r_height[Vec2<float>(coord.x, coord.y) - plateDataOrigin.direction * plateDataOrigin.
-                                     velocity];
+    const Vec2<float> pixelMovement = plateDataOrigin.direction * plateDataOrigin.velocity;
+
+    const Vec2<int> newPixelCenter(
+        static_cast<int>(floorf(plateDataOrigin.pixelCenter.x + pixelMovement.x)),
+        static_cast<int>(floorf(plateDataOrigin.pixelCenter.y + pixelMovement.y))
+    );
+
+    const Vec2<int> newTextureIndex = textureIndex - newPixelCenter;
+
+    w_height[textureIndex] = r_height[newTextureIndex];
+
 }
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
@@ -1257,4 +1265,150 @@ __global__ void selectUnusedPlateId(PlateData* plateLookup, uint8_t* plateId) {
             }
         }
     }
+}
+
+// direction mapping:
+//
+//      y
+//  x       z
+//      w
+//
+
+__global__ void rain(CudaTexture<float>* w_hydrationPtr, float deltatime, unsigned int seed)
+{
+    CudaTexture<float>& hydration = *w_hydrationPtr;
+
+    Vec2<int> coords = getTextureIndex(hydration.size());
+    hydration[coords] += fmaxf(0, cudaNoise::discreteNoise(make_float3(coords.x, 0, coords.y), 1, seed)) * deltatime * kernelSettings.hydrationRainfall;
+}
+
+__device__ float fluxSubComputation(const CudaTexture<float> r_material, const CudaTexture<float> r_hydration, float flux, Vec2<int> coordinateSelf, Vec2<int> coordinateNeighbor, float deltatime) {
+    float deltaHeight = r_material[coordinateSelf] + r_hydration[coordinateSelf] - r_material[coordinateNeighbor] - r_hydration[coordinateNeighbor];
+
+    return fmaxf(0, flux + deltatime * kernelSettings.hydrationPipeCrossSection * ((kernelSettings.gravity * deltaHeight) / kernelSettings.hydrationPipeLength));
+}
+
+__global__ void flux(const CudaTexture<float>* r_materialPtr, const CudaTexture<float>* r_hydrationPtr, const CudaTexture<float4>* r_fluxPtr, CudaTexture<float4>* w_fluxPtr, float deltatime)
+{
+    const CudaTexture<float>& material = *r_materialPtr;
+    const CudaTexture<float>& hydration = *r_hydrationPtr;
+    const CudaTexture<float4>& r_flux = *r_fluxPtr;
+    CudaTexture<float4>& w_flux = *w_fluxPtr;
+
+    unsigned int idx = getInvokeIndex();
+    Vec2<int> coords = getTextureIndex(r_materialPtr->size());
+
+    float4 current_f = r_flux[idx];
+    float4 outflowFlux = make_float4(0, 0, 0, 0);
+
+    outflowFlux.x = fluxSubComputation(material, hydration, current_f.x, coords, Vec2<int>(coords.x - 1, coords.y), deltatime);
+    outflowFlux.y = fluxSubComputation(material, hydration, current_f.y, coords, Vec2<int>(coords.x, coords.y + 1), deltatime);
+    outflowFlux.z = fluxSubComputation(material, hydration, current_f.z, coords, Vec2<int>(coords.x + 1, coords.y), deltatime);
+    outflowFlux.w = fluxSubComputation(material, hydration, current_f.w, coords, Vec2<int>(coords.x, coords.y - 1), deltatime);
+
+    float epsilon = 1e-6f;
+    float fluxTotal = outflowFlux.x + outflowFlux.y + outflowFlux.z + outflowFlux.w + epsilon;
+
+    float K = fminf(1.0f, hydration[idx] / (fluxTotal * deltatime + 1e-6f));
+    K = fmaxf(K, 0.01f);
+
+    outflowFlux.x *= K;
+    outflowFlux.y *= K;
+    outflowFlux.z *= K;
+    outflowFlux.w *= K;
+
+    w_flux[idx] = outflowFlux;
+}
+
+__global__ void flow(CudaTexture<float>* w_hydrationPtr, const CudaTexture<float4>* r_fluxPtr, CudaTexture<float4>* w_fluxPtr, CudaTexture<Vec2<float>>* w_velocityPtr, float deltatime)
+{
+    CudaTexture<float>& hydration = *w_hydrationPtr;
+    const CudaTexture<float4>& r_flux = *r_fluxPtr;
+    CudaTexture<float4>& w_flux = *w_fluxPtr;
+    CudaTexture<Vec2<float>>& velocity = *w_velocityPtr;
+
+    unsigned int idx = getInvokeIndex();
+    Vec2<int> coords = getTextureIndex(w_hydrationPtr->size());
+
+    float flowIn = 0;
+
+    flowIn += r_flux[coords + Vec2<int>(-1, 0)].z;
+    flowIn += r_flux[coords + Vec2<int>(0, 1)].w;
+    flowIn += r_flux[coords + Vec2<int>(1, 0)].x;
+    flowIn += r_flux[coords + Vec2<int>(0, -1)].y;
+
+    float4 localFlux = r_flux[idx];
+    float flowOut = localFlux.x + localFlux.y + localFlux.z + localFlux.w;
+
+    float deltaVolume = deltatime * (flowIn - flowOut);
+
+    hydration[idx] = fmaxf(0.0f, hydration[idx] + deltaVolume / kernelSettings.hydrationPipeLength);
+
+    Vec2<float> netFlow;
+
+    netFlow.x = (r_flux[coords + Vec2<int>(-1, 0)].z - r_flux[idx].x + r_flux[idx].z - r_flux[coords + Vec2<int>(1, 0)].x) * 0.5f;
+
+    netFlow.y = (r_flux[coords + Vec2<int>(0, 1)].w - r_flux[idx].y + r_flux[idx].y - r_flux[coords + Vec2<int>(0, -1)].w) * 0.5f;
+
+    float h = fmaxf(hydration[idx], 1e-6f);
+    velocity[idx] = netFlow / h;
+
+    //hydration[idx] = max(max(r_flux[idx].x, r_flux[idx].y), max(r_flux[idx].z, r_flux[idx].w));
+    w_flux[idx] = r_flux[idx];
+}
+
+__global__ void sediment(CudaTexture<float>* w_materialPtr, CudaTexture<float>* w_sedimentPtr, CudaTexture<Vec2<float>>* r_velocityPtr, float deltatime)
+{
+    CudaTexture<float> materialTexture = *w_materialPtr;
+    CudaTexture<float> sedimentTexture = *w_sedimentPtr;
+    CudaTexture<Vec2<float>> velocityTexture = *r_velocityPtr;
+
+    unsigned int idx = getInvokeIndex();
+    Vec2<int> coord = getTextureIndex(w_materialPtr->size());
+
+    float threshold = 0.03;
+    float C = kernelSettings.sedimentCapacity * sinf(fmaxf(materialTexture.Slope(coord), threshold)) * velocityTexture[idx].magnitude();
+
+    if (C > sedimentTexture[idx]) 
+    {
+        float s = kernelSettings.sedimentDissolving * (C - sedimentTexture[idx]);
+        float temp = fmaxf(materialTexture[idx] - s, 0.0);
+        float delta = sedimentTexture[idx] - temp;
+        materialTexture[idx] = fmaxf(materialTexture[idx] - s, 0.0);
+        sedimentTexture[idx] = fmaxf(sedimentTexture[idx] + delta, 0.0);
+    }
+    else 
+    {
+        float s = kernelSettings.sedimentDissolving * (sedimentTexture[idx] - C);
+        float temp = fmaxf(sedimentTexture[idx] - s, 0.0);
+        float delta = sedimentTexture[idx] - temp;
+        sedimentTexture[idx] = temp;
+        materialTexture[idx] = fmaxf(materialTexture[idx] + delta, 0.0);
+    }
+
+    if (materialTexture[idx] == INFINITY || materialTexture[idx] == -INFINITY) {
+        printf("INFINITY!!!");
+    }
+}
+
+__global__ void transport(CudaTexture<float>* r_sedimentPtr, CudaTexture<float>* w_sedimentPtr, CudaTexture<Vec2<float>>* r_velocityPtr, float deltatime)
+{
+    CudaTexture<float> r_sediment = *r_sedimentPtr;
+    CudaTexture<float> w_sediment = *w_sedimentPtr;
+    CudaTexture<Vec2<float>> r_velocity = *r_velocityPtr;
+    
+    unsigned int idx = getInvokeIndex();
+    Vec2<int> coord = getTextureIndex(r_sedimentPtr->size());
+
+    Vec2<float> vel = r_velocity[idx];
+
+    w_sediment[idx] = interpolate(Vec2<float>(coord.x - vel.x * deltatime, coord.y - vel.y * deltatime), r_sedimentPtr);
+}
+
+__global__ void evaporate(CudaTexture<float>* w_hydrationPtr, float deltatime)
+{
+    CudaTexture<float>& hydration = *w_hydrationPtr;
+
+    unsigned int idx = getInvokeIndex();
+    hydration[idx] = fmaxf(0.0f, hydration[idx] - (fminf(hydration[idx], 20) * kernelSettings.hydrationEvaporation * deltatime));
 }

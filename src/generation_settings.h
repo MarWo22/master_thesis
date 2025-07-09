@@ -22,7 +22,8 @@ public:
 
       bool renderHeight = true;
       bool renderBorders = false;
-      float heightMultiplier = 200;
+      bool renderWater = true;
+      float heightMultiplier = 0.2;
 
       // The actual settings. Could make them private with getter/setters, but I think this is sufficient
       int executionIterations = 1;

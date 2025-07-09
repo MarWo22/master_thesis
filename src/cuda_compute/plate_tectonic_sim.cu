@@ -15,6 +15,7 @@
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 #include <thrust/iterator/constant_iterator.h>
+#include "erosion_kernel.cuh"
 
 extern RenderSettings renderSettings;
 extern SimulationSettings simulationSettings;
@@ -24,29 +25,20 @@ PlateTectonicSim::PlateTectonicSim(const int width, const int height, const unsi
     : m_width(width)
     , m_height(height)
     , m_seed(seed)
+    , m_iterations(0)
     , m_plateDataLookup(nullptr)
     , m_randStatesPlates(nullptr)
     , m_iterationStats(nullptr)
     , m_numStartingPlates(numStartingPlates)
     , m_interopManager(interopManager)
 {
-    // FluxVelocityErosion erosion = FluxVelocityErosion(height, width);
-    //
-    // erosion.mCapacityConstant = 4;
-    // erosion.mDissolvingConstant = 0.1f;
-    // erosion.mPipeLengthConstant = 0.5f;
-    // erosion.mPipeCrossSectionConstant = 0.5f;
-    // erosion.mGravityConstant = 9.81f;
-    // erosion.mEvaporationConstant = 0.99;
-    //
-    // erosion.simulate(10);
-    //
-    // m_heightMapDevice = erosion.m_materialDevice.getPointer();
+    
 }
 
 void PlateTectonicSim::initialize()
 {
     initializeTectonics();
+    initializeHydration();
     renderSettings.registerCallback("executeIterations", [this]
     {
         if (!renderSettings.isExecutingRealtime)
@@ -71,7 +63,7 @@ void PlateTectonicSim::initialize()
 
     if (m_interopManager != nullptr)
     {
-        m_interopManager->toggleSubTextures({"heightMap", "cudaPlateTexture"});
+        m_interopManager->toggleSubTextures({"heightMap", "cudaPlateTexture", "waterTexture"});
         copyConstantTexturesInterop();
         setupToggleCallbacks();
     }
@@ -119,7 +111,7 @@ void PlateTectonicSim::executeIteration()
      * This texture will now contain the occurrence index of the pixel, aligned with the pixelIndicesCollision and
      * plateIdsCollisions texture
      */
-
+    
     const thrust::device_ptr<unsigned int> pixelIndicesThrust(pixelIndicesCollisions.getPointer());
     const thrust::device_ptr<uint8_t> plateIdsThrust(plateIdsCollisions.getPointer());
 
@@ -204,65 +196,29 @@ void PlateTectonicSim::executeIteration()
 
     VerticalBlur << <numBlocksPixels, m_threadsPerBlock >> > (m_plateIdsTexture.deviceTexture(), plateCollisions.deviceTexture(), upliftBufferA.deviceTexture(), upliftGrid.deviceTexture(), blurBuffer.deviceTexture(), 50);
     HorizontalBlur << <numBlocksPixels, m_threadsPerBlock >> > (m_plateIdsTexture.deviceTexture(), plateCollisions.deviceTexture(), upliftGrid.deviceTexture(), blurBuffer.deviceTexture(), heightMapTextureWrite.deviceTexture(), 50);
+    
+    CudaTextureHost<float4> fluxBuffer;
+    CudaTextureHost<float> sedimentBuffer;
+    fluxBuffer.initialize(m_width, m_height);
+    sedimentBuffer.initialize(m_width, m_height);
 
-    /*int scale = 3;
-    bool side = true;
-    float x = 1;
-    for (size_t i = 0; i < scale; i++)
+    for (size_t i = 0; i < 100; i++)
     {
-        printf("%.0f x %.0f \n", m_width * x, m_height * x);
-        if (side) {
-            printf("A \n");
-            downscaleUplift << <numBlocksPixels * x * 0.5, m_threadsPerBlock* x * 0.5 >> > (upliftBufferA.deviceTexture(), upliftBufferB.deviceTexture(), m_width * x, m_height * x, m_width * x * 0.5, m_height * x * 0.5);
-        }
-        else {
-            printf("B \n");
-            downscaleUplift << <numBlocksPixels * x * 0.5, m_threadsPerBlock* x * 0.5 >> > (upliftBufferB.deviceTexture(), upliftBufferA.deviceTexture(), m_width * x, m_height * x, m_width * x * 0.5, m_height * x * 0.5);
-        }
-
-        side = !side;
-        x *= 0.5;
-    }
-
-
-
-    for (size_t i = 0; i < scale; i++)
-    {
+        rain << <numBlocksPixels, m_threadsPerBlock >> > (m_hydrationLevel.deviceTexture(), 1.0, m_seed + m_iterations);
+        flux << <numBlocksPixels, m_threadsPerBlock >> > (heightMapTextureWrite.deviceTexture(), m_hydrationLevel.deviceTexture(), m_hydrationFlux.deviceTexture(), fluxBuffer.deviceTexture(), 1.0);
+        flow << <numBlocksPixels, m_threadsPerBlock >> > (m_hydrationLevel.deviceTexture(), fluxBuffer.deviceTexture(), m_hydrationFlux.deviceTexture(), m_hydrationVelocity.deviceTexture(), 1.0);
+        sediment << <numBlocksPixels, m_threadsPerBlock >> > (heightMapTextureWrite.deviceTexture(), m_sedimentLevel.deviceTexture(), m_hydrationVelocity.deviceTexture(), 1.0);
+        transport << <numBlocksPixels, m_threadsPerBlock >> > (m_sedimentLevel.deviceTexture(), sedimentBuffer.deviceTexture(), m_hydrationVelocity.deviceTexture(), 1.0);
+        evaporate << <numBlocksPixels, m_threadsPerBlock >> > (m_hydrationLevel.deviceTexture(), 1.0);
         
-
-
-        printf("%.0f x %.0f \n", m_width * x, m_height * x);
-        if (side) {
-            printf("A \n");
-            upscaleUplift << <numBlocksPixels * x * 2, m_threadsPerBlock* x * 2 >> > (upliftBufferA.deviceTexture(), upliftBufferB.deviceTexture(), m_width * x, m_height * x, m_width * x * 2, m_height * x * 2);
-        }
-        else {
-            printf("B \n");
-            upscaleUplift << <numBlocksPixels * x * 2, m_threadsPerBlock* x * 2 >> > (upliftBufferB.deviceTexture(), upliftBufferA.deviceTexture(), m_width * x, m_height * x, m_width * x * 2, m_height * x * 2);
-        }
-
-        side = !side;
-        x *= 2;
+        cudaMemcpyAsync(m_sedimentLevel.getPointer(), sedimentBuffer.getPointer(), sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice);
     }
-    printf("%.0f x %.0f \n", m_width * x, m_height * x);*/
-
-    //downscaleUplift << <numBlocksPixels * 0.25, m_threadsPerBlock * 0.25 >> > (upliftBlur.deviceTexture(), uplift.deviceTexture(), m_width * 0.25, m_height * 0.25);
-    //upscaleUplift << <numBlocksPixels * 0.5, m_threadsPerBlock * 0.5 >> > (uplift.deviceTexture(), upliftBlur.deviceTexture(), m_width * 0.5, m_height * 0.5);
-    //upscaleUplift << <numBlocksPixels, m_threadsPerBlock >> > (upliftBlur.deviceTexture(), uplift.deviceTexture(), m_width, m_height);
-    
-    //processUplift << <numBlocksPixels, m_threadsPerBlock >> > (upliftBufferA.deviceTexture(), upliftGrid.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
-    
-    /*if (side) {
-    }
-    else {
-        processUplift << <numBlocksPixels, m_threadsPerBlock >> > (upliftBufferB.deviceTexture(), heightMapTextureWrite.deviceTexture(), 10, 0.1f, 20.f, m_seed);
-    }*/
-
-
     
 
+    fluxBuffer.free();
+    sedimentBuffer.free();
 
-    // TODO: Add when heightmap stuff is implemented
+    //TODO: Add when heightmap stuff is implemented
     if (const cudaError_t err = cudaMemcpy(m_heightMapTexture.getPointer(), heightMapTextureWrite.getPointer(), sizeof(float) * m_height * m_width, cudaMemcpyDeviceToDevice); err != cudaSuccess)
         std::cerr << "Error memcpy heightmap: " << cudaGetErrorString(err) << std::endl;
 
@@ -331,131 +287,134 @@ void PlateTectonicSim::executeIteration()
      * CCL SECTION
      */
 
-
-    CudaTextureHost<unsigned int> labels;
-    labels.initialize(m_width , m_height);
-
-    // First, apply 8-way CCL to generate a texture of labels
-    init<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
-    analyzeClamped<<<numBlocksPixels, m_threadsPerBlock>>>(labels.deviceTexture());
-    reduce<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
-    analyzeUnclamped<<<numBlocksPixels, m_threadsPerBlock>>>(labels.deviceTexture());
-
-    unsigned int *labelCounts;
-    unsigned int *uniqueLabels;
-    unsigned int *labelsCopy;
-
-    if (const cudaError_t err = cudaMalloc(&labelCounts, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
-        std::cerr << "Error malloc labelCounts: " << cudaGetErrorString(err) << "\n";
-
-    if (const cudaError_t err = cudaMalloc(&uniqueLabels, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
-        std::cerr << "Error malloc uniqueLabels: " << cudaGetErrorString(err) << "\n";
-
-    if (const cudaError_t err = cudaMalloc(&labelsCopy, sizeof(unsigned int) * m_width * m_height); err != cudaSuccess)
-        std::cerr << "Error malloc labelsCopy: " << cudaGetErrorString(err) << "\n";
-
-    if (const cudaError_t err = cudaMemcpy(labelsCopy, labels.getPointer(), sizeof(unsigned int) * m_width * m_height, cudaMemcpyDeviceToDevice); err != cudaSuccess)
-        std::cerr << "Error memcpy labelsCopy: " << cudaGetErrorString(err) << "\n";
-
-    // Create thrust device ptr wrappers
-    const thrust::device_ptr<unsigned int> labelsCopyThrust(labelsCopy);
-    const thrust::device_ptr<unsigned int> labelCountsThrust(labelCounts);
-    const thrust::device_ptr<unsigned int> uniqueLabelsThrust(uniqueLabels);
-
-    std::vector<unsigned int> labelsHost(m_width * m_height);
-
-    if (const cudaError_t err = cudaMemcpy(labelsHost.data(), labelsCopy, sizeof(unsigned int) * m_width * m_height, cudaMemcpyDeviceToHost); err != cudaSuccess)
-        std::cerr << "Error memcpy labelsHost: " << cudaGetErrorString(err) << "\n";
-
-    // First, sort the labels
-    sort(labelsCopyThrust, labelsCopyThrust + m_height * m_width,
-                        thrust::greater<unsigned int>());
-
-
-    // Second, apply a reduce by key to create an array of key:count pairs. Capture the end iterator such that we are
-    // aware of the size of the final array.
-    const auto resultEnd = reduce_by_key(labelsCopyThrust, labelsCopyThrust + m_height * m_width, thrust::make_constant_iterator<int>(1), uniqueLabelsThrust, labelCountsThrust);
-    cudaFree(labelsCopy);
-    // We can use the iterator to calculate the number of unique labels. This is clamped to max_plate_count, as we cannot
-    // allocate more plates than the max count anyway.
-    const int numUniqueLabels = min(static_cast<int>(resultEnd.first - uniqueLabelsThrust), MAX_PLATE_COUNT);
-
-    // Third, sort the section of the labels:count pairs that has been initialized in the previous step. This gives us
-    // the pairs sorted by counts, in descending order
-    sort_by_key(labelCountsThrust, labelCountsThrust + numUniqueLabels, uniqueLabelsThrust, thrust::greater<unsigned int>());
-
-    uint8_t *originalPlateIds;
-
-    if (const cudaError_t err = cudaMalloc(&originalPlateIds, sizeof(uint8_t) * MAX_PLATE_COUNT); err != cudaSuccess)
-        std::cerr << "Error malloc originalPlateIds: " << cudaGetErrorString(err) << "\n";
-
-    if (const cudaError_t err = cudaMemset(originalPlateIds, MAX_PLATE_COUNT, sizeof(uint8_t)); err != cudaSuccess)
-        std::cerr << "Error memset originalPlateIds: " << cudaGetErrorString(err) << "\n";
-
-    unsigned int *unassignedIndices;
-
-    if (const cudaError_t err = cudaMalloc(&unassignedIndices, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
-        std::cerr << "Error malloc unassignedIndices: " << cudaGetErrorString(err) << "\n";
-
-    int *unassignedIndicesCount;
-
-    if (const cudaError_t err = cudaMalloc(&unassignedIndicesCount, sizeof(int)); err != cudaSuccess)
-        std::cerr << "Error malloc unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
-
-    if (const cudaError_t err = cudaMemset(unassignedIndicesCount, 0, sizeof(int)); err != cudaSuccess)
-        std::cerr << "Error memset unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
-
-
-    assignNewPlateIds<<<numBlocksPixels, m_threadsPerBlock>>>(labels.deviceTexture(), uniqueLabels, labelCounts, originalPlateIds, m_plateIdsTexture.deviceTexture(), unassignedIndices, unassignedIndicesCount, numUniqueLabels);
-
-    copyToUint8Texture<<<numBlocksPixels, m_threadsPerBlock>>>(labels.deviceTexture(), m_cllPlateIds.deviceTexture(), uniqueLabels, numUniqueLabels);
-
-
-    cudaFree(labelCounts);
-    cudaFree(uniqueLabels);
-
-
-    int unassignedIndicesCountHost;
-
-    if (const cudaError_t err = cudaMemcpy(&unassignedIndicesCountHost, unassignedIndicesCount, sizeof(int), cudaMemcpyDeviceToHost); err != cudaSuccess)
-        std::cerr << "Error memcpy unassignedIndicesCountHost: " << cudaGetErrorString(err) << "\n";
-    cudaFree(unassignedIndicesCount);
-    if (unassignedIndicesCountHost != 0)
+    if (true)
     {
-        int hasWork = 1;
-        const int gridSize = (unassignedIndicesCountHost + m_threadsPerBlock - 1) / m_threadsPerBlock;
+        CudaTextureHost<unsigned int> labels;
+        labels.initialize(m_width, m_height);
 
-        int *hasRemainingWork;
-        if (const cudaError_t err = cudaMalloc(&hasRemainingWork, sizeof(int)); err != cudaSuccess)
+        // First, apply 8-way CCL to generate a texture of labels
+        init << <numBlocksPixels, m_threadsPerBlock >> > (m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+        analyzeClamped << <numBlocksPixels, m_threadsPerBlock >> > (labels.deviceTexture());
+        reduce << <numBlocksPixels, m_threadsPerBlock >> > (m_plateIdsTexture.deviceTexture(), labels.deviceTexture());
+        analyzeUnclamped << <numBlocksPixels, m_threadsPerBlock >> > (labels.deviceTexture());
+
+        unsigned int* labelCounts;
+        unsigned int* uniqueLabels;
+        unsigned int* labelsCopy;
+
+        if (const cudaError_t err = cudaMalloc(&labelCounts, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
+            std::cerr << "Error malloc labelCounts: " << cudaGetErrorString(err) << "\n";
+
+        if (const cudaError_t err = cudaMalloc(&uniqueLabels, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
+            std::cerr << "Error malloc uniqueLabels: " << cudaGetErrorString(err) << "\n";
+
+        if (const cudaError_t err = cudaMalloc(&labelsCopy, sizeof(unsigned int) * m_width * m_height); err != cudaSuccess)
+            std::cerr << "Error malloc labelsCopy: " << cudaGetErrorString(err) << "\n";
+
+        if (const cudaError_t err = cudaMemcpy(labelsCopy, labels.getPointer(), sizeof(unsigned int) * m_width * m_height, cudaMemcpyDeviceToDevice); err != cudaSuccess)
+            std::cerr << "Error memcpy labelsCopy: " << cudaGetErrorString(err) << "\n";
+
+        // Create thrust device ptr wrappers
+        const thrust::device_ptr<unsigned int> labelsCopyThrust(labelsCopy);
+        const thrust::device_ptr<unsigned int> labelCountsThrust(labelCounts);
+        const thrust::device_ptr<unsigned int> uniqueLabelsThrust(uniqueLabels);
+
+        std::vector<unsigned int> labelsHost(m_width * m_height);
+
+        if (const cudaError_t err = cudaMemcpy(labelsHost.data(), labelsCopy, sizeof(unsigned int) * m_width * m_height, cudaMemcpyDeviceToHost); err != cudaSuccess)
+            std::cerr << "Error memcpy labelsHost: " << cudaGetErrorString(err) << "\n";
+
+        // First, sort the labels
+        sort(labelsCopyThrust, labelsCopyThrust + m_height * m_width,
+            thrust::greater<unsigned int>());
+
+
+        // Second, apply a reduce by key to create an array of key:count pairs. Capture the end iterator such that we are
+        // aware of the size of the final array.
+        const auto resultEnd = reduce_by_key(labelsCopyThrust, labelsCopyThrust + m_height * m_width, thrust::make_constant_iterator<int>(1), uniqueLabelsThrust, labelCountsThrust);
+        cudaFree(labelsCopy);
+        // We can use the iterator to calculate the number of unique labels. This is clamped to max_plate_count, as we cannot
+        // allocate more plates than the max count anyway.
+        const int numUniqueLabels = min(static_cast<int>(resultEnd.first - uniqueLabelsThrust), MAX_PLATE_COUNT);
+
+        // Third, sort the section of the labels:count pairs that has been initialized in the previous step. This gives us
+        // the pairs sorted by counts, in descending order
+        sort_by_key(labelCountsThrust, labelCountsThrust + numUniqueLabels, uniqueLabelsThrust, thrust::greater<unsigned int>());
+
+        uint8_t* originalPlateIds;
+
+        if (const cudaError_t err = cudaMalloc(&originalPlateIds, sizeof(uint8_t) * MAX_PLATE_COUNT); err != cudaSuccess)
+            std::cerr << "Error malloc originalPlateIds: " << cudaGetErrorString(err) << "\n";
+
+        if (const cudaError_t err = cudaMemset(originalPlateIds, MAX_PLATE_COUNT, sizeof(uint8_t)); err != cudaSuccess)
+            std::cerr << "Error memset originalPlateIds: " << cudaGetErrorString(err) << "\n";
+
+        unsigned int* unassignedIndices;
+
+        if (const cudaError_t err = cudaMalloc(&unassignedIndices, sizeof(unsigned int) * m_width * m_height / 100); err != cudaSuccess)
+            std::cerr << "Error malloc unassignedIndices: " << cudaGetErrorString(err) << "\n";
+
+        int* unassignedIndicesCount;
+
+        if (const cudaError_t err = cudaMalloc(&unassignedIndicesCount, sizeof(int)); err != cudaSuccess)
             std::cerr << "Error malloc unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
 
-        while (hasWork)
+        if (const cudaError_t err = cudaMemset(unassignedIndicesCount, 0, sizeof(int)); err != cudaSuccess)
+            std::cerr << "Error memset unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
+
+
+        assignNewPlateIds << <numBlocksPixels, m_threadsPerBlock >> > (labels.deviceTexture(), uniqueLabels, labelCounts, originalPlateIds, m_plateIdsTexture.deviceTexture(), unassignedIndices, unassignedIndicesCount, numUniqueLabels);
+
+        copyToUint8Texture << <numBlocksPixels, m_threadsPerBlock >> > (labels.deviceTexture(), m_cllPlateIds.deviceTexture(), uniqueLabels, numUniqueLabels);
+
+
+        cudaFree(labelCounts);
+        cudaFree(uniqueLabels);
+
+
+        int unassignedIndicesCountHost;
+
+        if (const cudaError_t err = cudaMemcpy(&unassignedIndicesCountHost, unassignedIndicesCount, sizeof(int), cudaMemcpyDeviceToHost); err != cudaSuccess)
+            std::cerr << "Error memcpy unassignedIndicesCountHost: " << cudaGetErrorString(err) << "\n";
+        cudaFree(unassignedIndicesCount);
+        if (unassignedIndicesCountHost != 0)
         {
-            if (const cudaError_t err = cudaMemset(hasRemainingWork, 0, sizeof(int)); err != cudaSuccess)
-                std::cerr << "Error memset unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
+            int hasWork = 1;
+            const int gridSize = (unassignedIndicesCountHost + m_threadsPerBlock - 1) / m_threadsPerBlock;
 
-            assignUnassignedIdsToNeighbor<<<gridSize, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), unassignedIndices, unassignedIndicesCountHost, hasRemainingWork);
+            int* hasRemainingWork;
+            if (const cudaError_t err = cudaMalloc(&hasRemainingWork, sizeof(int)); err != cudaSuccess)
+                std::cerr << "Error malloc unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
 
-            if (const cudaError_t err = cudaMemcpy(&hasWork, hasRemainingWork, sizeof(int), cudaMemcpyDeviceToHost); err != cudaSuccess)
-                std::cerr << "Error memcpy hasWork: " << cudaGetErrorString(err) << "\n";
+            while (hasWork)
+            {
+                if (const cudaError_t err = cudaMemset(hasRemainingWork, 0, sizeof(int)); err != cudaSuccess)
+                    std::cerr << "Error memset unassignedIndicesCount: " << cudaGetErrorString(err) << "\n";
+
+                assignUnassignedIdsToNeighbor << <gridSize, m_threadsPerBlock >> > (m_plateIdsTexture.deviceTexture(), unassignedIndices, unassignedIndicesCountHost, hasRemainingWork);
+
+                if (const cudaError_t err = cudaMemcpy(&hasWork, hasRemainingWork, sizeof(int), cudaMemcpyDeviceToHost); err != cudaSuccess)
+                    std::cerr << "Error memcpy hasWork: " << cudaGetErrorString(err) << "\n";
+            }
+            cudaFree(hasRemainingWork);
         }
-        cudaFree(hasRemainingWork);
+        cudaFree(unassignedIndices);
+
+
+        PlateData* plateDataWrite;
+
+        if (const cudaError_t err = cudaMalloc(&plateDataWrite, sizeof(PlateData) * MAX_PLATE_COUNT); err != cudaSuccess)
+            std::cerr << "Error malloc plateDataWrite: " << cudaGetErrorString(err) << "\n";
+
+        copyNewPlateIdLookup << <numBlocksPlates, m_threadsPerBlock >> > (m_plateDataLookup, originalPlateIds, plateDataWrite);
+
+        if (const cudaError_t err = cudaMemcpy(m_plateDataLookup, plateDataWrite, sizeof(PlateData) * MAX_PLATE_COUNT, cudaMemcpyDeviceToDevice); err != cudaSuccess)
+            std::cerr << "Error memcpy plateData: " << cudaGetErrorString(err) << "\n";
+
+        cudaFree(plateDataWrite);
+        cudaFree(originalPlateIds);
     }
-    cudaFree(unassignedIndices);
-
-
-    PlateData *plateDataWrite;
-
-    if (const cudaError_t err = cudaMalloc(&plateDataWrite, sizeof(PlateData) * MAX_PLATE_COUNT); err != cudaSuccess)
-        std::cerr << "Error malloc plateDataWrite: " << cudaGetErrorString(err) << "\n";
-
-    copyNewPlateIdLookup<<<numBlocksPlates, m_threadsPerBlock>>>(m_plateDataLookup, originalPlateIds, plateDataWrite);
-
-    if (const cudaError_t err = cudaMemcpy(m_plateDataLookup, plateDataWrite, sizeof(PlateData) * MAX_PLATE_COUNT, cudaMemcpyDeviceToDevice); err != cudaSuccess)
-        std::cerr << "Error memcpy plateData: " << cudaGetErrorString(err) << "\n";
-
-    cudaFree(plateDataWrite);
-    cudaFree(originalPlateIds);
+    
 
 
     if (m_interopManager)
@@ -471,6 +430,8 @@ void PlateTectonicSim::executeIteration()
         }
         copyConstantTexturesInterop();
     }
+
+    m_iterations++;
 
     const auto finish{std::chrono::steady_clock::now()};
     const std::chrono::duration<double> elapsed_seconds{finish - start};
@@ -497,6 +458,7 @@ void PlateTectonicSim::copyConstantTexturesInterop() const
     }
     m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture.getPointer());
     m_interopManager->copyConnection("heightMap", m_heightMapTexture.getPointer());
+    m_interopManager->copyConnection("waterTexture", m_hydrationLevel.getPointer());
 }
 
 void PlateTectonicSim::copyCCL() const // TODO: DEBUGGING ONLY
@@ -571,6 +533,11 @@ void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPl
     m_plateIdsTexture.free();
     m_overlapCrustTexture.free();
 
+    m_hydrationFlux.free();
+    m_hydrationLevel.free();
+    m_hydrationVelocity.free();
+    m_sedimentLevel.free();
+
     m_cllPlateIds.free(); // TODO: ONLY FOR DEDUG
 
     if (m_plateDataLookup)
@@ -583,6 +550,9 @@ void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPl
         cudaFree(m_iterationStats);
 
     initializeTectonics();
+
+    initializeHydration();
+
     if (m_interopManager)
         copyConstantTexturesInterop();
 }
@@ -623,7 +593,7 @@ void PlateTectonicSim::initializeTectonics()
     int numBlocksPixels = (m_width * m_height + 1) / m_threadsPerBlock;
     initPlateIDs<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_plateDataLookup, voronoiSeedsDevice,
                                                    static_cast<int>(voronoiSeedsHost.size()));
-    initHeightmap << <numBlocksPixels, m_threadsPerBlock >> > (m_heightMapTexture.deviceTexture(), m_seed, 5);
+    initHeightmap << <numBlocksPixels, m_threadsPerBlock >> > (m_heightMapTexture.deviceTexture(), m_seed, 1);
 
     initPixelDependantPlateData<<<numBlocksPixels, m_threadsPerBlock>>>(m_plateIdsTexture.deviceTexture(), m_heightMapTexture.deviceTexture(), m_plateDataLookup);
 
@@ -638,6 +608,14 @@ void PlateTectonicSim::initializeTectonics()
     if (const cudaError_t err = cudaMalloc(&m_iterationStats, sizeof(IterationStatistics)); err != cudaSuccess)
         std::cerr << "Error malloc Simulation Stats: " << cudaGetErrorString(err) << std::endl;
 
+}
+
+void PlateTectonicSim::initializeHydration()
+{
+    m_hydrationFlux.initialize(m_width, m_height);
+    m_hydrationLevel.initialize(m_width, m_height);
+    m_hydrationVelocity.initialize(m_width, m_height);
+    m_sedimentLevel.initialize(m_width, m_height);
 }
 
 std::vector<PlateData> PlateTectonicSim::initializePlateData(std::default_random_engine &generator,
@@ -713,4 +691,9 @@ std::vector<Vec2<float> > PlateTectonicSim::initializeVoronoiSeeds(std::default_
         seeds.emplace_back(randomHeight(generator), randomWidth(generator));
 
     return seeds;
+}
+
+void PlateTectonicSim::HydrationSubSim() const
+{
+    
 }
