@@ -26,5 +26,8 @@
   }, {
     "name" : "nlohmann-json",
     "version>=" : "3.11.3#1"
+  }, {
+    "name" : "nativefiledialog-extended",
+    "version>=" : "1.2.1"
   } ]
 }

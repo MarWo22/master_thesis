@@ -8,14 +8,15 @@
 #include "cuda_noise.cuh"
 
 #include "math_functions.h"
-#include "iteration_statistics.h"
+#include "types/iteration_statistics.h"
 #include "kernel_settings.cuh"
+#include "types/blur_buffer.h"
 
 
 // These should become dynamic or as input parameters:
 
-__global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData *plateData, const Vec2<float> *seeds,
-                             const int numSeeds)
+__global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr,
+                             const VoronoiSeed *seeds, const int numSeeds)
 {
     CudaTexture<uint8_t> idTexture = *idTexturePtr;
 
@@ -29,26 +30,26 @@ __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData
 
 
     float minDistance = FLT_MAX;
-    int minIndex = 0;
+    int plateID = 0;
 
     for (int i = 0; i != numSeeds; ++i)
     {
-        const Vec2<float> seed = seeds[i];
-
-        const float diffX = abs(textureIndexFloat.x - seed.x);
-        const float diffY = abs(textureIndexFloat.y - seed.y);
+        const auto &[position, id] = seeds[i];
+        const float diffX = abs(textureIndexFloat.x - position.x);
+        const float diffY = abs(textureIndexFloat.y - position.y);
 
         const float wrapAdjustedX = min(diffX, static_cast<float>(idTexture.size().x) - diffX);
         const float wrapAdjustedY = min(diffY, static_cast<float>(idTexture.size().y) - diffY);
 
-        if (const float distanceSq = wrapAdjustedX * wrapAdjustedX + wrapAdjustedY * wrapAdjustedY; distanceSq < minDistance)
+        if (const float distanceSq = wrapAdjustedX * wrapAdjustedX + wrapAdjustedY * wrapAdjustedY;
+            distanceSq < minDistance)
         {
-            minIndex = i;
+            plateID = id;
             minDistance = distanceSq;
         }
     }
 
-    idTexture[invokeIndex] = static_cast<uint8_t>(minIndex);
+    idTexture[invokeIndex] = static_cast<uint8_t>(plateID);
 }
 
 __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int octaves)
@@ -85,9 +86,9 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
 }
 
 __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
-                                const CudaTexture<float> *r_heightTexturePtr, 
-                                const uint8_t *r_plateMergeIds, 
-                                PlateData *w_plateData)
+                               const CudaTexture<float> *r_heightTexturePtr,
+                               const uint8_t *r_plateMergeIds,
+                               PlateData *w_plateData)
 {
     __shared__ float localMassSum[MAX_PLATE_COUNT];
     __shared__ int localSize[MAX_PLATE_COUNT];
@@ -447,8 +448,9 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
     if (plateB != MAX_PLATE_COUNT)
     {
         const PlateData plateBData = r_plateLookup[plateB];
-        
-        if (value < plateBData.mass) {
+
+        if (value < plateBData.mass)
+        {
             value = plateBData.mass;
             plate = plateB;
         }
@@ -457,7 +459,8 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
     if (plateC != MAX_PLATE_COUNT)
     {
         const PlateData plateCData = r_plateLookup[plateC];
-        if (value < plateCData.mass) {
+        if (value < plateCData.mass)
+        {
             value = plateCData.mass;
             plate = plateC;
         }
@@ -466,7 +469,8 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
     if (plateD != MAX_PLATE_COUNT)
     {
         const PlateData plateDData = r_plateLookup[plateD];
-        if (value < plateDData.mass) {
+        if (value < plateDData.mass)
+        {
             value = plateDData.mass;
             plate = plateD;
         }
@@ -474,7 +478,7 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
 
     const PlateData plateData = r_plateLookup[plate];
 
-    CudaTexture<float>& w_height = *w_heightMapPtr;
+    CudaTexture<float> &w_height = *w_heightMapPtr;
     w_height[invokeIndex] = r_height[Vec2<float>(coord.x, coord.y) - plateData.direction * plateData.velocity];
 
     (*w_convergenceMapPtr)[invokeIndex] = 1.0f;
@@ -526,13 +530,13 @@ __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const
     const Vec2<int> newTextureIndex = textureIndex - newPixelCenter;
 
     w_height[textureIndex] = r_height[newTextureIndex];
-
 }
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *plateLookup,
                                   CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr,
-                                  CudaTexture<float> *w_convergenceMapPtr, CudaTexture<uint8_t> *w_platesHaveCollidedPtr)
+                                  CudaTexture<float> *w_convergenceMapPtr,
+                                  CudaTexture<uint8_t> *w_platesHaveCollidedPtr)
 {
     __shared__ int localSizeChange[MAX_PLATE_COUNT]; // MAX_SEEDS is numSeeds
     // Cache dereference since used more than once
@@ -589,7 +593,8 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
     }
 }
 
-__global__ void createUpliftGrid(const CudaTexture<float>* r_upliftMapPtr, CudaTexture<bool>* w_gridMapPtr) {
+__global__ void createUpliftGrid(const CudaTexture<float> *r_upliftMapPtr, CudaTexture<bool> *w_gridMapPtr)
+{
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, w_gridMapPtr->size()))
         return;
@@ -612,11 +617,11 @@ __global__ void createUpliftGrid(const CudaTexture<float>* r_upliftMapPtr, CudaT
             samples++;
         }
     }
-    
+
     (*w_gridMapPtr)[coord] = value;
 }
 
-__device__ bool collisionContains(const uint32_t collision, const uint8_t plateId) 
+__device__ bool collisionContains(const uint32_t collision, const uint8_t plateId)
 {
     uint8_t plateA = MAX_PLATE_COUNT - collision & 0xFF;
     if (plateA == plateId) return true;
@@ -631,13 +636,15 @@ __device__ bool collisionContains(const uint32_t collision, const uint8_t plateI
 }
 
 
-__global__ void VerticalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const CudaTexture<uint32_t>* r_collisionsPtr, const CudaTexture<float>* r_upliftMapPtr, const CudaTexture<bool>* r_gridMapPtr, CudaTexture<BlurBuffer>* w_bufferPtr, int range)
+__global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
+                             const CudaTexture<float> *r_upliftMapPtr, const CudaTexture<bool> *r_gridMapPtr,
+                             CudaTexture<BlurBuffer> *w_bufferPtr, int range)
 {
-    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
-    const CudaTexture<uint32_t>& r_collisions = *r_collisionsPtr;
-    const CudaTexture<float>& r_uplift = *r_upliftMapPtr;
-    const CudaTexture<bool>& r_grid = *r_gridMapPtr;
-    CudaTexture<BlurBuffer>& w_buffer = *w_bufferPtr;
+    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
+    const CudaTexture<uint32_t> &r_collisions = *r_collisionsPtr;
+    const CudaTexture<float> &r_uplift = *r_upliftMapPtr;
+    const CudaTexture<bool> &r_grid = *r_gridMapPtr;
+    CudaTexture<BlurBuffer> &w_buffer = *w_bufferPtr;
 
 
     const unsigned int invokeIndex = getInvokeIndex();
@@ -646,25 +653,23 @@ __global__ void VerticalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const Cu
 
     const Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
-    
-    
+
 
     /*Vec2<double> ratio = Vec2<double>(static_cast<double>(r_gridMapPtr->size().x) / r_upliftMapPtr->size().x, static_cast<double>(r_gridMapPtr->size().y) / r_upliftMapPtr->size().y);
     if ((*r_gridMapPtr)[Vec2<float>(center.x * ratio.x, center.y * ratio.y)] == 0) {
         return;
     }*/
-    
+
     const float multiplier = 1.0f / range;
     float value = 0;
     int point = 0;
     for (int i = -range; i <= range; i++)
     {
         Vec2<int> sample = center + Vec2<int>(0, i);
-        float x = r_uplift[sample] - (abs((float)i) * multiplier);
+        float x = r_uplift[sample] - (abs((float) i) * multiplier);
 
-        
 
-        if (x > value && collisionContains(r_collisions[sample], plateId)) 
+        if (x > value && collisionContains(r_collisions[sample], plateId))
         {
             value = x;
             point = i;
@@ -674,12 +679,14 @@ __global__ void VerticalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const Cu
     w_buffer[invokeIndex] = BlurBuffer(point, value);
 }
 
-__global__ void HorizontalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const CudaTexture<uint32_t>* r_collisionsPtr, const CudaTexture<bool>* r_gridMapPtr, const CudaTexture<BlurBuffer>* r_bufferPtr, CudaTexture<float>* w_heightMapPtr, int range)
+__global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
+                               const CudaTexture<bool> *r_gridMapPtr, const CudaTexture<BlurBuffer> *r_bufferPtr,
+                               CudaTexture<float> *w_heightMapPtr, int range)
 {
-    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
-    const CudaTexture<uint32_t>& r_collisions = *r_collisionsPtr;
-    const CudaTexture<bool>& r_grid = *r_gridMapPtr;
-    const CudaTexture<BlurBuffer>& r_buffer = *r_bufferPtr;
+    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
+    const CudaTexture<uint32_t> &r_collisions = *r_collisionsPtr;
+    const CudaTexture<bool> &r_grid = *r_gridMapPtr;
+    const CudaTexture<BlurBuffer> &r_buffer = *r_bufferPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_buffer.size()))
@@ -700,11 +707,11 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const 
     {
         Vec2<int> sample = center + Vec2<int>(i, 0);
         BlurBuffer buffer = r_buffer[sample];
-        
-        //float x = buffer.value + (abs((float)buffer.offset) * multiplier) - pythagoras[abs(buffer.offset)][abs(i)] * multiplier;
-        float x = buffer.value - abs((float)i) * multiplier;
 
-        if (x > value && collisionContains(r_collisions[sample], plateId)) 
+        //float x = buffer.value + (abs((float)buffer.offset) * multiplier) - pythagoras[abs(buffer.offset)][abs(i)] * multiplier;
+        float x = buffer.value - abs((float) i) * multiplier;
+
+        if (x > value && collisionContains(r_collisions[sample], plateId))
         {
             value = x;
         }
@@ -714,7 +721,8 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const 
 }
 
 
-__global__ void processUplift(const CudaTexture<float> *r_upliftMapPtr, const CudaTexture<bool>* r_gridMapPtr, CudaTexture<float> *w_heightMapPtr, const int size,
+__global__ void processUplift(const CudaTexture<float> *r_upliftMapPtr, const CudaTexture<bool> *r_gridMapPtr,
+                              CudaTexture<float> *w_heightMapPtr, const int size,
                               const float noiseFrequency, const float noiseIntensity, const int seed)
 {
     const CudaTexture<float> &r_uplift = *r_upliftMapPtr;
@@ -725,14 +733,17 @@ __global__ void processUplift(const CudaTexture<float> *r_upliftMapPtr, const Cu
         return;
 
     Vec2<int> center = w_height.indexToCoordinate(invokeIndex);
-    
-    Vec2<double> ratio = Vec2<double>(static_cast<double>(r_gridMapPtr->size().x) / w_heightMapPtr->size().x, static_cast<double>(r_gridMapPtr->size().y) / w_heightMapPtr->size().y);
-    if ((*r_gridMapPtr)[Vec2<float>(center.x * ratio.x, center.y * ratio.y)] == 0) {
+
+    Vec2<double> ratio = Vec2<double>(static_cast<double>(r_gridMapPtr->size().x) / w_heightMapPtr->size().x,
+                                      static_cast<double>(r_gridMapPtr->size().y) / w_heightMapPtr->size().y);
+    if ((*r_gridMapPtr)[Vec2<float>(center.x * ratio.x, center.y * ratio.y)] == 0)
+    {
         return;
     }
     //w_height[invokeIndex] = (*r_gridMapPtr)[f] ? 0.11 : 0;
 
-    int offset = noiseIntensity + cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) *  noiseIntensity;
+    int offset = noiseIntensity + cudaNoise::simplexNoise(make_float3(center.x, center.y, 0.0f), noiseFrequency, 100) *
+                 noiseIntensity;
 
     int dim(size + offset);
     float size2 = dim * dim;
@@ -760,15 +771,18 @@ __global__ void processUplift(const CudaTexture<float> *r_upliftMapPtr, const Cu
     w_height[invokeIndex] = clamp01(value / size2) * 0.1f;
 }
 
-__global__ void downscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTexture<float>* w_outputMapPtr, int inWidth, int inHeight, int outWidth, int outHeight) {
+__global__ void downscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTexture<float> *w_outputMapPtr,
+                                int inWidth, int inHeight, int outWidth, int outHeight)
+{
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, Vec2<int>(inWidth, inHeight))) {
+    if (!isWithinBounds(invokeIndex, Vec2<int>(inWidth, inHeight)))
+    {
         printf("Problem! Out of bounds");
         return;
     }
 
-    const CudaTexture<float>& r_inputMap = *r_inputMapPtr;
-    
+    const CudaTexture<float> &r_inputMap = *r_inputMapPtr;
+
     /*if (size.x % outWidth != 0 || size.y % outWidth != 0) {
         printf("Problem!");
         return;
@@ -780,8 +794,8 @@ __global__ void downscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTex
 
     Vec2<int> sampleCoord = Vec2<int>(coord.x * samples.x, coord.y * samples.y);
 
-    float value = 0;    
-    
+    float value = 0;
+
     for (size_t x = 0; x < samples.x; x++)
     {
         for (size_t y = 0; y < samples.y; y++)
@@ -789,26 +803,31 @@ __global__ void downscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTex
             value += r_inputMap[sampleCoord + Vec2<int>(x, y)];
         }
     }
-    
+
     (*w_outputMapPtr)[coord] = value / (samples.x * samples.y);
 }
 
-__global__ void upscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTexture<float>* w_outputMapPtr, int inWidth, int inHeight, int outWidth, int outHeight) {
+__global__ void upscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTexture<float> *w_outputMapPtr, int inWidth,
+                              int inHeight, int outWidth, int outHeight)
+{
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, Vec2<int>(outWidth, outHeight))) {
+    if (!isWithinBounds(invokeIndex, Vec2<int>(outWidth, outHeight)))
+    {
         printf("Problem! Out of bounds");
         return;
     }
 
     Vec2<int> coord = Vec2<int>(fmodf(invokeIndex, outWidth), invokeIndex / outWidth);
 
-    if (coord.x > outWidth || coord.y > outHeight) {
+    if (coord.x > outWidth || coord.y > outHeight)
+    {
         printf("somethign wrong with the write coord: %.i x %.i \n", coord.x, coord.y);
     }
 
     Vec2<float> sampleCoord = Vec2<float>(coord.x * (inWidth / outWidth), coord.y * (inHeight / outHeight));
 
-    if (sampleCoord.x > inWidth || sampleCoord.y > inHeight) {
+    if (sampleCoord.x > inWidth || sampleCoord.y > inHeight)
+    {
         printf("somethign wrong with the sample coord: %.1f x %.1f \n", sampleCoord.x, sampleCoord.y);
     }
 
@@ -895,7 +914,10 @@ __global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveColl
 
     if (dot >= kernelSettings.mergeDotDirectionThreshold and velocity_diff <= kernelSettings.mergeVelocityDiffThreshold)
     {
-        printf("MERGING (%d,%d): dot: %.5f plateADir: (%.5f, %.5f) plateBDir: (%.5f, %.5f) plateAVel: %.5f plateBVel: %.5f  %.5f\n", texIndex.x, texIndex.y, dot, plateDataA.direction.x, plateDataA.direction.y, plateDataB.direction.x, plateDataB.direction.y, plateDataA.velocity, plateDataB.velocity, velocity_diff);
+        printf(
+            "MERGING (%d,%d): dot: %.5f plateADir: (%.5f, %.5f) plateBDir: (%.5f, %.5f) plateAVel: %.5f plateBVel: %.5f  %.5f\n",
+            texIndex.x, texIndex.y, dot, plateDataA.direction.x, plateDataA.direction.y, plateDataB.direction.x,
+            plateDataB.direction.y, plateDataA.velocity, plateDataB.velocity, velocity_diff);
         // Merge, the plate with lower mass merges into the plate with higher mass
         if (plateDataA.mass > plateDataB.mass)
             w_plateMergeIds[texIndex.y] = texIndex.x;
@@ -1049,17 +1071,20 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
     (*w_velocityPtr)[invokeIndex] = {plateData.direction.x, plateData.direction.x};
 }
 
-__global__ void findPlateCenter(const IterationStatistics* r_stats, PlateData* plateLookup, const CudaTexture<uint8_t>* r_plateIdsPtr, float4* samples) {
+__global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *plateLookup,
+                                const CudaTexture<uint8_t> *r_plateIdsPtr, float4 *samples)
+{
     __shared__ float4 angularCoords[256];
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_plateIdsPtr->size()))
         return;
 
-    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
     Vec2<int> coord = r_plateIds.indexToCoordinate(invokeIndex);
 
     uint8_t currentId = r_plateIds[invokeIndex];
-    if (coord.x % 10 == 0 && coord.y % 10 == 0 && currentId == r_stats->largestPlateId) {
+    if (coord.x % 10 == 0 && coord.y % 10 == 0 && currentId == r_stats->largestPlateId)
+    {
         Vec2<float> floatCoord = Vec2<float>(coord.x, coord.y);
 
         float angleX = CURAND_2PI * floatCoord.x / r_plateIds.size().x;
@@ -1071,16 +1096,18 @@ __global__ void findPlateCenter(const IterationStatistics* r_stats, PlateData* p
         float cosY = cosf(angleY);
 
         angularCoords[threadIdx.x] = make_float4(sinX, cosX, sinY, cosY);
-    }
-    else {
+    } else
+    {
         angularCoords[threadIdx.x] = make_float4(0, 0, 0, 0);
     }
 
     __syncthreads();
 
-    if (threadIdx.x == 0) {
+    if (threadIdx.x == 0)
+    {
         float4 sum = {};
-        for (int i = 0; i < blockDim.x; ++i) {
+        for (int i = 0; i < blockDim.x; ++i)
+        {
             sum.x += angularCoords[i].x;
             sum.y += angularCoords[i].y;
             sum.z += angularCoords[i].z;
@@ -1090,7 +1117,7 @@ __global__ void findPlateCenter(const IterationStatistics* r_stats, PlateData* p
     }
 }
 
-__device__ Vec2<float> getDirForInvokeIndex(int index, Vec2<float> start, int n) 
+__device__ Vec2<float> getDirForInvokeIndex(int index, Vec2<float> start, int n)
 {
     const float radiansOffset = Deg2Rad((360.0f / n) * index);
     const float c = cos(radiansOffset);
@@ -1101,11 +1128,13 @@ __device__ Vec2<float> getDirForInvokeIndex(int index, Vec2<float> start, int n)
         (start.x * s) - (start.y * c));
 }
 
-__global__ void findPlausibleSplitLine(const IterationStatistics* r_stats, const Vec2<float> r_pivot, const CudaTexture<uint8_t>* r_plateIdsPtr, Vec2<float>* output) {
+__global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, const Vec2<float> r_pivot,
+                                       const CudaTexture<uint8_t> *r_plateIdsPtr, Vec2<float> *output)
+{
     extern __shared__ float w_l_buffer[];
-    float* bufferPtr = w_l_buffer;
-    
-    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    float *bufferPtr = w_l_buffer;
+
+    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
     const unsigned int invokeIndex = getInvokeIndex();
     const int n = gridDim.x * gridDim.y * gridDim.z * blockDim.x * blockDim.y * blockDim.z;
     const Vec2<float> baseDir = Vec2<float>(1, 0);
@@ -1117,15 +1146,17 @@ __global__ void findPlausibleSplitLine(const IterationStatistics* r_stats, const
     uint8_t foundPlate = r_stats->largestPlateId;
     Vec2<float> point = r_pivot + dir * stepsize;
     float distance = stepsize;
-    
+
     int iterations = 0;
-    while (iterations < 100 && stepsize > minStepsize) {
+    while (iterations < 100 && stepsize > minStepsize)
+    {
         foundPlate = r_plateIds[Vec2<int>(point.x, point.y)];
-        if (foundPlate == r_stats->largestPlateId) {
+        if (foundPlate == r_stats->largestPlateId)
+        {
             point += dir * stepsize;
             distance += stepsize;
-        }
-        else {
+        } else
+        {
             stepsize *= 0.5f;
             point = point - (dir * stepsize);
             distance -= stepsize;
@@ -1157,31 +1188,35 @@ __global__ void findPlausibleSplitLine(const IterationStatistics* r_stats, const
 
     __syncthreads();
 
-    if (invokeIndex == 0) {
+    if (invokeIndex == 0)
+    {
         int thread = 0;
         int oppposite = n * 0.5;
         float best = bufferPtr[0] + bufferPtr[oppposite];
         for (size_t i = 1; i < n * 0.5; i++)
         {
-            if (bufferPtr[i] + bufferPtr[i + oppposite] > best) {
+            if (bufferPtr[i] + bufferPtr[i + oppposite] > best)
+            {
                 best = bufferPtr[i] + bufferPtr[i + oppposite];
                 thread = i;
             }
         }
 
         *output = getDirForInvokeIndex(thread, baseDir, n);
-        
-        printf("PlateId: %.i score: %.2f pivot: %.2f %.2f size: %.i \n", r_stats->largestPlateId, best, output->x, output->y, r_stats->largestValue);
+
+        printf("PlateId: %.i score: %.2f pivot: %.2f %.2f size: %.i \n", r_stats->largestPlateId, best, output->x,
+               output->y, r_stats->largestValue);
     }
 }
 
-__global__ void splitPlate(const IterationStatistics* r_stats, const uint8_t* r_newPlateId, const Vec2<float> r_pivot, const Vec2<float>* r_dir, CudaTexture<uint8_t>* w_plateIdsPtr, PlateData* plateLookup) 
-{    
+__global__ void splitPlate(const IterationStatistics *r_stats, const uint8_t *r_newPlateId, const Vec2<float> r_pivot,
+                           const Vec2<float> *r_dir, CudaTexture<uint8_t> *w_plateIdsPtr, PlateData *plateLookup)
+{
     const unsigned int invokeIndex = getInvokeIndex();
 
-    CudaTexture<uint8_t>& w_plateIds = *w_plateIdsPtr;
-    
-    if (invokeIndex == 0) 
+    CudaTexture<uint8_t> &w_plateIds = *w_plateIdsPtr;
+
+    if (invokeIndex == 0)
     {
         printf("splitting from %.i to %.i \n", r_stats->largestPlateId, *r_newPlateId);
 
@@ -1201,7 +1236,7 @@ __global__ void splitPlate(const IterationStatistics* r_stats, const uint8_t* r_
         plateLookup[r_stats->largestPlateId].velocity *= 1.1;
     }
 
-    if (w_plateIds[invokeIndex] == r_stats->largestPlateId) 
+    if (w_plateIds[invokeIndex] == r_stats->largestPlateId)
     {
         const Vec2<int> coordinate = w_plateIds.indexToCoordinate(invokeIndex);
 
@@ -1211,7 +1246,8 @@ __global__ void splitPlate(const IterationStatistics* r_stats, const uint8_t* r_
         float distanceToLine = dx * r_dir->y - dy * r_dir->x;
         float distanceOnLine = dx * r_dir->y + dy * r_dir->x;
 
-        float halfDistance = min(w_plateIds.size().x / abs(r_dir->x), w_plateIds.size().y / abs(r_dir->y)) * sqrt(r_dir->x * r_dir->x + r_dir->y * r_dir->y);
+        float halfDistance = min(w_plateIds.size().x / abs(r_dir->x), w_plateIds.size().y / abs(r_dir->y)) * sqrt(
+                                 r_dir->x * r_dir->x + r_dir->y * r_dir->y);
 
         float breakFreq = 0.132;
         float breakScale = 4;
@@ -1221,43 +1257,53 @@ __global__ void splitPlate(const IterationStatistics* r_stats, const uint8_t* r_
         float noise = cudaNoise::perlinNoise(make_float3(distanceOnLine * 0.1, 0, 0), 1, 123124);
 
 
-        float offset = round(sin(distanceOnLine * breakFreq * noise)) * breakScale + sin(distanceOnLine * CurveFreq) * CurveScale;
+        float offset = round(sin(distanceOnLine * breakFreq * noise)) * breakScale + sin(distanceOnLine * CurveFreq) *
+                       CurveScale;
 
-        if ((distanceToLine > noise * 30) ^ (distanceToLine > halfDistance)) {
+        if ((distanceToLine > noise * 30) ^ (distanceToLine > halfDistance))
+        {
             w_plateIds[invokeIndex] = *r_newPlateId;
         }
     }
 }
 
-__global__ void statisticsPass(PlateData* w_plateData, IterationStatistics* w_stats) {
+__global__ void statisticsPass(PlateData *w_plateData, IterationStatistics *w_stats)
+{
     const unsigned int invokeIndex = getInvokeIndex();
-    if (invokeIndex == 0) {
+    if (invokeIndex == 0)
+    {
         w_stats->heaviestValue = 0;
         w_stats->largestValue = 0;
         for (size_t i = 0; i < MAX_PLATE_COUNT; i++)
         {
-            if (w_stats->heaviestValue < w_plateData[i].mass) {
+            if (w_stats->heaviestValue < w_plateData[i].mass)
+            {
                 w_stats->heaviestValue = w_plateData[i].mass;
                 w_stats->heaviestPlateId = i;
             }
 
-            if (w_stats->largestValue < w_plateData[i].size) {
+            if (w_stats->largestValue < w_plateData[i].size)
+            {
                 w_stats->largestValue = w_plateData[i].size;
                 w_stats->largestPlateId = i;
             }
             w_plateData[i].used = w_plateData[i].size > 0;
         }
-        printf("biggest: %d heaviest: %d \n", static_cast<int>(w_stats->largestPlateId), static_cast<int>(w_stats->heaviestPlateId));
+        printf("biggest: %d heaviest: %d \n", static_cast<int>(w_stats->largestPlateId),
+               static_cast<int>(w_stats->heaviestPlateId));
     }
 }
 
-__global__ void selectUnusedPlateId(PlateData* plateLookup, uint8_t* plateId) {
+__global__ void selectUnusedPlateId(PlateData *plateLookup, uint8_t *plateId)
+{
     const unsigned int invokeIndex = getInvokeIndex();
 
-    if (invokeIndex == 0) {
+    if (invokeIndex == 0)
+    {
         for (size_t i = 0; i < MAX_PLATE_COUNT; i++)
         {
-            if (!plateLookup[i].used) {
+            if (!plateLookup[i].used)
+            {
                 *plateId = i;
                 plateLookup[i].used = true;
                 printf("Selected: %.i \n", i);
@@ -1274,26 +1320,33 @@ __global__ void selectUnusedPlateId(PlateData* plateLookup, uint8_t* plateId) {
 //      w
 //
 
-__global__ void rain(CudaTexture<float>* w_hydrationPtr, float deltatime, unsigned int seed)
+__global__ void rain(CudaTexture<float> *w_hydrationPtr, float deltatime, unsigned int seed)
 {
-    CudaTexture<float>& hydration = *w_hydrationPtr;
+    CudaTexture<float> &hydration = *w_hydrationPtr;
 
     Vec2<int> coords = getTextureIndex(hydration.size());
-    hydration[coords] += fmaxf(0, cudaNoise::discreteNoise(make_float3(coords.x, 0, coords.y), 1, seed)) * deltatime * kernelSettings.hydrationRainfall;
+    hydration[coords] += fmaxf(0, cudaNoise::discreteNoise(make_float3(coords.x, 0, coords.y), 1, seed)) * deltatime *
+            kernelSettings.hydrationRainfall;
 }
 
-__device__ float fluxSubComputation(const CudaTexture<float> r_material, const CudaTexture<float> r_hydration, float flux, Vec2<int> coordinateSelf, Vec2<int> coordinateNeighbor, float deltatime) {
-    float deltaHeight = r_material[coordinateSelf] + r_hydration[coordinateSelf] - r_material[coordinateNeighbor] - r_hydration[coordinateNeighbor];
-
-    return fmaxf(0, flux + deltatime * kernelSettings.hydrationPipeCrossSection * ((kernelSettings.gravity * deltaHeight) / kernelSettings.hydrationPipeLength));
-}
-
-__global__ void flux(const CudaTexture<float>* r_materialPtr, const CudaTexture<float>* r_hydrationPtr, const CudaTexture<float4>* r_fluxPtr, CudaTexture<float4>* w_fluxPtr, float deltatime)
+__device__ float fluxSubComputation(const CudaTexture<float> r_material, const CudaTexture<float> r_hydration,
+                                    float flux, Vec2<int> coordinateSelf, Vec2<int> coordinateNeighbor, float deltatime)
 {
-    const CudaTexture<float>& material = *r_materialPtr;
-    const CudaTexture<float>& hydration = *r_hydrationPtr;
-    const CudaTexture<float4>& r_flux = *r_fluxPtr;
-    CudaTexture<float4>& w_flux = *w_fluxPtr;
+    float deltaHeight = r_material[coordinateSelf] + r_hydration[coordinateSelf] - r_material[coordinateNeighbor] -
+                        r_hydration[coordinateNeighbor];
+
+    return fmaxf(
+        0, flux + deltatime * kernelSettings.hydrationPipeCrossSection * (
+               (kernelSettings.gravity * deltaHeight) / kernelSettings.hydrationPipeLength));
+}
+
+__global__ void flux(const CudaTexture<float> *r_materialPtr, const CudaTexture<float> *r_hydrationPtr,
+                     const CudaTexture<float4> *r_fluxPtr, CudaTexture<float4> *w_fluxPtr, float deltatime)
+{
+    const CudaTexture<float> &material = *r_materialPtr;
+    const CudaTexture<float> &hydration = *r_hydrationPtr;
+    const CudaTexture<float4> &r_flux = *r_fluxPtr;
+    CudaTexture<float4> &w_flux = *w_fluxPtr;
 
     unsigned int idx = getInvokeIndex();
     Vec2<int> coords = getTextureIndex(r_materialPtr->size());
@@ -1301,10 +1354,14 @@ __global__ void flux(const CudaTexture<float>* r_materialPtr, const CudaTexture<
     float4 current_f = r_flux[idx];
     float4 outflowFlux = make_float4(0, 0, 0, 0);
 
-    outflowFlux.x = fluxSubComputation(material, hydration, current_f.x, coords, Vec2<int>(coords.x - 1, coords.y), deltatime);
-    outflowFlux.y = fluxSubComputation(material, hydration, current_f.y, coords, Vec2<int>(coords.x, coords.y + 1), deltatime);
-    outflowFlux.z = fluxSubComputation(material, hydration, current_f.z, coords, Vec2<int>(coords.x + 1, coords.y), deltatime);
-    outflowFlux.w = fluxSubComputation(material, hydration, current_f.w, coords, Vec2<int>(coords.x, coords.y - 1), deltatime);
+    outflowFlux.x = fluxSubComputation(material, hydration, current_f.x, coords, Vec2<int>(coords.x - 1, coords.y),
+                                       deltatime);
+    outflowFlux.y = fluxSubComputation(material, hydration, current_f.y, coords, Vec2<int>(coords.x, coords.y + 1),
+                                       deltatime);
+    outflowFlux.z = fluxSubComputation(material, hydration, current_f.z, coords, Vec2<int>(coords.x + 1, coords.y),
+                                       deltatime);
+    outflowFlux.w = fluxSubComputation(material, hydration, current_f.w, coords, Vec2<int>(coords.x, coords.y - 1),
+                                       deltatime);
 
     float epsilon = 1e-6f;
     float fluxTotal = outflowFlux.x + outflowFlux.y + outflowFlux.z + outflowFlux.w + epsilon;
@@ -1320,12 +1377,13 @@ __global__ void flux(const CudaTexture<float>* r_materialPtr, const CudaTexture<
     w_flux[idx] = outflowFlux;
 }
 
-__global__ void flow(CudaTexture<float>* w_hydrationPtr, const CudaTexture<float4>* r_fluxPtr, CudaTexture<float4>* w_fluxPtr, CudaTexture<Vec2<float>>* w_velocityPtr, float deltatime)
+__global__ void flow(CudaTexture<float> *w_hydrationPtr, const CudaTexture<float4> *r_fluxPtr,
+                     CudaTexture<float4> *w_fluxPtr, CudaTexture<Vec2<float> > *w_velocityPtr, float deltatime)
 {
-    CudaTexture<float>& hydration = *w_hydrationPtr;
-    const CudaTexture<float4>& r_flux = *r_fluxPtr;
-    CudaTexture<float4>& w_flux = *w_fluxPtr;
-    CudaTexture<Vec2<float>>& velocity = *w_velocityPtr;
+    CudaTexture<float> &hydration = *w_hydrationPtr;
+    const CudaTexture<float4> &r_flux = *r_fluxPtr;
+    CudaTexture<float4> &w_flux = *w_fluxPtr;
+    CudaTexture<Vec2<float> > &velocity = *w_velocityPtr;
 
     unsigned int idx = getInvokeIndex();
     Vec2<int> coords = getTextureIndex(w_hydrationPtr->size());
@@ -1346,9 +1404,11 @@ __global__ void flow(CudaTexture<float>* w_hydrationPtr, const CudaTexture<float
 
     Vec2<float> netFlow;
 
-    netFlow.x = (r_flux[coords + Vec2<int>(-1, 0)].z - r_flux[idx].x + r_flux[idx].z - r_flux[coords + Vec2<int>(1, 0)].x) * 0.5f;
+    netFlow.x = (r_flux[coords + Vec2<int>(-1, 0)].z - r_flux[idx].x + r_flux[idx].z - r_flux[coords + Vec2<int>(1, 0)].
+                 x) * 0.5f;
 
-    netFlow.y = (r_flux[coords + Vec2<int>(0, 1)].w - r_flux[idx].y + r_flux[idx].y - r_flux[coords + Vec2<int>(0, -1)].w) * 0.5f;
+    netFlow.y = (r_flux[coords + Vec2<int>(0, 1)].w - r_flux[idx].y + r_flux[idx].y - r_flux[coords + Vec2<int>(0, -1)].
+                 w) * 0.5f;
 
     float h = fmaxf(hydration[idx], 1e-6f);
     velocity[idx] = netFlow / h;
@@ -1357,27 +1417,28 @@ __global__ void flow(CudaTexture<float>* w_hydrationPtr, const CudaTexture<float
     w_flux[idx] = r_flux[idx];
 }
 
-__global__ void sediment(CudaTexture<float>* w_materialPtr, CudaTexture<float>* w_sedimentPtr, CudaTexture<Vec2<float>>* r_velocityPtr, float deltatime)
+__global__ void sediment(CudaTexture<float> *w_materialPtr, CudaTexture<float> *w_sedimentPtr,
+                         CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime)
 {
     CudaTexture<float> materialTexture = *w_materialPtr;
     CudaTexture<float> sedimentTexture = *w_sedimentPtr;
-    CudaTexture<Vec2<float>> velocityTexture = *r_velocityPtr;
+    CudaTexture<Vec2<float> > velocityTexture = *r_velocityPtr;
 
     unsigned int idx = getInvokeIndex();
     Vec2<int> coord = getTextureIndex(w_materialPtr->size());
 
     float threshold = 0.03;
-    float C = kernelSettings.sedimentCapacity * sinf(fmaxf(materialTexture.Slope(coord), threshold)) * velocityTexture[idx].magnitude();
+    float C = kernelSettings.sedimentCapacity * sinf(fmaxf(materialTexture.Slope(coord), threshold)) * velocityTexture[
+                  idx].magnitude();
 
-    if (C > sedimentTexture[idx]) 
+    if (C > sedimentTexture[idx])
     {
         float s = kernelSettings.sedimentDissolving * (C - sedimentTexture[idx]);
         float temp = fmaxf(materialTexture[idx] - s, 0.0);
         float delta = sedimentTexture[idx] - temp;
         materialTexture[idx] = fmaxf(materialTexture[idx] - s, 0.0);
         sedimentTexture[idx] = fmaxf(sedimentTexture[idx] + delta, 0.0);
-    }
-    else 
+    } else
     {
         float s = kernelSettings.sedimentDissolving * (sedimentTexture[idx] - C);
         float temp = fmaxf(sedimentTexture[idx] - s, 0.0);
@@ -1386,17 +1447,19 @@ __global__ void sediment(CudaTexture<float>* w_materialPtr, CudaTexture<float>* 
         materialTexture[idx] = fmaxf(materialTexture[idx] + delta, 0.0);
     }
 
-    if (materialTexture[idx] == INFINITY || materialTexture[idx] == -INFINITY) {
+    if (materialTexture[idx] == INFINITY || materialTexture[idx] == -INFINITY)
+    {
         printf("INFINITY!!!");
     }
 }
 
-__global__ void transport(CudaTexture<float>* r_sedimentPtr, CudaTexture<float>* w_sedimentPtr, CudaTexture<Vec2<float>>* r_velocityPtr, float deltatime)
+__global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> *w_sedimentPtr,
+                          CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime)
 {
     CudaTexture<float> r_sediment = *r_sedimentPtr;
     CudaTexture<float> w_sediment = *w_sedimentPtr;
-    CudaTexture<Vec2<float>> r_velocity = *r_velocityPtr;
-    
+    CudaTexture<Vec2<float> > r_velocity = *r_velocityPtr;
+
     unsigned int idx = getInvokeIndex();
     Vec2<int> coord = getTextureIndex(r_sedimentPtr->size());
 
@@ -1405,10 +1468,11 @@ __global__ void transport(CudaTexture<float>* r_sedimentPtr, CudaTexture<float>*
     w_sediment[idx] = interpolate(Vec2<float>(coord.x - vel.x * deltatime, coord.y - vel.y * deltatime), r_sedimentPtr);
 }
 
-__global__ void evaporate(CudaTexture<float>* w_hydrationPtr, float deltatime)
+__global__ void evaporate(CudaTexture<float> *w_hydrationPtr, float deltatime)
 {
-    CudaTexture<float>& hydration = *w_hydrationPtr;
+    CudaTexture<float> &hydration = *w_hydrationPtr;
 
     unsigned int idx = getInvokeIndex();
-    hydration[idx] = fmaxf(0.0f, hydration[idx] - (fminf(hydration[idx], 20) * kernelSettings.hydrationEvaporation * deltatime));
+    hydration[idx] = fmaxf(
+        0.0f, hydration[idx] - (fminf(hydration[idx], 20) * kernelSettings.hydrationEvaporation * deltatime));
 }

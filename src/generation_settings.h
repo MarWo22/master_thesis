@@ -40,8 +40,25 @@ struct SimulationSettings
 {
       int numStartingPlates = 16;
       unsigned int seed = 1000;
+      std::vector<int> numVoronoiSeeds = {200, 500};
 
-      std::function<void(unsigned int, int)> resetCallback;
+
+      std::function<void(unsigned int, int, const std::vector<int> &)> resetCallback;
 };
+
+struct SaveTextureGui
+{
+      enum TextureType
+      {
+            HEIGHTMAP,
+            PLATE_IDS,
+      };
+
+      int texture = HEIGHTMAP;
+      std::string path;
+
+      std::function<void()> saveTextureCallback;
+};
+
 
 #endif //GENERATION_SETTINGS_H

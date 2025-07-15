@@ -20,6 +20,7 @@ private:
 
     static void renderSettingsSection();
     static void simulationSettingsSection();
+    static void saveTextureSection();
     void executionSettingsSection();
 
     static void resetSimulationSection();

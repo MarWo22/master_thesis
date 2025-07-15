@@ -1,7 +1,7 @@
 #ifndef CUDA_HELPER_CUH
 #define CUDA_HELPER_CUH
 
-#include "vec2.cuh"
+#include "types/vec2.cuh"
 #include <curand_kernel.h>
 
 __device__ __inline__ unsigned int getInvokeIndex()

@@ -6,7 +6,7 @@
 
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include "texture_save.h"
+#include "texture_save.cuh"
 #include "erosion_kernel.cuh"
 
 

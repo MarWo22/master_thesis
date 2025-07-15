@@ -3,7 +3,7 @@
 #include <functional>
 #include <iostream>
 
-#include "vec2.cuh"
+#include "types/vec2.cuh"
 
 
 template<typename T>
@@ -113,6 +113,9 @@ public:
     {
         free();
     }
+
+    [[nodiscard]] int width() const { return m_width; }
+    [[nodiscard]] int height() const { return m_height; }
 
     void free()
     {

@@ -1,7 +1,7 @@
 #ifndef EROSION_KERNEL_CUH
 #define EROSION_KERNEL_CUH
 #include "cuda_texture.cuh"
-#include "vec2.cuh"
+#include "types/vec2.cuh"
 
 
 //__global__ void rainComputation(CudaTexture<float>* hydration, float deltatime, int seed);

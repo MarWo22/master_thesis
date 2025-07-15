@@ -3,15 +3,15 @@
 #include <curand_kernel.h>
 
 #include "cuda_texture.cuh"
-#include "plate_data.h"
-#include "vec2.cuh"
-#include "iteration_statistics.h"
-#include "blur_buffer.h"
+#include "types/plate_data.h"
+#include "types/vec2.cuh"
+#include "types/iteration_statistics.h"
+#include "types/blur_buffer.h"
+#include "types/voronoi_seed.h"
 
 #define MAX_PLATE_COUNT 255
 
-__global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, PlateData *plateData, const Vec2<float> *seeds,
-                             int numSeeds);
+__global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const VoronoiSeed *seeds, int numSeeds);
 
 __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idTexturePtr,
                                             const CudaTexture<float> *r_heightTexturePtr, PlateData *w_plateData);

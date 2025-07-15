@@ -13,9 +13,13 @@
 #include "../cuda_compute/kernel_settings.cuh"
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_opengl3.h"
+#include <nfd.h>
+#include <filesystem>
+
 
 RenderSettings renderSettings;
 SimulationSettings simulationSettings;
+SaveTextureGui saveTextureGui;
 
 Gui::Gui()
     : m_frameCount(0)
@@ -43,6 +47,7 @@ void Gui::gui()
     renderSettingsSection();
     simulationSettingsSection();
     resetSimulationSection();
+    saveTextureSection();
     executionSettingsSection();
 }
 
@@ -124,11 +129,14 @@ void Gui::simulationSettingsSection()
         {
             // e.g. ImGui Slider to update newSettings
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Inelastic Collision Multiplier", &newSettings.inelasticCollisionMultiplier, 0.005f, 0.f, 20.f);
+            ImGui::DragFloat("Inelastic Collision Multiplier", &newSettings.inelasticCollisionMultiplier, 0.005f, 0.f,
+                             20.f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Merge Direction Dot Min Threshold", &newSettings.mergeDotDirectionThreshold, 0.001f, 0.0f, 1.f);
+            ImGui::DragFloat("Merge Direction Dot Min Threshold", &newSettings.mergeDotDirectionThreshold, 0.001f, 0.0f,
+                             1.f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Merge Velocity Diff Max Threshold", &newSettings.mergeVelocityDiffThreshold, 0.001f, 0.f, 1.f);
+            ImGui::DragFloat("Merge Velocity Diff Max Threshold", &newSettings.mergeVelocityDiffThreshold, 0.001f, 0.f,
+                             1.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragInt("Min Plate Size", &newSettings.minPlateSize, 1, 1, 100);
             // direction_threshold_merge
@@ -152,7 +160,6 @@ void Gui::simulationSettingsSection()
         }
 
         ImGui::Unindent(15.0f);
-
     }
 
     // If changed, copy to device and update host copy
@@ -162,7 +169,37 @@ void Gui::simulationSettingsSection()
 
         // // Copy to device constant memory
         copyHostKernelSettingsToDevice();
+    }
+}
 
+void Gui::saveTextureSection()
+{
+    if (ImGui::CollapsingHeader("Save Textures"))
+    {
+        ImGui::Indent(15);
+
+        ImGui::RadioButton("Heightmap", &saveTextureGui.texture, SaveTextureGui::TextureType::HEIGHTMAP);
+        ImGui::RadioButton("Plate IDs", &saveTextureGui.texture, SaveTextureGui::TextureType::PLATE_IDS);
+
+        if (ImGui::Button("Save"))
+        {
+            nfdchar_t *outPath = nullptr;
+            constexpr nfdfilteritem_t filterItem[1] = {{"PNG files", "png"}};
+
+            const std::string cwd = std::filesystem::current_path().string();
+            if (const nfdresult_t result = NFD_SaveDialog(&outPath, filterItem, 1, cwd.c_str(), "texture.png");
+                result == NFD_OKAY)
+            {
+                saveTextureGui.path = outPath;
+                free(outPath); // Always free the result
+                if (saveTextureGui.saveTextureCallback)
+                    saveTextureGui.saveTextureCallback();
+                else
+                    std::cerr << "No saving callback set\n";
+            }
+        }
+
+        ImGui::Unindent(15.0f);
     }
 }
 
@@ -216,10 +253,30 @@ void Gui::resetSimulationSection()
         ImGui::SetNextItemWidth(250);
         ImGui::InputInt("Number of starting plates", &simulationSettings.numStartingPlates);
 
+        static bool gen1Enabled = true;
+        static bool gen2Enabled = true;
+
+        ImGui::Checkbox("##enableGen1", &gen1Enabled);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(250);
+        ImGui::InputInt("Number of Voronoi seeds Gen1", &simulationSettings.numVoronoiSeeds[0]);
+
+        ImGui::Checkbox("##enableGen2", &gen2Enabled);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(250);
+        ImGui::InputInt("Number of Voronoi seeds Gen2", &simulationSettings.numVoronoiSeeds[1]);
+
         if (ImGui::Button("Reset Simulation##1"))
         {
+            std::vector<int> voronoiSeeds;
+            if (gen1Enabled)
+                voronoiSeeds.push_back(simulationSettings.numVoronoiSeeds[0]);
+            if (gen2Enabled)
+                voronoiSeeds.push_back(simulationSettings.numVoronoiSeeds[1]);
+
             if (simulationSettings.resetCallback)
-                simulationSettings.resetCallback(simulationSettings.seed, simulationSettings.numStartingPlates);
+                simulationSettings.resetCallback(simulationSettings.seed, simulationSettings.numStartingPlates,
+                                                 voronoiSeeds);
             else
                 std::cerr << "No reset callback registered\n";
         }
