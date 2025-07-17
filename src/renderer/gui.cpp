@@ -10,11 +10,12 @@
 
 #include "../generation_settings.h"
 #include "../cuda_compute/kernel_settings.cuh"
-#include "../cuda_compute/kernel_settings.cuh"
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_opengl3.h"
 #include <nfd.h>
 #include <filesystem>
+
+#include "../cuda_compute/texture_manager.cuh"
 
 
 RenderSettings renderSettings;
@@ -43,6 +44,9 @@ void Gui::gui()
     m_frameCount++;
 
     ImGui::Text("Average %.1f FPS", m_avgFramerate);
+
+    const size_t usedMemory = TextureManager::getAllocatedMemory();
+    ImGui::Text("Allocated GPU memory %.1f MB", usedMemory / 1000000.f);
 
     renderSettingsSection();
     simulationSettingsSection();
@@ -98,11 +102,6 @@ void Gui::renderSettingsSection()
                                    RenderSettings::RenderMode::SHOW_UPLIFT_AREAS))
             {
                 renderSettings.callCallback("toggleUpliftMode");
-            }
-            if (ImGui::RadioButton("Show CCL Areas", &renderSettings.renderMode,
-                                   RenderSettings::RenderMode::SHOW_CCL_AREAS))
-            {
-                renderSettings.callCallback("toggleCCLMode");
             }
         }
         if (ImGui::CollapsingHeader("Render Options"))

@@ -2,7 +2,7 @@
 #define PLATE_TECTONICS_KERNEL_CUH
 #include <curand_kernel.h>
 
-#include "cuda_texture.cuh"
+#include "types/cuda_texture.cuh"
 #include "types/plate_data.h"
 #include "types/vec2.cuh"
 #include "types/iteration_statistics.h"

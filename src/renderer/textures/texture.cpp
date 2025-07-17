@@ -34,7 +34,7 @@ void Texture::init2D(const GLint wrapMode, const GLint minMagMode)
 
     GLenum err;
     while ((err = glGetError()) != GL_NO_ERROR) {
-        std::cout << "OpenGL error after cudaHeightMap.init2D(): " << err << std::endl;
+        std::cerr << "OpenGL error after cudaHeightMap.init2D(): " << err << std::endl;
     }
 
 }

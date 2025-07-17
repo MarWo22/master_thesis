@@ -2,7 +2,7 @@
 #define TEXTURE_SAVE_H
 #include <iostream>
 
-#include "cuda_texture.cuh"
+#include "types/cuda_texture.cuh"
 
 #include <vector>
 #include <cuda_runtime.h>

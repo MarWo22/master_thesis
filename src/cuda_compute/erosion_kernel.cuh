@@ -1,6 +1,6 @@
 #ifndef EROSION_KERNEL_CUH
 #define EROSION_KERNEL_CUH
-#include "cuda_texture.cuh"
+#include "types/cuda_texture.cuh"
 #include "types/vec2.cuh"
 
 

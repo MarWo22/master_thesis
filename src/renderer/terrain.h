@@ -25,7 +25,6 @@ class Terrain final : public RenderComponent
     Texture *m_directionTexture;
     Texture* m_upliftTexture;
     Texture* m_waterTexture;
-    Texture *m_cclTexture; // TODO: DEBUG ONLY
 
     int m_sizeX;
     int m_sizeZ;

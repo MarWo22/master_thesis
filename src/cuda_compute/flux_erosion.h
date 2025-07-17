@@ -2,7 +2,7 @@
 #define FLUX_EROSION_H
 
 //float* run_erosion(float* input, int height, int width);
-#include "cuda_texture.cuh"
+#include "types/cuda_texture.cuh"
 
 
 class FluxVelocityErosion

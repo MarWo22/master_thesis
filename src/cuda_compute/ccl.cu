@@ -99,10 +99,10 @@ __global__ void init(const CudaTexture<uint8_t> *r_inputPtr, CudaTexture<unsigne
     const Vec2<int> textureIdx = getTextureIndex(invokeIndex, r_input.size());
     const uint8_t currentId = r_input[invokeIndex];
 
-    const Vec2<int> textureIdx_l = textureIdx + Vec2<int>(-1, 0);
-    const Vec2<int> textureIdx_t = textureIdx + Vec2<int>(0, -1);
-    const Vec2<int> textureIdx_tl = textureIdx + Vec2<int>(-1, -1);
-    const Vec2<int> textureIdx_tr = textureIdx + Vec2<int>(1, -1);
+    const Vec2<int> textureIdx_l = textureIdx + Vec2(-1, 0);
+    const Vec2<int> textureIdx_t = textureIdx + Vec2(0, -1);
+    const Vec2<int> textureIdx_tl = textureIdx + Vec2(-1, -1);
+    const Vec2<int> textureIdx_tr = textureIdx + Vec2(1, -1);
 
     if (currentId == r_input[textureIdx_tl])
         w_labels[invokeIndex] = w_labels.coordinateToIndex(textureIdx_tl);
@@ -155,13 +155,13 @@ __global__ void reduce(const CudaTexture<uint8_t> *r_inputPtr, CudaTexture<unsig
     const Vec2<int> textureIdx = getTextureIndex(invokeIndex, r_input.size());
     const uint8_t currentId = r_input[invokeIndex];
 
-    const Vec2<int> textureIdx_l = textureIdx + Vec2<int>(-1, 0);
-    const Vec2<int> textureIdx_tl = textureIdx + Vec2<int>(-1, -1);
+    const Vec2<int> textureIdx_l = textureIdx + Vec2(-1, 0);
+    const Vec2<int> textureIdx_tl = textureIdx + Vec2(-1, -1);
 
     if (textureIdx.y == 0)
     {
-        const Vec2<int> textureIdx_t = textureIdx + Vec2<int>(0, -1);
-        const Vec2<int> textureIdx_tr = textureIdx + Vec2<int>(1, -1);
+        const Vec2<int> textureIdx_t = textureIdx + Vec2(0, -1);
+        const Vec2<int> textureIdx_tr = textureIdx + Vec2(1, -1);
         if (currentId == r_input[textureIdx_t])
             unionStep(w_labels, invokeIndex, r_input.coordinateToIndex(textureIdx_t));
 

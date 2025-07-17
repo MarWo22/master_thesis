@@ -4,6 +4,8 @@
 
 #include "debug_logging.cuh"
 
+#include <chrono>
+
 #include "debug_logging_kernels.cuh"
 #include "../plate_tectonic_sim.h"
 #include "../texture_save.cuh"
@@ -79,7 +81,7 @@ void SaveVoronoiProcesTextures(const int width, const int height, const unsigned
                                                                         3 - i);
 
         initPlateIDs<<<numBlocksPixels, DEBUG_LOG_THREAD_SIZE>>>(plateIdsTexture.deviceTexture(), voronoiSeedsDevice,
-                                                             static_cast<int>(voronoiSeedsHost.size()));
+                                                                 static_cast<int>(voronoiSeedsHost.size()));
 
         cudaFree(voronoiSeedsDevice);
         const std::string filename = "seeds_" + std::to_string(i) + ".png";
@@ -87,7 +89,81 @@ void SaveVoronoiProcesTextures(const int width, const int height, const unsigned
 
         saveGrayscale8BitCudaTextureToDiskAsRgb(filename.c_str(), texture);
         saveGrayscale8BitCudaTextureToDiskAsRgb(filename_plate_ids.c_str(), plateIdsTexture);
-
     }
     std::cout << "done\n";
+}
+
+void MallocTestNoManager()
+{
+    const auto start{std::chrono::steady_clock::now()};
+
+    int m_width = 0;
+    int m_height = 0;
+
+    CudaTextureHost<unsigned int> pixelIndicesCollisions;
+    CudaTextureHost<uint8_t> plateIdsCollisions;
+    pixelIndicesCollisions.initialize(m_width, m_height);
+    plateIdsCollisions.initialize(m_width, m_height);
+    CudaTextureHost<uint8_t> exclusivePrefixSum;
+    exclusivePrefixSum.initialize(m_width, m_height, 1);
+    CudaTextureHost<uint32_t> plateCollisions;
+    plateCollisions.initialize(m_width, m_height, 0);
+    CudaTextureHost<float> heightMapTextureWrite;
+    CudaTextureHost<uint8_t> plateIdsTextureWrite;
+    CudaTextureHost<float> upliftBufferA;
+    CudaTextureHost<float> upliftBufferB;
+    CudaTextureHost<bool> upliftGrid;
+    CudaTextureHost<BlurBuffer> blurBuffer;
+    CudaTextureHost<uint8_t> platesHaveCollided;
+    heightMapTextureWrite.initialize(m_width, m_height);
+    plateIdsTextureWrite.initialize(m_width, m_height);
+    upliftBufferA.initialize(m_width, m_height, 0);
+    upliftBufferB.initialize(m_width, m_height, 0);
+    upliftGrid.initialize(static_cast<int>(m_width * powf(0.5, 6)), static_cast<int>(m_height * powf(0.5, 6)));
+    blurBuffer.initialize(m_width, m_height);
+    platesHaveCollided.initialize(255, 255, 0);
+    CudaTextureHost<float4> fluxBuffer;
+    CudaTextureHost<float> sedimentBuffer;
+    fluxBuffer.initialize(m_width, m_height);
+    sedimentBuffer.initialize(m_width, m_height);
+    CudaTextureHost<unsigned int> labels;
+    labels.initialize(m_width, m_height);
+    CudaTextureHost<uint8_t> glTexture;
+    glTexture.initialize(m_width, m_height);
+
+    cudaDeviceSynchronize();
+
+    const auto finish{std::chrono::steady_clock::now()};
+    const std::chrono::duration<double> elapsed_seconds{finish - start};
+    std::cout << "non-managed duration: " << elapsed_seconds.count() << std::endl;
+}
+
+void MallocTestManager(TextureManager &textureManager)
+{
+    const auto start{std::chrono::steady_clock::now()};
+
+    int m_width = 0;
+    int m_height = 0;
+
+    auto pixelIndicesCollisions = textureManager.generateTexture<unsigned int>(m_width, m_height);
+    auto plateIdsCollisions = textureManager.generateTexture<uint8_t>(m_width, m_height);
+    auto exclusivePrefixSum = textureManager.generateTexture<uint8_t>(m_width, m_height);
+    auto plateCollisions = textureManager.generateTexture<uint32_t>(m_width, m_height, 0);
+    auto heightMapTextureWrite = textureManager.generateTexture<float>(m_width, m_height);
+    auto plateIdsTextureWrite = textureManager.generateTexture<uint8_t>(m_width, m_height);
+    auto upliftBufferA = textureManager.generateTexture<float>(m_width, m_height, 0);
+    auto upliftBufferB = textureManager.generateTexture<float>(m_width, m_height, 0);
+    auto upliftGrid = textureManager.generateTexture<bool>(m_width, m_height);
+    auto blurBuffer = textureManager.generateTexture<BlurBuffer>(m_width, m_height);
+    auto platesHaveCollided = textureManager.generateTexture<uint8_t>(m_width, m_height, 0);
+    auto fluxBuffer = textureManager.generateTexture<float4>(m_width, m_height);
+    auto sedimentBuffer = textureManager.generateTexture<float>(m_width, m_height);
+    auto labels = textureManager.generateTexture<unsigned int>(m_width, m_height);
+    auto glTexture = textureManager.generateTexture<uint8_t>(m_width, m_height);
+
+    cudaDeviceSynchronize();
+
+    const auto finish{std::chrono::steady_clock::now()};
+    const std::chrono::duration<double> elapsed_seconds{finish - start};
+    std::cout << "managed duration: " << elapsed_seconds.count() << std::endl;
 }

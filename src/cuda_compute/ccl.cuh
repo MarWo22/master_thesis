@@ -1,6 +1,6 @@
 #ifndef CCL_CUH
 #define CCL_CUH
-#include "cuda_texture.cuh"
+#include "types/cuda_texture.cuh"
 
 
 __global__ void copyToUint8Texture(const CudaTexture<unsigned int> *labelsPtr, CudaTexture<uint8_t> *writePtr,

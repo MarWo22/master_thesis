@@ -10,28 +10,28 @@ void Terrain::Vertex::init(const int xPos, const int zPos, const int sizeX, cons
 {
     pos = glm::vec3(xPos, 0, zPos);
     uv = glm::vec2(static_cast<float>(xPos) / static_cast<float>(sizeX),
-                    static_cast<float>(zPos) / static_cast<float>(sizeZ));
+                   static_cast<float>(zPos) / static_cast<float>(sizeZ));
 }
 
 Terrain::Terrain(const int sizeX, const int sizeZ)
     : m_heightmapShader(nullptr)
-    , m_platesColoredShader(nullptr)
-    , m_platesBorderShader(nullptr)
-    , m_regionShader(nullptr)
-    , m_velocityShader(nullptr)
-    , m_directionShader(nullptr)
-    , m_heightmapTexture(nullptr)
-    , m_platesTexture(nullptr)
-    , m_collisionTexture(nullptr)
-    , m_velocityTexture(nullptr)
-    , m_directionTexture(nullptr)
-    , m_upliftTexture(nullptr)
-    , m_waterTexture(nullptr)
-    , m_cclTexture(nullptr), m_sizeX(sizeX)
-    , m_sizeZ(sizeZ)
-    , m_vao(0)
-    , m_vb(0)
-    , m_ib(0)
+      , m_platesColoredShader(nullptr)
+      , m_platesBorderShader(nullptr)
+      , m_regionShader(nullptr)
+      , m_velocityShader(nullptr)
+      , m_directionShader(nullptr)
+      , m_heightmapTexture(nullptr)
+      , m_platesTexture(nullptr)
+      , m_collisionTexture(nullptr)
+      , m_velocityTexture(nullptr)
+      , m_directionTexture(nullptr)
+      , m_upliftTexture(nullptr)
+      , m_waterTexture(nullptr)
+      , m_sizeX(sizeX)
+      , m_sizeZ(sizeZ)
+      , m_vao(0)
+      , m_vb(0)
+      , m_ib(0)
 {}
 
 void Terrain::init()
@@ -49,7 +49,6 @@ void Terrain::init()
     m_directionTexture = getTexture("directionTexture");
     m_upliftTexture = getTexture("upliftTexture");
     m_waterTexture = getTexture("waterTexture");
-    m_cclTexture = getTexture("cclTexture");
     createGlState();
     populateBuffers();
 }
@@ -93,13 +92,6 @@ void Terrain::render(const Camera &camera)
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_upliftTexture->bind(GL_TEXTURE1);
             break;
-        case RenderSettings::RenderMode::SHOW_CCL_AREAS:
-            m_platesColoredShader->bind();
-            m_platesColoredShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
-            m_heightmapTexture->bind(GL_TEXTURE0);
-            m_cclTexture
-        ->bind(GL_TEXTURE1);
-            break;
         default:
             std::cerr << "Undefined render mode" << std::endl;
     }
@@ -141,10 +133,12 @@ void Terrain::populateBuffers() const
 
 
     glBindBuffer(GL_ARRAY_BUFFER, m_vb);
-    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(Vertex) * vertices.size()), vertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(Vertex) * vertices.size()), vertices.data(),
+                 GL_STATIC_DRAW);
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ib);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(unsigned int) * indices.size()), indices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(sizeof(unsigned int) * indices.size()),
+                 indices.data(), GL_STATIC_DRAW);
 }
 
 void Terrain::initVertices(std::vector<Vertex> &vertices) const
@@ -178,4 +172,3 @@ void Terrain::initIndices(std::vector<unsigned int> &indices) const
             indices[index++] = index_bottom_left;
         }
 }
-

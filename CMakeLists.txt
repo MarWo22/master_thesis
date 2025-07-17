@@ -64,7 +64,7 @@ add_executable(PlateTectonics
         src/cuda_compute/cuda_helper.cuh
         src/cuda_compute/cuda_gl_interop_manager.cpp
         src/cuda_compute/cuda_gl_interop_manager.h
-        src/cuda_compute/cuda_texture.cuh
+        src/cuda_compute/types/cuda_texture.cuh
         src/generation_settings.cpp
         src/generation_settings.h
         src/cuda_compute/erosion_kernel.cu
@@ -78,6 +78,7 @@ add_executable(PlateTectonics
         src/cuda_compute/debug_logging/debug_logging_kernels.cuh
         src/cuda_compute/debug_logging/debug_logging.cu
         src/cuda_compute/debug_logging/debug_logging.cuh
+        src/cuda_compute/texture_manager.cuh
 )
 
 set_target_properties(PlateTectonics PROPERTIES

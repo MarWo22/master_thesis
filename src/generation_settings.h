@@ -17,7 +17,6 @@ public:
             SHOW_PLATE_DIRECTIONS,
             SHOW_PLATE_VELOCITIES,
             SHOW_UPLIFT_AREAS,
-            SHOW_CCL_AREAS,
       };
 
       bool renderHeight = true;

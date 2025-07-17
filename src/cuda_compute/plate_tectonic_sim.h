@@ -1,73 +1,66 @@
 #ifndef PLATE_TECTONIC_SIM_H
 #define PLATE_TECTONIC_SIM_H
-#include <complex.h>
+
 #include <curand_kernel.h>
 #include <random>
 #include <vector>
 
 #include "cuda_gl_interop_manager.h"
-#include "cuda_texture.cuh"
+#include "types/cuda_texture.cuh"
 #include "plate_tectonics_kernel.cuh"
+#include "texture_manager.cuh"
 #include "types/plate_data.h"
 #include "types/vec2.cuh"
-#include "types/iteration_statistics.h"
+
+constexpr int THREADS_PER_BLOCK = 256;
+constexpr int NUM_BLOCKS_PLATES = (MAX_PLATE_COUNT + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+constexpr int NUM_BLOCKS_PLATES_MATRIX = (MAX_PLATE_COUNT * MAX_PLATE_COUNT + 1) / THREADS_PER_BLOCK;
 
 class PlateTectonicSim
 {
-    // Heightmap dimensions
-    int m_width;
-    int m_height;
+    /*
+     * Constant parameters data
+     */
 
-    unsigned int m_seed;
+    const int m_width;
+    const int m_height;
+    TextureManager m_textureManager;
+    CudaGlInteropManager *const m_interopManager;
+    unsigned int m_seed; // Not const, can be changed by calling resetSim()
+    int m_numBlocksPixels;
 
+    /*
+     *  Persistent textures
+     */
+
+    std::unique_ptr<CudaTextureHost<float>> m_heightMapTexture;
+    std::unique_ptr<CudaTextureHost<uint8_t>> m_plateIdsTexture;
+
+    std::unique_ptr<CudaTextureHost<float>> m_hydrationLevel;
+    std::unique_ptr<CudaTextureHost<float4>> m_hydrationFlux;
+    std::unique_ptr<CudaTextureHost<Vec2<float>>> m_hydrationVelocity;
+    std::unique_ptr<CudaTextureHost<float>> m_sedimentLevel;
+
+    /*
+     *  Persistent CUDA data containers
+     *  Still implemented as a texture for simplicity reasons
+     */
+
+    std::unique_ptr<CudaTextureHost<PlateData>> m_plateDataLookup;
+    std::unique_ptr<CudaTextureHost<curandState>> m_randStatesPlates;
+    std::unique_ptr<CudaTextureHost<IterationStatistics>> m_iterationStats;
+
+    // Iteration counter
     unsigned int m_iterations;
 
-    // Main heightmap on device
-    CudaTextureHost<float> m_heightMapTexture;
-
-    // Plate tectonic sim specific device arrays
-    CudaTextureHost<uint8_t> m_plateIdsTexture;
-    CudaTextureHost<float> m_overlapCrustTexture;
-
-    CudaTextureHost<uint8_t> m_cllPlateIds; // TODO: ONLY FOR DEDUG
-
-    CudaTextureHost<float> m_hydrationLevel;
-    CudaTextureHost<float4> m_hydrationFlux;
-    CudaTextureHost<Vec2<float> > m_hydrationVelocity;
-    CudaTextureHost<float> m_sedimentLevel;
-
-    PlateData *m_plateDataLookup;
-    curandState *m_randStatesPlates;
-    IterationStatistics *m_iterationStats;
-
-    // General execution parameters
-    int m_threadsPerBlock = 256;
-
-    // Plate tectonic sim specific execution parameters
-    int m_maxPlates = 255;
-    // Higher values will require the plateIdsDevice to be increased to 16bit (Need to reserve 1 for the algorithm to work)
-    int m_numStartingPlates;
-    std::vector<int> m_numVoronoiSeeds;
-
-    CudaGlInteropManager *m_interopManager;
-
 public:
-    PlateTectonicSim(int width, int height, unsigned int seed, int numStartingPlates,
-                     const std::vector<int> &numVoronoiSeeds,
-                     CudaGlInteropManager *interopManager);
+    PlateTectonicSim(int width, int height, unsigned int seed, CudaGlInteropManager *interopManager);
 
-    [[nodiscard]] CudaTextureHost<float> &heightMapCudaTexture() { return m_heightMapTexture; }
-    [[nodiscard]] CudaTextureHost<uint8_t> &plateIdsCudaTexture() { return m_plateIdsTexture; }
+    void initialize(int numStartingPlates, const std::vector<int> &numVoronoiSeeds);
 
-    void initialize();
+    void setupToggleCallbacks() const;
 
     void executeIteration();
-
-    void copyConstantTexturesInterop() const;
-
-    void copyCCL() const;
-
-    Vec2<float> getPlateCenter(int numBlocksPixels, int m_threadsPerBlock);
 
     void resetSim(unsigned int seed, int numStartingPlates, const std::vector<int> &numVoronoiSeeds);
 
@@ -78,18 +71,33 @@ public:
     static std::vector<VoronoiSeed> generatePlateCenters(std::default_random_engine &generator, int numPlates,
                                                          int width, int height);
 
+    static std::vector<PlateData> generatePlateData(std::default_random_engine &generator,
+                                                    const std::vector<VoronoiSeed> &plateCenters,
+                                                    int numStartingPlates);
+
 private:
-    void initializeTectonics();
+    void initializeTextures();
 
-    void initializeHydration();
+    void initializeTectonics(int numStartingPlates, const std::vector<int> &numVoronoiSeeds);
 
-    std::vector<PlateData> initializePlateData(std::default_random_engine &generator,
-                                               const std::vector<VoronoiSeed> &plateCenters) const;
+    void getPlateCollisions(CudaTextureHost<uint32_t> *plateCollisions);
 
+    void processCollisionUplift(CudaTextureHost<float> *heightMapTextureWrite,
+                                CudaTextureHost<uint8_t> *plateIdsTextureWrite,
+                                CudaTextureHost<uint8_t> *platesHaveCollided,
+                                CudaTextureHost<uint32_t> *plateCollisions);
 
-    void setupToggleCallbacks() const;
+    void applyHydraulicErosion(CudaTextureHost<float> *heightMapTextureWrite);
 
-    void copyPlateIdsGL() const;
+    void applyCCL();
+
+    void processPlateSplitting();
+
+    Vec2<float> getPlateCenter();
+
+    void setupGUICallbacks();
+
+    void copyConstantTexturesInterop() const;
 
     void copyDirectionGL() const;
 

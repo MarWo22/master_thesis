@@ -4,7 +4,7 @@
 
 #ifndef DEBUG_KERNELS_CUH
 #define DEBUG_KERNELS_CUH
-#include "../cuda_texture.cuh"
+#include "../types/cuda_texture.cuh"
 #include "../types/voronoi_seed.h"
 
 __global__ void drawVoronoiSeedsToTexture(CudaTexture<uint8_t> *idTexturePtr, const VoronoiSeed *seeds,
