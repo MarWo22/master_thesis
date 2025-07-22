@@ -8,7 +8,7 @@
 #include <unordered_map>
 
 #include "types/cuda_texture.cuh"
-
+#include <ranges>
 
 class TextureManager
 {
@@ -35,8 +35,12 @@ class TextureManager
 
 public:
     template<typename T>
-    std::unique_ptr<CudaTextureHost<T> > generateTexture(unsigned int width, unsigned int height)
+    std::unique_ptr<CudaTextureHost<T> > generateTexture(unsigned int width, unsigned int height,
+                                                         const bool async = true)
     {
+        auto callback = std::bind(&TextureManager::releaseTexture<T>, this, std::placeholders::_1, std::placeholders::_2,
+                      std::placeholders::_3, std::placeholders::_4);
+
         const size_t size = sizeof(T);
 
         textureMap_t &textureMap = m_sizedTextureMap[size];
@@ -46,12 +50,7 @@ public:
         if (allocatedTextures.empty())
         {
             s_allocatedMemory += sizeof(CudaTexture<T>) + width * height * sizeof(T);
-            return std::make_unique<CudaTextureHost<T> >(
-                width,
-                height,
-                std::bind(&TextureManager::releaseTexture<T>, this, std::placeholders::_1, std::placeholders::_2,
-                          std::placeholders::_3, std::placeholders::_4)
-            );
+            return CudaTextureHost<T>::createManaged(width, height, callback, async);
         }
 
         auto [rawTexture, rawPtr, sizeInBytes] = allocatedTextures.back();
@@ -61,19 +60,16 @@ public:
         auto tex = reinterpret_cast<CudaTexture<T> *>(rawTexture);
         auto dataPtr = reinterpret_cast<T *>(rawPtr);
 
-        return std::make_unique<CudaTextureHost<T> >(
-            tex,
-            dataPtr,
-            width,
-            height,
-            std::bind(&TextureManager::releaseTexture<T>, this, std::placeholders::_1, std::placeholders::_2,
-                      std::placeholders::_3, std::placeholders::_4)
-        );
+        return CudaTextureHost<T>::createManaged(tex, dataPtr, width, height, callback);
     }
 
     template<typename T>
-    std::unique_ptr<CudaTextureHost<T> > generateTexture(unsigned int width, unsigned int height, const T &memsetValue)
+    std::unique_ptr<CudaTextureHost<T> > generateTextureAndReset(unsigned int width, unsigned int height, const T &memsetValue,
+                                                         const bool async = true)
     {
+        auto callback = std::bind(&TextureManager::releaseTexture<T>, this, std::placeholders::_1, std::placeholders::_2,
+                         std::placeholders::_3, std::placeholders::_4);
+
         const size_t size = sizeof(T);
 
         textureMap_t &textureMap = m_sizedTextureMap[size];
@@ -83,13 +79,7 @@ public:
         if (allocatedTextures.empty())
         {
             s_allocatedMemory += sizeof(CudaTexture<T>) + width * height * sizeof(T);
-            return std::make_unique<CudaTextureHost<T> >(
-                width,
-                height,
-                std::bind(&TextureManager::releaseTexture<T>, this, std::placeholders::_1, std::placeholders::_2,
-                          std::placeholders::_3, std::placeholders::_4),
-                memsetValue
-            );
+            return CudaTextureHost<T>::createManagedAndClear(width, height, callback, memsetValue, async);
         }
 
         auto [rawTexture, rawPtr, sizeInBytes] = allocatedTextures.back();
@@ -99,15 +89,7 @@ public:
         auto tex = reinterpret_cast<CudaTexture<T> *>(rawTexture);
         auto dataPtr = reinterpret_cast<T *>(rawPtr);
 
-        return std::make_unique<CudaTextureHost<T> >(
-            tex,
-            dataPtr,
-            width,
-            height,
-            std::bind(&TextureManager::releaseTexture<T>, this, std::placeholders::_1, std::placeholders::_2,
-                      std::placeholders::_3, std::placeholders::_4),
-            memsetValue
-        );
+        return CudaTextureHost<T>::createManagedAndClear(tex, dataPtr, width, height, callback, memsetValue, async);
     }
 
 

@@ -3,7 +3,6 @@
 #include <functional>
 #include <iostream>
 #include <memory>
-#include <ranges>
 
 #include "vec2.cuh"
 
@@ -102,6 +101,9 @@ class CudaTextureHost
     std::function<void(CudaTexture<T> *, T *, int, int)> m_onRelease;
 
 public:
+    using ManagedCallback = std::function<void(CudaTexture<T> *, T *, int, int)>;
+
+
     CudaTextureHost()
         : m_texture(nullptr)
           , m_rawCudaPointer(nullptr)
@@ -110,57 +112,42 @@ public:
           , m_isManaged(false)
     {}
 
-    CudaTextureHost(CudaTexture<T> *deviceTexture, T *rawCudaPtr, const int width, const int height,
-                    std::function<void(CudaTexture<T> *, T *, int, int)> onReleaseCallback)
-        : m_texture(deviceTexture)
-          , m_rawCudaPointer(rawCudaPtr)
-          , m_width(width)
-          , m_height(height)
-          , m_isManaged(true)
-          , m_onRelease(onReleaseCallback)
-
-    {}
-
-    CudaTextureHost(CudaTexture<T> *deviceTexture, T *rawCudaPtr, const int width, const int height,
-                    std::function<void(CudaTexture<T> *, T *, int, int)> onReleaseCallback, const T &memsetValue)
-        : m_texture(deviceTexture)
-          , m_rawCudaPointer(rawCudaPtr)
-          , m_width(width)
-          , m_height(height)
-          , m_isManaged(true)
-          , m_onRelease(onReleaseCallback)
-
+    static std::unique_ptr<CudaTextureHost> createManaged(const int width, const int height,
+                                                          ManagedCallback onReleaseCallback, const bool async = false)
     {
-        if (const cudaError_t err = cudaMemset(m_rawCudaPointer, memsetValue, m_width * m_height * sizeof(T));
-            err != cudaSuccess)
-            std::cerr << "Error memset cuda texture: " << cudaGetErrorString(err) << std::endl;
+        std::unique_ptr<CudaTextureHost> ptr = std::unique_ptr<CudaTextureHost>(new CudaTextureHost(onReleaseCallback));
+        ptr->initialize(width, height, async);
+
+        return ptr;
     }
 
-    CudaTextureHost(const int width, const int height,
-                    std::function<void(CudaTexture<T> *, T *, int, int)> onReleaseCallback)
-        : m_texture(nullptr)
-          , m_rawCudaPointer(nullptr)
-          , m_width(width)
-          , m_height(height)
-          , m_isManaged(true)
-          , m_onRelease(onReleaseCallback)
-
+    static std::unique_ptr<CudaTextureHost> createManaged(CudaTexture<T> *deviceTexture, T *rawCudaPtr, const int width,
+                                                          const int height, ManagedCallback onReleaseCallback)
     {
-        initialize(width, height);
+        return std::unique_ptr<CudaTextureHost>(
+            new CudaTextureHost(deviceTexture, rawCudaPtr, width, height, onReleaseCallback));
     }
 
-    CudaTextureHost(const int width, const int height,
-                    std::function<void(CudaTexture<T> *, T *, int, int)> onReleaseCallback,
-                    const T &memsetValue)
-        : m_texture(nullptr)
-          , m_rawCudaPointer(nullptr)
-          , m_width(width)
-          , m_height(height)
-          , m_isManaged(true)
-          , m_onRelease(onReleaseCallback)
-
+    static std::unique_ptr<CudaTextureHost> createManagedAndClear(const int width, const int height,
+                                                                  ManagedCallback onReleaseCallback,
+                                                                  const T &memsetValue, const bool async = false)
     {
-        initialize(width, height, memsetValue);
+        std::unique_ptr<CudaTextureHost> ptr = std::unique_ptr<CudaTextureHost>(new CudaTextureHost(onReleaseCallback));
+        ptr->initializeAndClear(width, height, memsetValue, async);
+
+        return ptr;
+    }
+
+    static std::unique_ptr<CudaTextureHost> createManagedAndClear(CudaTexture<T> *deviceTexture, T *rawCudaPtr,
+                                                                  const int width, const int height,
+                                                                  ManagedCallback onReleaseCallback,
+                                                                  const T &memsetValue, const bool async = false)
+    {
+        std::unique_ptr<CudaTextureHost> ptr = std::unique_ptr<CudaTextureHost>(new CudaTextureHost(
+            deviceTexture, rawCudaPtr, width, height, onReleaseCallback));
+        ptr->memsetTexture(memsetValue, async);
+
+        return ptr;
     }
 
     ~CudaTextureHost()
@@ -173,6 +160,67 @@ public:
 
     [[nodiscard]] int width() const { return m_width; }
     [[nodiscard]] int height() const { return m_height; }
+
+    void initialize(const int width, const int height, const bool async = false)
+    {
+        m_width = width;
+        m_height = height;
+
+        allocate(async);
+        constructAndCopyTextureObj(async);
+    }
+
+    void memsetTexture(const T &memsetValue, const bool async)
+    {
+        if (async)
+        {
+            if (const cudaError_t err = cudaMemsetAsync(m_rawCudaPointer, memsetValue, m_width * m_height * sizeof(T));
+                err != cudaSuccess)
+                std::cerr << "Error memset cuda texture: " << cudaGetErrorString(err) << std::endl;
+        } else
+        {
+            if (const cudaError_t err = cudaMemset(m_rawCudaPointer, memsetValue, m_width * m_height * sizeof(T));
+                err != cudaSuccess)
+                std::cerr << "Error memset cuda texture: " << cudaGetErrorString(err) << std::endl;
+        }
+    }
+
+    void initializeAndClear(const int width, const int height, const T &memsetValue, const bool async = false)
+    {
+        m_width = width;
+        m_height = height;
+
+        allocate(async);
+        memsetTexture(memsetValue, async);
+        constructAndCopyTextureObj(async);
+    }
+
+    T *getPointer() const { return m_rawCudaPointer; }
+
+    CudaTexture<T> *deviceTexture() { return m_texture; }
+    const CudaTexture<T> *deviceTexture() const { return m_texture; }
+
+private:
+    CudaTextureHost(CudaTexture<T> *deviceTexture, T *rawCudaPtr, const int width, const int height,
+                    ManagedCallback onReleaseCallback)
+        : m_texture(deviceTexture)
+          , m_rawCudaPointer(rawCudaPtr)
+          , m_width(width)
+          , m_height(height)
+          , m_isManaged(true)
+          , m_onRelease(onReleaseCallback)
+
+    {}
+
+    explicit CudaTextureHost(ManagedCallback onReleaseCallback)
+        : m_texture(nullptr)
+          , m_rawCudaPointer(nullptr)
+          , m_width(0)
+          , m_height(0)
+          , m_isManaged(true)
+          , m_onRelease(onReleaseCallback)
+
+    {}
 
     void free()
     {
@@ -192,53 +240,58 @@ public:
         }
     }
 
-    void initialize(const int width, const int height)
+    void constructAndCopyTextureObj(const bool async)
     {
-        m_width = width;
-        m_height = height;
-
-        allocate();
-
         // Construct the texture object directly in device memory
         CudaTexture<T> h_texture(m_rawCudaPointer, Vec2(m_width, m_height));
-        cudaMemcpy(m_texture, &h_texture, sizeof(CudaTexture<T>), cudaMemcpyHostToDevice);
-    }
 
-    void initialize(const int width, const int height, const T &memsetValue)
-    {
-        m_width = width;
-        m_height = height;
-
-        allocate();
-        if (const cudaError_t err = cudaMemset(m_rawCudaPointer, memsetValue, m_width * m_height * sizeof(T));
-            err != cudaSuccess)
-            std::cerr << "Error memset cuda texture: " << cudaGetErrorString(err) << std::endl;
-
-        // Construct the texture object directly in device memory
-        CudaTexture<T> h_texture(m_rawCudaPointer, Vec2(m_width, m_height));
-        cudaMemcpy(m_texture, &h_texture, sizeof(CudaTexture<T>), cudaMemcpyHostToDevice);
-    }
-
-    T *getPointer() const { return m_rawCudaPointer; }
-
-    CudaTexture<T> *deviceTexture() { return m_texture; }
-    const CudaTexture<T> *deviceTexture() const { return m_texture; }
-
-private:
-    void allocate()
-    {
-        if (const cudaError_t err = cudaMalloc(&m_rawCudaPointer, m_width * m_height * sizeof(T)); err != cudaSuccess)
+        if (async)
         {
-            // Handle memory allocation failure
-            std::cerr << "CUDA malloc failed: " << cudaGetErrorString(err) << std::endl;
-            m_rawCudaPointer = nullptr; // Ensure m_textureArr remains nullptr on failure
+            if (const cudaError_t err = cudaMemcpyAsync(m_texture, &h_texture, sizeof(CudaTexture<T>),
+                                                        cudaMemcpyHostToDevice); err != cudaSuccess)
+                std::cerr << "Error memcpy cuda texture: " << cudaGetErrorString(err) << std::endl;
+        } else
+        {
+            if (const cudaError_t err = cudaMemcpy(m_texture, &h_texture, sizeof(CudaTexture<T>),
+                                                   cudaMemcpyHostToDevice); err != cudaSuccess)
+                std::cerr << "Error memcpy cuda texture: " << cudaGetErrorString(err) << std::endl;
         }
+    }
 
-        // Allocate device memory for the CudaTexture<T> object
-        if (cudaMalloc(&m_texture, sizeof(CudaTexture<T>)) != cudaSuccess)
+    void allocate(const bool malloc_async)
+    {
+        if (malloc_async)
         {
-            std::cerr << "CUDA malloc failed for texture object!" << std::endl;
-            cudaFree(m_texture);
+            if (const cudaError_t err = cudaMallocAsync(&m_rawCudaPointer, m_width * m_height * sizeof(T), nullptr);
+                err != cudaSuccess)
+            {
+                // Handle memory allocation failure
+                std::cerr << "CUDA malloc failed: " << cudaGetErrorString(err) << std::endl;
+                m_rawCudaPointer = nullptr; // Ensure m_textureArr remains nullptr on failure
+            }
+
+            // Allocate device memory for the CudaTexture<T> object
+            if (cudaMallocAsync(&m_texture, sizeof(CudaTexture<T>), nullptr) != cudaSuccess)
+            {
+                std::cerr << "CUDA malloc failed for texture object!" << std::endl;
+                cudaFree(m_texture);
+            }
+        } else
+        {
+            if (const cudaError_t err = cudaMalloc(&m_rawCudaPointer, m_width * m_height * sizeof(T));
+                err != cudaSuccess)
+            {
+                // Handle memory allocation failure
+                std::cerr << "CUDA malloc failed: " << cudaGetErrorString(err) << std::endl;
+                m_rawCudaPointer = nullptr; // Ensure m_textureArr remains nullptr on failure
+            }
+
+            // Allocate device memory for the CudaTexture<T> object
+            if (cudaMalloc(&m_texture, sizeof(CudaTexture<T>)) != cudaSuccess)
+            {
+                std::cerr << "CUDA malloc failed for texture object!" << std::endl;
+                cudaFree(m_texture);
+            }
         }
     }
 };

@@ -31,7 +31,9 @@ PlateTectonicSim::PlateTectonicSim(const int width, const int height, const unsi
 void PlateTectonicSim::initialize(const int numStartingPlates, const std::vector<int> &numVoronoiSeeds)
 {
     initializeTextures();
+    std::cout << "Initialized textured\n";
     initializeTectonics(numStartingPlates, numVoronoiSeeds);
+    std::cout << "Initialized tectonics\n";
     setupGUICallbacks();
 
     if (m_interopManager != nullptr)
@@ -82,13 +84,13 @@ void PlateTectonicSim::executeIteration()
     const auto start{std::chrono::steady_clock::now()};
     std::cout << "Executing iteration" << std::endl;
 
-    auto plateCollisions = m_textureManager.generateTexture<uint32_t>(m_width, m_height, 0);
+    auto plateCollisions = m_textureManager.generateTextureAndReset<uint32_t>(m_width, m_height, 0);
     getPlateCollisions(plateCollisions.get());
 
     // Process colliding plates and perform uplift
     auto heightMapTextureWrite = m_textureManager.generateTexture<float>(m_width, m_height);
     auto plateIdsTextureWrite = m_textureManager.generateTexture<uint8_t>(m_width, m_height);
-    auto platesHaveCollided = m_textureManager.generateTexture<uint8_t>(MAX_PLATE_COUNT, MAX_PLATE_COUNT, 0);
+    auto platesHaveCollided = m_textureManager.generateTextureAndReset<uint8_t>(MAX_PLATE_COUNT, MAX_PLATE_COUNT, 0);
 
     processCollisionUplift(heightMapTextureWrite.get(), plateIdsTextureWrite.get(), platesHaveCollided.get(),
                            plateCollisions.get());
@@ -107,7 +109,7 @@ void PlateTectonicSim::executeIteration()
     updatePlateData<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer(),
                                                               Vec2(MAX_PLATE_COUNT, 1));
 
-    auto plateMergeIds = m_textureManager.generateTexture<uint8_t>(MAX_PLATE_COUNT, 1, MAX_PLATE_COUNT);
+    auto plateMergeIds = m_textureManager.generateTextureAndReset<uint8_t>(MAX_PLATE_COUNT, 1, MAX_PLATE_COUNT);
 
     /*
      * STEP SEVEN
@@ -183,7 +185,7 @@ void PlateTectonicSim::getPlateCollisions(CudaTextureHost<uint32_t> *plateCollis
     // This is followed by an exclusive prefix sum by key. The prefix sum output is stored in the exclusivePrefixSum texture
     // This texture will now contain the occurrence index of the pixel, aligned with the pixelIndicesCollision and
     // plateIdsCollisions texture
-    const auto exclusivePrefixSum = m_textureManager.generateTexture<uint8_t>(m_width, m_height, 1);
+    const auto exclusivePrefixSum = m_textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, 1);
     const thrust::device_ptr<unsigned int> pixelIndicesThrust(pixelIndicesCollisions->getPointer());
     const thrust::device_ptr<uint8_t> plateIdsThrust(plateIdsCollisions->getPointer());
     const thrust::device_ptr<uint8_t> exclusivePrefixSumThrust(exclusivePrefixSum->getPointer());
@@ -216,8 +218,8 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
 {
     constexpr int de = 6;
 
-    const auto upliftBufferA = m_textureManager.generateTexture<float>(m_width, m_height, 0);
-    const auto upliftBufferB = m_textureManager.generateTexture<float>(m_width, m_height, 0);
+    const auto upliftBufferA = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
+    const auto upliftBufferB = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
     const auto upliftGrid = m_textureManager.generateTexture<bool>(static_cast<int>(m_width * powf(0.5, de)),
                                                                    static_cast<int>(m_height * powf(0.5, de)));
     const auto blurBuffer = m_textureManager.generateTexture<BlurBuffer>(m_width, m_height);
@@ -334,9 +336,9 @@ void PlateTectonicSim::applyCCL()
     sort_by_key(labelCountsThrust, labelCountsThrust + numUniqueLabels, uniqueLabelsThrust,
                 thrust::greater<unsigned int>());
 
-    auto originalPlateIds = m_textureManager.generateTexture<uint8_t>(MAX_PLATE_COUNT, 1, MAX_PLATE_COUNT);
+    auto originalPlateIds = m_textureManager.generateTextureAndReset<uint8_t>(MAX_PLATE_COUNT, 1, MAX_PLATE_COUNT);
     auto unassignedIndices = m_textureManager.generateTexture<unsigned int>(labelCountSize, 1);
-    auto unassignedIndicesCount = m_textureManager.generateTexture<int>(1, 1, 0);
+    auto unassignedIndicesCount = m_textureManager.generateTextureAndReset<int>(1, 1, 0);
 
     assignNewPlateIds<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(labels->deviceTexture(), uniqueLabels->getPointer(),
                                                                 labelCounts->getPointer(),
@@ -363,7 +365,7 @@ void PlateTectonicSim::applyCCL()
 
         while (hasWork)
         {
-            const auto hasRemainingWork = m_textureManager.generateTexture(1, 1, 0);
+            const auto hasRemainingWork = m_textureManager.generateTextureAndReset(1, 1, 0);
 
             assignUnassignedIdsToNeighbor<<<gridSize, THREADS_PER_BLOCK>>>(
                 m_plateIdsTexture->deviceTexture(), unassignedIndices->getPointer(), unassignedIndicesCountHost,
@@ -513,15 +515,20 @@ void PlateTectonicSim::initializeTectonics(const int numStartingPlates, const st
     // Init voronoi vector on host, copy to local device, and free at end of function
     const auto plateCenters = generatePlateCenters(generator, numStartingPlates, m_width, m_height);
     // Not using the memory manager, since these are one-time temporary allocations
+    std::cout << "Generated plate centers\n";
     CudaTextureHost<uint8_t> plateCentersTexture;
-    plateCentersTexture.initialize(m_width, m_height, 255);
+    plateCentersTexture.initializeAndClear(m_width, m_height, 255);
 
     std::vector<VoronoiSeed> voronoiSeedsHost = plateCenters;
 
     // Apply all iterations of voronoi seed
     // If there are no seeds, or less than the original centers, the centers are used instead
     for (const int numSeeds: numVoronoiSeeds)
+    {
         voronoiSeedsHost = generateVoronoiSeeds(generator, voronoiSeedsHost, numSeeds, m_width, m_height);
+        std::cout << "Generated" << numSeeds << " seeds\n";
+
+    }
 
 
     if (voronoiSeedsHost.size() < plateCenters.size())
@@ -546,16 +553,18 @@ void PlateTectonicSim::initializeTectonics(const int numStartingPlates, const st
     initPlateIDs<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                            voronoiSeedsDevice.getPointer(),
                                                            static_cast<int>(voronoiSeedsHost.size()));
-
+    std::cout << "Initialized plate IDs\n";
     // Initialized the heightmap with simplex noise
     // The heightmap is written to the m_heightMapTexture texture
     initHeightmap<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_heightMapTexture->deviceTexture(), m_seed, 1);
+    std::cout << "Initialized heightmap\n";
 
     // Extracts the size and mass of the plates
     // This is stored in the m_plateDataLookup lookup texture
     initPixelDependantPlateData<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                                           m_heightMapTexture->deviceTexture(),
                                                                           m_plateDataLookup->getPointer());
+    std::cout << "Initialized pixel data\n";
 
     cudaDeviceSynchronize();
 }

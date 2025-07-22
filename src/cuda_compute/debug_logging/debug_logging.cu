@@ -25,7 +25,7 @@ void SaveVoronoiProcesTextures(const int width, const int height, const unsigned
     plateIdsTexture.initialize(width, height);
 
     CudaTextureHost<uint8_t> plateCentersTexture;
-    plateCentersTexture.initialize(width, height, 255);
+    plateCentersTexture.initializeAndClear(width, height, 255);
 
     int numBlocks = (startingPlates + DEBUG_LOG_THREAD_SIZE - 1) / DEBUG_LOG_THREAD_SIZE;
 
@@ -74,7 +74,7 @@ void SaveVoronoiProcesTextures(const int width, const int height, const unsigned
 
 
         CudaTextureHost<uint8_t> texture;
-        texture.initialize(width, height, 255);
+        texture.initializeAndClear(width, height, 255);
         numBlocks = (static_cast<int>(voronoiSeedsHost.size()) + DEBUG_LOG_THREAD_SIZE - 1) / DEBUG_LOG_THREAD_SIZE;
         drawVoronoiSeedsToTexture<<<numBlocks, DEBUG_LOG_THREAD_SIZE>>>(texture.deviceTexture(), voronoiSeedsDevice,
                                                                         static_cast<int>(voronoiSeedsHost.size()),
@@ -105,9 +105,9 @@ void MallocTestNoManager()
     pixelIndicesCollisions.initialize(m_width, m_height);
     plateIdsCollisions.initialize(m_width, m_height);
     CudaTextureHost<uint8_t> exclusivePrefixSum;
-    exclusivePrefixSum.initialize(m_width, m_height, 1);
+    exclusivePrefixSum.initializeAndClear(m_width, m_height, 1);
     CudaTextureHost<uint32_t> plateCollisions;
-    plateCollisions.initialize(m_width, m_height, 0);
+    plateCollisions.initializeAndClear(m_width, m_height, 0);
     CudaTextureHost<float> heightMapTextureWrite;
     CudaTextureHost<uint8_t> plateIdsTextureWrite;
     CudaTextureHost<float> upliftBufferA;
@@ -117,11 +117,11 @@ void MallocTestNoManager()
     CudaTextureHost<uint8_t> platesHaveCollided;
     heightMapTextureWrite.initialize(m_width, m_height);
     plateIdsTextureWrite.initialize(m_width, m_height);
-    upliftBufferA.initialize(m_width, m_height, 0);
-    upliftBufferB.initialize(m_width, m_height, 0);
+    upliftBufferA.initializeAndClear(m_width, m_height, 0);
+    upliftBufferB.initializeAndClear(m_width, m_height, 0);
     upliftGrid.initialize(static_cast<int>(m_width * powf(0.5, 6)), static_cast<int>(m_height * powf(0.5, 6)));
     blurBuffer.initialize(m_width, m_height);
-    platesHaveCollided.initialize(255, 255, 0);
+    platesHaveCollided.initializeAndClear(255, 255, 0);
     CudaTextureHost<float4> fluxBuffer;
     CudaTextureHost<float> sedimentBuffer;
     fluxBuffer.initialize(m_width, m_height);
@@ -148,14 +148,14 @@ void MallocTestManager(TextureManager &textureManager)
     auto pixelIndicesCollisions = textureManager.generateTexture<unsigned int>(m_width, m_height);
     auto plateIdsCollisions = textureManager.generateTexture<uint8_t>(m_width, m_height);
     auto exclusivePrefixSum = textureManager.generateTexture<uint8_t>(m_width, m_height);
-    auto plateCollisions = textureManager.generateTexture<uint32_t>(m_width, m_height, 0);
+    auto plateCollisions = textureManager.generateTextureAndReset<uint32_t>(m_width, m_height, 0);
     auto heightMapTextureWrite = textureManager.generateTexture<float>(m_width, m_height);
     auto plateIdsTextureWrite = textureManager.generateTexture<uint8_t>(m_width, m_height);
-    auto upliftBufferA = textureManager.generateTexture<float>(m_width, m_height, 0);
-    auto upliftBufferB = textureManager.generateTexture<float>(m_width, m_height, 0);
+    auto upliftBufferA = textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
+    auto upliftBufferB = textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
     auto upliftGrid = textureManager.generateTexture<bool>(m_width, m_height);
     auto blurBuffer = textureManager.generateTexture<BlurBuffer>(m_width, m_height);
-    auto platesHaveCollided = textureManager.generateTexture<uint8_t>(m_width, m_height, 0);
+    auto platesHaveCollided = textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, 0);
     auto fluxBuffer = textureManager.generateTexture<float4>(m_width, m_height);
     auto sedimentBuffer = textureManager.generateTexture<float>(m_width, m_height);
     auto labels = textureManager.generateTexture<unsigned int>(m_width, m_height);

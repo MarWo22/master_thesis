@@ -259,7 +259,7 @@ __global__ void registerPlateCollisions(const CudaTexture<uint8_t> *r_plateIdsPt
     {
         const uint8_t plateID = r_plateIds[invokeIndex];
         const unsigned int pixelIndex = r_pixelIndices[invokeIndex];
-        const uint32_t packedVal = (MAX_PLATE_COUNT - plateID) << 8 * prefixSumVal;
+        const uint32_t packedVal = (0xFF - plateID) << 8 * prefixSumVal;
 
         atomicOr(&w_collisions[pixelIndex], packedVal);
     }
@@ -300,7 +300,6 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
                                         const uint8_t plateC,
                                         const uint8_t plateD, const unsigned int invokeIndex)
 {
-    //printf("%f\n", kernelSettings.inelasticCollisionMultiplier);
     const Vec2 currentTexIndex = r_plateIdsPtr->indexToCoordinate(invokeIndex);
 
     PlateData &plateAData = plateLookup[plateA];
@@ -354,17 +353,9 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
     const Vec2<float> velocityChangePlateB = (finalVelocity - plateBVelocityVector) * (plateBMass / plateBData.mass) *
                                              kernelSettings.inelasticCollisionMultiplier;
 
-    // printf("Plate %d: (%f %f) %f (%f %f), Plate %d: (%f %f) %f (%f %f), Plate C - %d, Plate D - %d, finalVelocity: (%f %f)\n", plateA, plateAVelocityVector.x, plateAVelocityVector.y, plateAMass, velocityChangePlateA.x, velocityChangePlateA.y, plateB, plateBVelocityVector.x, plateBVelocityVector.y, plateBMass, velocityChangePlateB.x, velocityChangePlateB.y, plateC != MAX_PLATE_COUNT, plateD != MAX_PLATE_COUNT, finalVelocity.x, finalVelocity.y);
-
-
-    // printf("A: (%f %f) final: (%f %f), Mass: (%f %f)\n", velocityChangePlateA.x, velocityChangePlateA.y, finalVelocity.x, finalVelocity.y, plateAMass, plateAData.mass);
-
     atomicAddVec2(&plateAData.velocityChange, velocityChangePlateA);
 
-    // printf("B: (%f %f) final: (%f %f), Mass: (%f %f)\n", velocityChangePlateB.x, velocityChangePlateB.y, finalVelocity.x, finalVelocity.y, plateBMass, plateBData.mass);
-
     atomicAddVec2(&plateBData.velocityChange, velocityChangePlateB);
-
 
     if (plateC != MAX_PLATE_COUNT)
     {
@@ -372,8 +363,6 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
         const Vec2<float> velocityChangePlateC =
                 (finalVelocity - plateCData.direction * plateCData.velocity) * (plateCMass / plateCData.mass) *
                 kernelSettings.inelasticCollisionMultiplier;
-        // printf("C: (%f %f) final: (%f %f), Mass: (%f %f)\n", velocityChangePlateC.x, velocityChangePlateC.y, finalVelocity.x, finalVelocity.y, plateCMass, plateCData.mass);
-
         atomicAddVec2(&plateCData.velocityChange, velocityChangePlateC);
     }
 
@@ -383,8 +372,6 @@ __device__ void applyInelasticCollision(const CudaTexture<uint8_t> *r_plateIdsPt
         const Vec2<float> velocityChangePlateD =
                 (finalVelocity - plateDData.direction * plateDData.velocity) * (plateDMass / plateDData.mass) *
                 kernelSettings.inelasticCollisionMultiplier;
-        // printf("D: (%f %f) final: (%f %f), Mass: (%f %f)\n", velocityChangePlateD.x, velocityChangePlateD.y, finalVelocity.x, finalVelocity.y, plateDMass, plateDData.mass);
-
         atomicAddVec2(&plateDData.velocityChange, velocityChangePlateD);
     }
 }
