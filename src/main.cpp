@@ -33,11 +33,6 @@ void loadTextures(CudaGlInteropManager &interopManager)
     environmentMap->load2DImage("./assets/textures/001.hdr", GL_RGB32F, GL_RGB, GL_FLOAT, 3);
     Renderer::addTexture("environmentMap", environmentMap);
 
-    /*auto *heightMap = new Texture();
-    heightMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
-    heightMap->load2DImage("./assets/textures/heightMap.png", GL_R32F, GL_RED, GL_FLOAT, 1);
-    Renderer::addTexture("heightMap", heightMap);*/
-
     auto *cudaHeightMap = new Texture();
     cudaHeightMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     cudaHeightMap->load2DEmpty(GL_R32F, GL_RED, GL_FLOAT, heightmapDimensions);
@@ -96,6 +91,7 @@ void loadTextures(CudaGlInteropManager &interopManager)
 }
 
 
+
 void initRenderComponents(Renderer &renderer)
 {
     renderer.addRenderComponent(new Background());
@@ -135,7 +131,12 @@ int main()
             {
                 time_between_executions += renderer.deltaTime();
                 if (time_between_executions > 1.f / static_cast<float>(renderSettings.iterationsPerSecond))
+                {
+                    time_between_executions = 0;
                     renderSettings.callCallback("executeIterations");
+                }
+                else
+                    std::cout << "waiting\n";
             }
             renderer.render();
         }

@@ -82,9 +82,7 @@ void PlateTectonicSim::executeIteration()
     const auto start{std::chrono::steady_clock::now()};
     std::cout << "Executing iteration" << std::endl;
 
-    // Extract colliding plates
     auto plateCollisions = m_textureManager.generateTexture<uint32_t>(m_width, m_height, 0);
-
     getPlateCollisions(plateCollisions.get());
 
     // Process colliding plates and perform uplift
@@ -95,7 +93,7 @@ void PlateTectonicSim::executeIteration()
     processCollisionUplift(heightMapTextureWrite.get(), plateIdsTextureWrite.get(), platesHaveCollided.get(),
                            plateCollisions.get());
 
-    applyHydraulicErosion(heightMapTextureWrite.get());
+    // applyHydraulicErosion(heightMapTextureWrite.get());
 
     copyAndReleaseTexture(*m_heightMapTexture, std::move(heightMapTextureWrite), m_height, m_width);
     copyAndReleaseTexture(*m_plateIdsTexture, std::move(plateIdsTextureWrite), m_height, m_width);
@@ -107,7 +105,6 @@ void PlateTectonicSim::executeIteration()
      */
 
     updatePlateData<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer(),
-                                                              m_randStatesPlates->getPointer(),
                                                               Vec2(MAX_PLATE_COUNT, 1));
 
     auto plateMergeIds = m_textureManager.generateTexture<uint8_t>(MAX_PLATE_COUNT, 1, MAX_PLATE_COUNT);
@@ -169,31 +166,23 @@ void PlateTectonicSim::copyConstantTexturesInterop() const
 
 void PlateTectonicSim::getPlateCollisions(CudaTextureHost<uint32_t> *plateCollisions)
 {
-    /*
-     * STEP ONE
-     * Move the pixels of plates according to their velocities and directions. Register any collisions into the
-     * pixelIndicesCollisions and plateIdsCollisions textures. pixelIndices holds the unsigned int index of the pixel in
-     * the original texture, and plateIds holds the plate moving to that pixel. The two textures are aligned, meaning that
-     * the pixelIndex at position n corresponds to the plateId ate position n.
-     */
-
     const auto pixelIndicesCollisions = m_textureManager.generateTexture<unsigned int>(m_width, m_height);
     const auto plateIdsCollisions = m_textureManager.generateTexture<uint8_t>(m_width, m_height);
 
-    testingPlateMovement<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+    // Apply movement to pixels according to the velocity, direction, and sub-pixel location of each pixel.
+    // Each pixel registers to which pixel (linear index) it moves, and writes this to the w_pixelIndicesCollisions texture
+    // Also performing a copy of m_plateIdsTexture to plateIdsCollisions here to omit a separate CudaMemcpy call
+    getPixelMovements<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                                    m_plateDataLookup->getPointer(),
                                                                    pixelIndicesCollisions->deviceTexture(),
                                                                    plateIdsCollisions->deviceTexture());
 
-    /*
-     * STEP TWO
-     * Perform a sort by key on the pixelIndices and plateIds textures to align the pixelIndices in ascending order while
-     * remaining the alignment. Position n in pixelIndices still corresponds to position n in plateIds
-     * This is followed by an exclusive prefix sum by key. The prefix sum output is stored in the exclusivePrefixSum texture
-     * This texture will now contain the occurrence index of the pixel, aligned with the pixelIndicesCollision and
-     * plateIdsCollisions texture
-     */
 
+    // Perform a sort by key on the pixelIndices and plateIds textures to align the pixelIndices in ascending order while
+    // remaining the alignment. Position n in pixelIndices still corresponds to position n in plateIds
+    // This is followed by an exclusive prefix sum by key. The prefix sum output is stored in the exclusivePrefixSum texture
+    // This texture will now contain the occurrence index of the pixel, aligned with the pixelIndicesCollision and
+    // plateIdsCollisions texture
     const auto exclusivePrefixSum = m_textureManager.generateTexture<uint8_t>(m_width, m_height, 1);
     const thrust::device_ptr<unsigned int> pixelIndicesThrust(pixelIndicesCollisions->getPointer());
     const thrust::device_ptr<uint8_t> plateIdsThrust(plateIdsCollisions->getPointer());
@@ -205,20 +194,18 @@ void PlateTectonicSim::getPlateCollisions(CudaTextureHost<uint32_t> *plateCollis
     exclusive_scan_by_key(pixelIndicesThrust, pixelIndicesThrust + m_width * m_height, exclusivePrefixSumThrust,
                           exclusivePrefixSumThrust);
 
-    /*
-     * STEP THREE
-     * Go through each pair of entries of the pixelIndices, exclusivePrefixSum and plateCollisions textures and register
-     * the collisions to the associated pixels. The collisions are stored in plateCollisions, a 32bit texture where each
-     * entry has four packed 8bit values, indicating the presence of a plate in that pixel. A byte with value  0-255
-     * indicates the presence of plate (255-n) in that position . A value of n=0 indicates there is no plate in that
-     * specific byte. This allows for the detection of 0-4 plates in a pixel, any exceeds will be ignored.
-     */
 
-
+    // Go through each pair of entries of the pixelIndices, exclusivePrefixSum and plateCollisions textures and register
+    // the collisions to the associated pixels. The collisions are stored in plateCollisions, a 32bit texture where each
+    // entry has four packed 8bit values, indicating the presence of a plate in that pixel. A byte with value  0-255
+    // indicates the presence of plate (255-n) in that position . A value of n=0 indicates there is no plate in that
+    // specific byte. This allows for the detection of 0-4 plates in a pixel, any exceeds will be ignored.
     registerPlateCollisions<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsCollisions->deviceTexture(),
                                                                       pixelIndicesCollisions->deviceTexture(),
                                                                       exclusivePrefixSum->deviceTexture(),
                                                                       plateCollisions->deviceTexture());
+
+    // pixelIndicesCollisions, plateIdsCollisions, exclusivePrefixSum get released again
 }
 
 
@@ -541,7 +528,7 @@ void PlateTectonicSim::initializeTectonics(const int numStartingPlates, const st
         voronoiSeedsHost = plateCenters;
 
     CudaTextureHost<VoronoiSeed> voronoiSeedsDevice;
-    voronoiSeedsDevice.initialize(voronoiSeedsHost.size(), 1);
+    voronoiSeedsDevice.initialize(static_cast<int>(voronoiSeedsHost.size()), 1);
 
     if (const cudaError_t err = cudaMemcpy(voronoiSeedsDevice.getPointer(), voronoiSeedsHost.data(),
                                            sizeof(VoronoiSeed) * voronoiSeedsHost.size(),
@@ -554,17 +541,21 @@ void PlateTectonicSim::initializeTectonics(const int numStartingPlates, const st
                                            cudaMemcpyHostToDevice); err != cudaSuccess)
         std::cerr << "Error copy m_plateDataLookup: " << cudaGetErrorString(err) << std::endl;
 
+    // Each pixel is assigned the ID of the nearest voronoi seed
+    // The plateIDs are written to the m_plateIdsTexture texture
     initPlateIDs<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                            voronoiSeedsDevice.getPointer(),
                                                            static_cast<int>(voronoiSeedsHost.size()));
-    initHeightmap << <m_numBlocksPixels, THREADS_PER_BLOCK >> >(m_heightMapTexture->deviceTexture(), m_seed, 1);
 
+    // Initialized the heightmap with simplex noise
+    // The heightmap is written to the m_heightMapTexture texture
+    initHeightmap<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_heightMapTexture->deviceTexture(), m_seed, 1);
+
+    // Extracts the size and mass of the plates
+    // This is stored in the m_plateDataLookup lookup texture
     initPixelDependantPlateData<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                                           m_heightMapTexture->deviceTexture(),
                                                                           m_plateDataLookup->getPointer());
-
-    initPlatesRngGen<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(m_randStatesPlates->getPointer(), m_seed,
-                                                               Vec2(MAX_PLATE_COUNT, 1));
 
     cudaDeviceSynchronize();
 }
@@ -621,7 +612,6 @@ std::vector<PlateData> PlateTectonicSim::generatePlateData(std::default_random_e
 
 
         plateData[i].direction = Vec2(x_dir / magnitude, y_dir / magnitude);
-        plateData[i].divergenceRandomPlate = dist(generator) > 0 ? 0 : 1;
     }
 
     return plateData;

@@ -8,6 +8,9 @@ struct KernelSettings
     float mergeVelocityDiffThreshold = 0.025f;
     int minPlateSize = 10;
 
+    float divergence_height_target = 25.f;
+    float divergence_interpolation_factor = 0.05f;
+
     float hydrationPipeCrossSection = 1;
     float hydrationPipeLength = 10;
     float hydrationRainfall = 1.0;
@@ -19,16 +22,18 @@ struct KernelSettings
     bool operator==(const KernelSettings &other) const
     {
         return inelasticCollisionMultiplier == other.inelasticCollisionMultiplier &&
-            mergeDotDirectionThreshold == other.mergeDotDirectionThreshold &&
-            mergeVelocityDiffThreshold == other.mergeVelocityDiffThreshold &&
-            minPlateSize == other.minPlateSize &&
-            hydrationPipeCrossSection == other.hydrationPipeCrossSection &&
-            hydrationPipeLength == other.hydrationPipeLength &&
-            hydrationRainfall == other.hydrationRainfall &&
-            hydrationEvaporation == other.hydrationEvaporation &&
-            gravity == other.gravity &&
-            sedimentCapacity == other.sedimentCapacity &&
-            sedimentDissolving == other.sedimentDissolving;
+               mergeDotDirectionThreshold == other.mergeDotDirectionThreshold &&
+               mergeVelocityDiffThreshold == other.mergeVelocityDiffThreshold &&
+               minPlateSize == other.minPlateSize &&
+               hydrationPipeCrossSection == other.hydrationPipeCrossSection &&
+               hydrationPipeLength == other.hydrationPipeLength &&
+               hydrationRainfall == other.hydrationRainfall &&
+               hydrationEvaporation == other.hydrationEvaporation &&
+               gravity == other.gravity &&
+               sedimentCapacity == other.sedimentCapacity &&
+               sedimentDissolving == other.sedimentDissolving &&
+               divergence_height_target == other.divergence_height_target &&
+               divergence_interpolation_factor == other.divergence_interpolation_factor;
     }
 
     bool operator!=(const KernelSettings &other) const

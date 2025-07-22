@@ -18,13 +18,12 @@ __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idText
 
 
 __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
-                                const CudaTexture<float> *r_heightTexturePtr, 
-                                const uint8_t *r_plateMergeIds, 
-                                PlateData *w_plateData);
+                               const CudaTexture<float> *r_heightTexturePtr,
+                               const uint8_t *r_plateMergeIds,
+                               PlateData *w_plateData);
 
-__global__ void statisticsPass(PlateData* w_plateData, IterationStatistics* w_stats);
+__global__ void statisticsPass(PlateData *w_plateData, IterationStatistics *w_stats);
 
-__global__ void initPlatesRngGen(curandState *rngStates, unsigned int seed, Vec2<int> callSize);
 
 __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int octaves);
 
@@ -32,12 +31,12 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
 __global__ void plateMovement(CudaTexture<uint8_t> *idTexturePtr, CudaTexture<uint8_t> *writeIdTexturePtr,
                               const PlateData *plateLookup);
 
-__global__ void updatePlateData(PlateData *plateLookup, curandState *rngStates, Vec2<int> callSize);
+__global__ void updatePlateData(PlateData *plateLookup, Vec2<int> callSize);
 
-__global__ void testingPlateMovement(const CudaTexture<uint8_t> *r_idTexturePtr,
-                                     const PlateData *r_plateLookup,
-                                     CudaTexture<unsigned int> *w_pixelIndicesPtr,
-                                     CudaTexture<uint8_t> *w_plateIdsPtr);
+__global__ void getPixelMovements(const CudaTexture<uint8_t> *r_idTexturePtr,
+                                  const PlateData *r_plateLookup,
+                                  CudaTexture<unsigned int> *w_pixelIndicesPtr,
+                                  CudaTexture<uint8_t> *w_plateIdsPtr);
 
 __global__ void detectCollisions(const unsigned int *r_pixelIndices, uint32_t *collisionBitfield,
                                  unsigned int invokeSize);
@@ -55,13 +54,16 @@ __global__ void createVelocityTexture(const CudaTexture<uint8_t> *r_plateIdsPtr,
 __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateData,
                                        CudaTexture<float2> *w_velocityPtr);
 
-__global__ void findPlateCenter(const IterationStatistics* r_stats, PlateData* plateLookup, const CudaTexture<uint8_t>* r_plateIdsPtr, float4* samples);
+__global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *plateLookup,
+                                const CudaTexture<uint8_t> *r_plateIdsPtr, float4 *samples);
 
-__global__ void findPlausibleSplitLine(const IterationStatistics* r_stats, const Vec2<float> r_pivot, const CudaTexture<uint8_t>* r_plateIdsPtr, Vec2<float>* output);
+__global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, const Vec2<float> r_pivot,
+                                       const CudaTexture<uint8_t> *r_plateIdsPtr, Vec2<float> *output);
 
-__global__ void splitPlate(const IterationStatistics* r_stats, const uint8_t* r_newPlateId, const Vec2<float> r_pivot, const Vec2<float>* r_dir, CudaTexture<uint8_t>* r_plateIdsPtr, PlateData* plateLookup);
+__global__ void splitPlate(const IterationStatistics *r_stats, const uint8_t *r_newPlateId, const Vec2<float> r_pivot,
+                           const Vec2<float> *r_dir, CudaTexture<uint8_t> *r_plateIdsPtr, PlateData *plateLookup);
 
-__global__ void selectUnusedPlateId(PlateData* plateLookup, uint8_t* plateId);
+__global__ void selectUnusedPlateId(PlateData *plateLookup, uint8_t *plateId);
 
 __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                   const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *r_plateLookup,
@@ -69,21 +71,32 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
                                   CudaTexture<float> *w_convergenceMapPtr,
                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr);
 
-__global__ void VerticalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const CudaTexture<uint32_t>* r_collisionsPtr, const CudaTexture<float>* r_upliftMapPtr, const CudaTexture<bool>* r_gridMapPtr, CudaTexture<BlurBuffer>* w_bufferPtr, int range);
-__global__ void HorizontalBlur(const CudaTexture<uint8_t>* r_plateIdsPtr, const CudaTexture<uint32_t>* r_collisionsPtr, const CudaTexture<bool>* r_gridMapPtr, const CudaTexture<BlurBuffer>* r_bufferPtr, CudaTexture<float>* w_heightMapPtr, int range);
+__global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
+                             const CudaTexture<float> *r_upliftMapPtr, const CudaTexture<bool> *r_gridMapPtr,
+                             CudaTexture<BlurBuffer> *w_bufferPtr, int range);
 
-__global__ void processUplift(const CudaTexture<float> *w_upliftMapPtr, const CudaTexture<bool>* r_gridMapPtr, CudaTexture<float> *w_heightMapPtr, int size,
+__global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
+                               const CudaTexture<bool> *r_gridMapPtr, const CudaTexture<BlurBuffer> *r_bufferPtr,
+                               CudaTexture<float> *w_heightMapPtr, int range);
+
+__global__ void processUplift(const CudaTexture<float> *w_upliftMapPtr, const CudaTexture<bool> *r_gridMapPtr,
+                              CudaTexture<float> *w_heightMapPtr, int size,
                               float noiseFrequency, float noiseIntensity, int seed);
-__global__ void createUpliftGrid(const CudaTexture<float>* r_upliftMapPtr, CudaTexture<bool>* w_gridMapPtr);
+
+__global__ void createUpliftGrid(const CudaTexture<float> *r_upliftMapPtr, CudaTexture<bool> *w_gridMapPtr);
 
 __device__ bool collisionContains(const uint32_t collision, const uint8_t plateId);
-__global__ void downscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTexture<float>* w_outputMapPtr, int inWidth, int inHeight, int outWidth, int outHeight);
-__global__ void upscaleUplift(const CudaTexture<float>* r_inputMapPtr, CudaTexture<float>* w_outputMapPtr, int inWidth, int inHeight, int outWidth, int outHeight);
 
-__device__ void processDivergence(const CudaTexture<uint8_t>* r_plateIdsPtr, const PlateData* r_plateLookup,
-                                const CudaTexture<uint32_t>* r_collisionsPtr, CudaTexture<uint8_t>* w_plateIdsPtr,
-                                CudaTexture<float>* w_heightMapPtr, const unsigned int invokeIndex,
-                                int* localSizeChange);
+__global__ void downscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTexture<float> *w_outputMapPtr,
+                                int inWidth, int inHeight, int outWidth, int outHeight);
+
+__global__ void upscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTexture<float> *w_outputMapPtr, int inWidth,
+                              int inHeight, int outWidth, int outHeight);
+
+__device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateLookup,
+                                  const CudaTexture<uint32_t> *r_collisionsPtr,
+                                  const CudaTexture<float> *r_heightMapPtr, CudaTexture<uint8_t> *w_plateIdsPtr,
+                                  CudaTexture<float> *w_heightMapPtr, const unsigned int invokeIndex);
 
 
 __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
@@ -91,7 +104,7 @@ __device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, co
                                    CudaTexture<float> *w_heightMapPtr, CudaTexture<float> *w_convergenceMapPtr,
                                    CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
                                    uint8_t plateA, uint8_t plateB, uint8_t plateC,
-                                   uint8_t plateD, unsigned int invokeIndex, int *localSizeChange);
+                                   uint8_t plateD, unsigned int invokeIndex);
 
 __device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
                                 const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
@@ -114,17 +127,21 @@ __global__ void assignUnassignedIdsToNeighbor(CudaTexture<uint8_t> *plateIdsPtr,
 __global__ void copyNewPlateIdLookup(const PlateData *r_plateData, const uint8_t *r_originalPlateIds,
                                      PlateData *w_plateData);
 
-__global__ void rain(CudaTexture<float>* hydration, float deltatime, unsigned int seed);
+__global__ void rain(CudaTexture<float> *hydration, float deltatime, unsigned int seed);
 
-__global__ void flux(const CudaTexture<float>* r_materialPtr, const CudaTexture<float>* r_hydrationPtr, const CudaTexture<float4>* r_fluxPtr, CudaTexture<float4>* w_fluxPtr, float deltatime);
+__global__ void flux(const CudaTexture<float> *r_materialPtr, const CudaTexture<float> *r_hydrationPtr,
+                     const CudaTexture<float4> *r_fluxPtr, CudaTexture<float4> *w_fluxPtr, float deltatime);
 
-__global__ void flow(CudaTexture<float>* w_hydrationPtr, const CudaTexture<float4>* r_fluxPtr, CudaTexture<float4>* w_fluxPtr, CudaTexture<Vec2<float>>* w_velocityPtr, float deltatime);
+__global__ void flow(CudaTexture<float> *w_hydrationPtr, const CudaTexture<float4> *r_fluxPtr,
+                     CudaTexture<float4> *w_fluxPtr, CudaTexture<Vec2<float> > *w_velocityPtr, float deltatime);
 
-__global__ void sediment(CudaTexture<float>* w_materialPtr, CudaTexture<float>* w_sedimentPtr, CudaTexture<Vec2<float>>* r_velocityPtr, float deltatime);
+__global__ void sediment(CudaTexture<float> *w_materialPtr, CudaTexture<float> *w_sedimentPtr,
+                         CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime);
 
-__global__ void transport(CudaTexture<float>* r_sedimentPtr, CudaTexture<float>* w_sedimentPtr, CudaTexture<Vec2<float>>* r_velocityPtr, float deltatime);
+__global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> *w_sedimentPtr,
+                          CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime);
 
-__global__ void evaporate(CudaTexture<float>* hydration, float deltatime);
+__global__ void evaporate(CudaTexture<float> *hydration, float deltatime);
 
 
 #endif //PLATE_TECTONICS_KERNEL_CUH

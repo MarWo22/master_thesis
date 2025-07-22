@@ -138,6 +138,12 @@ void Gui::simulationSettingsSection()
                              1.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragInt("Min Plate Size", &newSettings.minPlateSize, 1, 1, 100);
+
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Divergence Height Target", &newSettings.divergence_height_target, 0.1f, 1, 250);
+
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Divergence Interpolation Factor", &newSettings.divergence_interpolation_factor, 0.001f, 0.f, 1.f);
             // direction_threshold_merge
             // velocity_threshold_merge
             // min_size
