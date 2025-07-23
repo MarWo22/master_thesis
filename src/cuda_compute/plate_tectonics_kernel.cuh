@@ -52,7 +52,7 @@ __global__ void createVelocityTexture(const CudaTexture<uint8_t> *r_plateIdsPtr,
                                       CudaTexture<float> *w_velocityPtr);
 
 __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateData,
-                                       CudaTexture<float2> *w_velocityPtr);
+                                       CudaTexture<float2> *w_directionPtr);
 
 __global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *plateLookup,
                                 const CudaTexture<uint8_t> *r_plateIdsPtr, float4 *samples);

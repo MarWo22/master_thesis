@@ -27,6 +27,7 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
       , m_directionTexture(nullptr)
       , m_upliftTexture(nullptr)
       , m_waterTexture(nullptr)
+      , m_arrowTexture(nullptr)
       , m_sizeX(sizeX)
       , m_sizeZ(sizeZ)
       , m_vao(0)
@@ -49,6 +50,7 @@ void Terrain::init()
     m_directionTexture = getTexture("directionTexture");
     m_upliftTexture = getTexture("upliftTexture");
     m_waterTexture = getTexture("waterTexture");
+    m_arrowTexture = getTexture("arrowTexture");
     createGlState();
     populateBuffers();
 }
@@ -64,9 +66,12 @@ void Terrain::render(const Camera &camera)
             m_heightmapShader->setUniform("showBorders", renderSettings.renderBorders ? 1 : 0);
             m_heightmapShader->setUniform("showWater", renderSettings.renderWater ? 1 : 0);
             m_heightmapShader->setUniform("heightMultiplier", renderSettings.heightMultiplier);
+            m_heightmapShader->setUniform("showDirectionArrows", renderSettings.renderDirections ? 1 : 0);
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_platesTexture->bind(GL_TEXTURE1);
             m_waterTexture->bind(GL_TEXTURE2);
+            m_arrowTexture->bind(GL_TEXTURE3);
+            m_directionTexture->bind(GL_TEXTURE4);
             break;
         case RenderSettings::RenderMode::SHOW_COLLISION_AREAS:
             m_regionShader->bind();

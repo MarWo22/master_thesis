@@ -58,8 +58,6 @@ public:
 
     void initialize(int numStartingPlates, const std::vector<int> &numVoronoiSeeds);
 
-    void setupToggleCallbacks() const;
-
     void executeIteration();
 
     void resetSim(unsigned int seed, int numStartingPlates, const std::vector<int> &numVoronoiSeeds);
@@ -108,6 +106,8 @@ private:
     void UpliftSubSim() const;
 
     void saveTexture() const;
+
+    void onRenderSettingChange();
 };
 
 

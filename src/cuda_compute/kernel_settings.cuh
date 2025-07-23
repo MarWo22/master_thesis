@@ -8,7 +8,7 @@ struct KernelSettings
     float mergeVelocityDiffThreshold = 0.025f;
     int minPlateSize = 10;
 
-    float divergence_height_target = 25.f;
+    float divergence_height_target = 10.f;
     float divergence_interpolation_factor = 0.05f;
 
     float hydrationPipeCrossSection = 1;

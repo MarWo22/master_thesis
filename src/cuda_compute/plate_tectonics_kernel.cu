@@ -980,17 +980,22 @@ __global__ void createVelocityTexture(const CudaTexture<uint8_t> *r_plateIdsPtr,
 }
 
 __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateData,
-                                       CudaTexture<float2> *w_velocityPtr)
+                                       CudaTexture<float2> *w_directionPtr)
 {
+    CudaTexture<float2> &w_direction = *w_directionPtr;
+
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, r_plateIdsPtr->size()))
+    if (!isWithinBounds(invokeIndex, w_direction.size()))
         return;
 
-    // Extract plate index from the texture
-    const int plateIndex = (*r_plateIdsPtr)[invokeIndex];
-    // Use plate index to lookup plate properties
-    const PlateData plateData = r_plateData[plateIndex];
-    (*w_velocityPtr)[invokeIndex] = {plateData.direction.x, plateData.direction.x};
+    const Vec2 textureIndex = getTextureIndex(invokeIndex, w_direction.size());
+
+    const Vec2 lookupIndex = {textureIndex.x * 16 + 7, textureIndex.y * 16 + 7};
+
+    const int plateIndex = (*r_plateIdsPtr)[lookupIndex];
+    const Vec2 direction = r_plateData[plateIndex].direction;
+
+    w_direction[invokeIndex] = {direction.x, direction.y};
 }
 
 __global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *plateLookup,

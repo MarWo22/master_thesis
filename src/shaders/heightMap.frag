@@ -4,32 +4,90 @@ layout(location = 0) out vec4 fragmentColor;
 layout(binding = 0) uniform sampler2D heightMap;
 layout(binding = 1) uniform sampler2D platesTexture;
 layout(binding = 2) uniform sampler2D waterTexture;
+layout(binding = 3) uniform sampler2D arrowTexture;
+layout(binding = 4) uniform sampler2D directionTexture;
 
 uniform bool showBorders;
 uniform bool showWater;
+uniform bool showDirectionArrows;
 
 in vec2 texCoord;
 in vec4 color;
 
+float sobelEdge(vec2 uv, sampler2D tex, vec2 texel) {
+    float tl = texture(tex, uv + texel * vec2(-1, -1)).r;
+    float t  = texture(tex, uv + texel * vec2( 0, -1)).r;
+    float tr = texture(tex, uv + texel * vec2( 1, -1)).r;
+    float l  = texture(tex, uv + texel * vec2(-1,  0)).r;
+    float r  = texture(tex, uv + texel * vec2( 1,  0)).r;
+    float bl = texture(tex, uv + texel * vec2(-1,  1)).r;
+    float b  = texture(tex, uv + texel * vec2( 0,  1)).r;
+    float br = texture(tex, uv + texel * vec2( 1,  1)).r;
+
+    float gx = -tl - 2.0 * l - bl + tr + 2.0 * r + br;
+    float gy = -tl - 2.0 * t - tr + bl + 2.0 * b + br;
+
+    return sqrt(gx * gx + gy * gy);
+}
+
 void renderBorder() {
+    vec2 texelSize = 1.0 / vec2(textureSize(platesTexture, 0));
+
     ivec2 texSize = textureSize(platesTexture, 0);
     ivec2 texelCoord = ivec2(texCoord * texSize);
 
-    // Manual wrapping with modulo
-    ivec2 leftCoord  = ivec2((texelCoord.x - 1 + texSize.x) % texSize.x, texelCoord.y);
-    ivec2 rightCoord = ivec2((texelCoord.x + 1) % texSize.x, texelCoord.y);
-    ivec2 topCoord   = ivec2(texelCoord.x, (texelCoord.y + 1) % texSize.y);
-    ivec2 botCoord   = ivec2(texelCoord.x, (texelCoord.y - 1 + texSize.y) % texSize.y);
+    float center = texelFetch(platesTexture, texelCoord, 0).r;
 
-    float region      = texelFetch(platesTexture, texelCoord, 0).r;
-    float leftRegion  = texelFetch(platesTexture, leftCoord, 0).r;
-    float rightRegion = texelFetch(platesTexture, rightCoord, 0).r;
-    float topRegion   = texelFetch(platesTexture, topCoord, 0).r;
-    float botRegion   = texelFetch(platesTexture, botCoord, 0).r;
+    int leftWrapped = (texelCoord.x - 1 + texSize.x) % texSize.x;
+    int rightWrapped = (texelCoord.x + 1) % texSize.x;
+    int topWrapped = (texelCoord.y - 1 + texSize.y) % texSize.y;
+    int botWrapped = (texelCoord.y + 1) % texSize.y;
 
-    if (region != leftRegion || region != rightRegion || region != botRegion || region != topRegion)
-        fragmentColor = vec4(1, 0, 0, 1);
+    float tl = float(texelFetch(platesTexture, ivec2(leftWrapped, topWrapped), 0).r != center);
+    float  t = float(texelFetch(platesTexture, ivec2(texelCoord.x, topWrapped), 0).r != center);
+    float tr = float(texelFetch(platesTexture, ivec2(rightWrapped, topWrapped), 0).r != center);
+    float  l = float(texelFetch(platesTexture, ivec2(leftWrapped,  texelCoord.y), 0).r != center);
+    float  r = float(texelFetch(platesTexture, ivec2(rightWrapped,  texelCoord.y), 0).r != center);
+    float bl = float(texelFetch(platesTexture, ivec2(leftWrapped,  botWrapped), 0).r != center);
+    float  b = float(texelFetch(platesTexture, ivec2(texelCoord.x,  botWrapped), 0).r != center);
+    float br = float(texelFetch(platesTexture, ivec2(rightWrapped,  botWrapped), 0).r != center);
 
+    // Apply Sobel operator to binary edges
+    float gx = -tl - 2.0 * l - bl + tr + 2.0 * r + br;
+    float gy = -tl - 2.0 * t - tr + bl + 2.0 * b + br;
+
+    float sobel = sqrt(gx * gx + gy * gy);  // Range: 0 to 8
+
+    // Optional smoothstep for AA/falloff
+    float edgeAlpha = smoothstep(0.5, 3.0, sobel);
+
+    vec4 borderColor = vec4(1.0, 0.0, 0.0, 1.0); // red border
+
+    fragmentColor = mix(fragmentColor, borderColor, edgeAlpha);
+}
+
+void drawDirectionArrows()
+{
+    vec2 arrowUV = mod(texCoord * textureSize(heightMap, 0) / 16, 1.0);
+
+    ivec2 texSize = textureSize(directionTexture, 0);
+    ivec2 texelCoord = ivec2(texCoord * texSize);
+    vec2 dir = texelFetch(directionTexture, texelCoord, 0).xy;
+
+    float angle = atan(dir.y, dir.x);
+
+    // Rotate centered UV
+    float c = cos(-angle);
+    float s = sin(-angle);
+    mat2 rot = mat2(c, -s, s, c);
+
+    vec2 centeredUV = arrowUV - 0.5;
+    vec2 rotatedUV = rot * centeredUV + 0.5;
+
+    vec4 arrowColor = texture(arrowTexture, rotatedUV);
+    vec3 mixedColor = mix(fragmentColor.rgb, arrowColor.rgb, arrowColor.a);
+    fragmentColor = vec4(mixedColor, 1);
+//    fragmentColor = vec4(dir.x, dir.y, 1, 1);
 }
 
 
@@ -47,7 +105,7 @@ void main() {
     } else {
         colorNew = mix(vec3(0.451, 0.451, 0.451), vec3(0.71, 0.71, 0.71), (height - 300) / 500);
     }
-    
+
     if (showWater){
         float hydration = texture(waterTexture, texCoord).r;
         if(hydration > 20)
@@ -55,14 +113,17 @@ void main() {
             vec4 water = mix(vec4(0.639, 0.949, 1, 0.6), vec4(0, 0.588, 0.588, 1.0), clamp(hydration, 0, 100) / 100);
             colorNew = mix(colorNew, water.rgb, water.a);
         }
-        
-    }
-    
-    
-    fragmentColor = vec4(colorNew, 1.0);    
-    if (showBorders)
-        renderBorder();
 
-    
-    
+    }
+    fragmentColor = vec4(colorNew, 1.0);
+
+    if (showDirectionArrows)
+    {
+        drawDirectionArrows();
+    }
+
+    if (showBorders)
+    {
+        renderBorder();
+    }
 }

@@ -33,6 +33,11 @@ void loadTextures(CudaGlInteropManager &interopManager)
     environmentMap->load2DImage("./assets/textures/001.hdr", GL_RGB32F, GL_RGB, GL_FLOAT, 3);
     Renderer::addTexture("environmentMap", environmentMap);
 
+    auto *arrowTexture = new Texture();
+    arrowTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    arrowTexture->load2DImage("./assets/textures/arrow_texture.png", GL_RGBA32F, GL_RGBA, GL_FLOAT, 4);
+    Renderer::addTexture("arrowTexture", arrowTexture);
+
     auto *cudaHeightMap = new Texture();
     cudaHeightMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     cudaHeightMap->load2DEmpty(GL_R32F, GL_RED, GL_FLOAT, heightmapDimensions);
@@ -79,8 +84,8 @@ void loadTextures(CudaGlInteropManager &interopManager)
 
     auto *directionTexture = new Texture();
     directionTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
-    interopManager.addConnection("directionTexture", directionTexture->id(), sizeof(float2), heightmapDimensions.x,
-                                 heightmapDimensions.y, GL_RG32F, GL_RG, GL_FLOAT);
+    interopManager.addConnection("directionTexture", directionTexture->id(), sizeof(float2), heightmapDimensions.x / 16,
+                                 heightmapDimensions.y / 16, GL_RG32F, GL_RG, GL_FLOAT);
     Renderer::addTexture("directionTexture", directionTexture);
 
     auto *cclTexture = new Texture();

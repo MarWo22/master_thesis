@@ -81,34 +81,39 @@ void Gui::renderSettingsSection()
         {
             if (ImGui::RadioButton("Normal", &renderSettings.renderMode, RenderSettings::RenderMode::NORMAL))
             {
-                renderSettings.callCallback("toggleDefaultMode");
+                renderSettings.callCallback("renderSettingsChanged");
             }
             if (ImGui::RadioButton("Show Collision Areas (requires a new iteration)", &renderSettings.renderMode,
                                    RenderSettings::RenderMode::SHOW_COLLISION_AREAS))
             {
-                renderSettings.callCallback("toggleCollisionMode");
-            }
-            if (ImGui::RadioButton("Show Plate Directions", &renderSettings.renderMode,
-                                   RenderSettings::RenderMode::SHOW_PLATE_DIRECTIONS))
-            {
-                renderSettings.callCallback("toggleDirectionMode");
+                renderSettings.callCallback("renderSettingsChanged");
             }
             if (ImGui::RadioButton("Show Plate Velocities", &renderSettings.renderMode,
                                    RenderSettings::RenderMode::SHOW_PLATE_VELOCITIES))
             {
-                renderSettings.callCallback("toggleVelocityMode");
+                renderSettings.callCallback("renderSettingsChanged");
             }
             if (ImGui::RadioButton("Show Uplift Areas", &renderSettings.renderMode,
                                    RenderSettings::RenderMode::SHOW_UPLIFT_AREAS))
             {
-                renderSettings.callCallback("toggleUpliftMode");
+                renderSettings.callCallback("renderSettingsChanged");
             }
         }
         if (ImGui::CollapsingHeader("Render Options"))
         {
-            ImGui::Checkbox("Displace Height", &renderSettings.renderHeight);
-            ImGui::Checkbox("Show Plate Borders", &renderSettings.renderBorders);
-            ImGui::Checkbox("Show Water", &renderSettings.renderWater);
+            if (ImGui::Checkbox("Displace Height", &renderSettings.renderHeight))
+                renderSettings.callCallback("renderSettingsChanged");
+
+            if (ImGui::Checkbox("Show Plate Borders", &renderSettings.renderBorders))
+                renderSettings.callCallback("renderSettingsChanged");
+
+            if (ImGui::Checkbox("Show Water", &renderSettings.renderWater))
+                renderSettings.callCallback("renderSettingsChanged");
+
+            if (ImGui::Checkbox("Show Plate Directions", &renderSettings.renderDirections))
+                renderSettings.callCallback("renderSettingsChanged");
+
+
 
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Height Displacement Multiplier", &renderSettings.heightMultiplier, 0.1f, 0.f, 500.f);
