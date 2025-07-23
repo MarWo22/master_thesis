@@ -74,7 +74,7 @@ void drawDirectionArrows()
     ivec2 texelCoord = ivec2(texCoord * texSize);
     vec2 dir = texelFetch(directionTexture, texelCoord, 0).xy;
 
-    float angle = atan(dir.y, dir.x);
+    float angle = atan(dir.y, dir.x) - 1.5708; // subtract 90 degrees in radians (π/2)
 
     // Rotate centered UV
     float c = cos(-angle);
