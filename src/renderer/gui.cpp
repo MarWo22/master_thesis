@@ -14,7 +14,10 @@
 #include "imgui/imgui_impl_opengl3.h"
 #include <nfd.h>
 #include <filesystem>
+#include <glm/common.hpp>
+#include <glm/vec3.hpp>
 
+#include "../cuda_compute/plate_tectonics_kernel.cuh"
 #include "../cuda_compute/texture_manager.cuh"
 
 
@@ -53,6 +56,34 @@ void Gui::gui()
     resetSimulationSection();
     saveTextureSection();
     executionSettingsSection();
+
+    ImGui::SetNextWindowSize(ImVec2(175, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowCollapsed(true, ImGuiCond_FirstUseEver); // Start collapsed
+    ImGui::Begin("Plate ID Legend", nullptr,
+                 ImGuiWindowFlags_NoBackground);
+
+    // Scrollable child region with fixed 300px height
+
+    ImGui::BeginChild("LegendScrollRegion", ImVec2(175, 300), false, ImGuiWindowFlags_AlwaysUseWindowPadding);
+
+    for (int id = 0; id < MAX_PLATE_COUNT; ++id)
+    {
+        glm::vec3 color = getColorFromID(id);
+        ImVec4 imColor(color.r, color.g, color.b, 1.0f);
+
+        ImGui::ColorButton(("##color" + std::to_string(id)).c_str(), imColor,
+                           ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder,
+                           ImVec2(20, 20));
+
+        ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 255)); // Black text
+        ImGui::Text("Plate ID: %d", id);
+        ImGui::PopStyleColor();
+    }
+
+    ImGui::EndChild();
+
+    ImGui::End();
 }
 
 
@@ -79,6 +110,7 @@ void Gui::renderSettingsSection()
         ImGui::Indent(15);
         if (ImGui::CollapsingHeader("Render mode"))
         {
+            ImGui::Indent(15);
             if (ImGui::RadioButton("Normal", &renderSettings.renderMode, RenderSettings::RenderMode::NORMAL))
             {
                 renderSettings.callCallback("renderSettingsChanged");
@@ -98,13 +130,47 @@ void Gui::renderSettingsSection()
             {
                 renderSettings.callCallback("renderSettingsChanged");
             }
+            ImGui::Unindent(15.0f);
         }
-        if (ImGui::CollapsingHeader("Render Options"))
+        if (ImGui::CollapsingHeader("Normal Render Options"))
         {
-            if (ImGui::Checkbox("Displace Height", &renderSettings.renderHeight))
-                renderSettings.callCallback("renderSettingsChanged");
+            ImGui::Indent(15);
+            if (ImGui::CollapsingHeader("Shading"))
+            {
+                ImGui::Indent(15);
+                if (ImGui::RadioButton("Normal Shading", &renderSettings.shadingMode,
+                                       RenderSettings::ShadingMode::NORMAL_SHADING))
+                {
+                    renderSettings.callCallback("renderSettingsChanged");
+                }
+                if (ImGui::RadioButton("Show Crust Type", &renderSettings.shadingMode,
+                                       RenderSettings::ShadingMode::SHOW_CRUST_TYPE))
+                {
+                    renderSettings.callCallback("renderSettingsChanged");
+                }
+                if (ImGui::RadioButton("Show Plate Ids", &renderSettings.shadingMode,
+                                       RenderSettings::ShadingMode::SHOW_PLATE_IDS))
+                {
+                    renderSettings.callCallback("renderSettingsChanged");
+                }
+                ImGui::Unindent(15.0f);
+            }
+            if (ImGui::CollapsingHeader("Plate Borders"))
+            {
+                ImGui::Indent(15);
+                if (ImGui::RadioButton("No Borders", &renderSettings.borderRenderMode,
+                                       RenderSettings::BorderRenderMode::NO_BORDER))
+                    renderSettings.callCallback("renderSettingsChanged");
+                if (ImGui::RadioButton("Render Smooth Borders", &renderSettings.borderRenderMode,
+                                       RenderSettings::BorderRenderMode::SMOOTH_BORDER))
+                    renderSettings.callCallback("renderSettingsChanged");
+                if (ImGui::RadioButton("Render Raw Borders", &renderSettings.borderRenderMode,
+                                       RenderSettings::BorderRenderMode::RAW_BORDER))
+                    renderSettings.callCallback("renderSettingsChanged");
+                ImGui::Unindent(15.0f);
+            }
 
-            if (ImGui::Checkbox("Show Plate Borders", &renderSettings.renderBorders))
+            if (ImGui::Checkbox("Displace Height", &renderSettings.renderHeight))
                 renderSettings.callCallback("renderSettingsChanged");
 
             if (ImGui::Checkbox("Show Water", &renderSettings.renderWater))
@@ -114,9 +180,10 @@ void Gui::renderSettingsSection()
                 renderSettings.callCallback("renderSettingsChanged");
 
 
-
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Height Displacement Multiplier", &renderSettings.heightMultiplier, 0.1f, 0.f, 500.f);
+
+            ImGui::Unindent(15.0f);
         }
         ImGui::Unindent(15.0f);
     }
@@ -131,6 +198,8 @@ void Gui::simulationSettingsSection()
         ImGui::Indent(15);
         if (ImGui::CollapsingHeader("Plate Properties"))
         {
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Continental Crust Threshold", &newSettings.continentalCrustThreshold, 0.05f, 1.f, 250.f);
             // e.g. ImGui Slider to update newSettings
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Inelastic Collision Multiplier", &newSettings.inelasticCollisionMultiplier, 0.005f, 0.f,
@@ -145,10 +214,11 @@ void Gui::simulationSettingsSection()
             ImGui::DragInt("Min Plate Size", &newSettings.minPlateSize, 1, 1, 100);
 
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Divergence Height Target", &newSettings.divergence_height_target, 0.1f, 1, 250);
+            ImGui::DragFloat("Divergence Max Height Target", &newSettings.divergence_height_target, 0.1f, 1, 250);
 
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Divergence Interpolation Factor", &newSettings.divergence_interpolation_factor, 0.001f, 0.f, 1.f);
+            ImGui::DragFloat("Divergence Interpolation Factor", &newSettings.divergence_interpolation_factor, 0.001f,
+                             0.f, 1.f);
             // direction_threshold_merge
             // velocity_threshold_merge
             // min_size
@@ -305,4 +375,61 @@ unsigned int Gui::generateRandomSeed()
     seed_seq.generate(seeds.begin(), seeds.end());
 
     return static_cast<int>(seeds[0]);
+}
+
+// Function to convert HSV to RGB
+glm::vec3 Gui::hsvToRgb(const float h, const float s, const float v)
+{
+    const float c = v * s;
+    const float x = c * (1.0f - std::fabs(fmod(h * 6.0f, 2.0f) - 1.0f));
+    const float m = v - c;
+
+    float r = 0, g = 0, b = 0;
+
+    if (h >= 0.0f && h < 1.0f / 6.0f)
+    {
+        r = c;
+        g = x;
+        b = 0.0f;
+    } else if (h >= 1.0f / 6.0f && h < 2.0f / 6.0f)
+    {
+        r = x;
+        g = c;
+        b = 0.0f;
+    } else if (h >= 2.0f / 6.0f && h < 3.0f / 6.0f)
+    {
+        r = 0.0f;
+        g = c;
+        b = x;
+    } else if (h >= 3.0f / 6.0f && h < 4.0f / 6.0f)
+    {
+        r = 0.0f;
+        g = x;
+        b = c;
+    } else if (h >= 4.0f / 6.0f && h < 5.0f / 6.0f)
+    {
+        r = x;
+        g = 0.0f;
+        b = c;
+    } else
+    {
+        r = c;
+        g = 0.0f;
+        b = x;
+    }
+
+    return {r + m, g + m, b + m};
+}
+
+
+glm::vec3 Gui::getColorFromID(const int id)
+{
+    // Generate a hue that cycles every 8 IDs, with slow hue shift after that
+    const float hue = 0.125f * (id % 8) + static_cast<float>(id / 8) / 256.0f;
+
+    // Oscillate saturation and value for variation
+    const float saturation = 0.5f + 0.5f * std::sin(id * 0.1f);
+    const float value = 0.5f + 0.5f * std::cos(id * 0.1f);
+
+    return hsvToRgb(hue, saturation, value);
 }

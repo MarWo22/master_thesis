@@ -1,5 +1,6 @@
 #ifndef GUI_H
 #define GUI_H
+#include <glm/vec3.hpp>
 
 class Gui {
 
@@ -25,6 +26,10 @@ private:
 
     static void resetSimulationSection();
     static unsigned int generateRandomSeed();
+
+    static glm::vec3 getColorFromID(int id);
+    static glm::vec3 hsvToRgb(float h, float s, float v);
+
 };
 
 

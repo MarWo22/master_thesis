@@ -19,8 +19,21 @@ public:
             SHOW_UPLIFT_AREAS,
       };
 
+      enum ShadingMode
+      {
+            NORMAL_SHADING,
+            SHOW_CRUST_TYPE,
+            SHOW_PLATE_IDS,
+      };
+
+      enum BorderRenderMode
+      {
+            NO_BORDER,
+            RAW_BORDER,
+            SMOOTH_BORDER
+      };
+
       bool renderHeight = true;
-      bool renderBorders = false;
       bool renderWater = true;
       bool renderDirections = false;
       float heightMultiplier = 0.2;
@@ -30,6 +43,8 @@ public:
       int iterationsPerSecond = 5;
       bool isExecutingRealtime = false;
       int renderMode = NORMAL;
+      int shadingMode = NORMAL_SHADING;
+      int borderRenderMode = NO_BORDER;
 
       void registerCallback(const std::string &ident, const std::function<void()> &);
       void callCallback(const std::string &ident);

@@ -64,7 +64,7 @@ public:
     }
 
     template<typename T>
-    std::unique_ptr<CudaTextureHost<T> > generateTextureAndReset(unsigned int width, unsigned int height, const T &memsetValue,
+    std::unique_ptr<CudaTextureHost<T> > generateTextureAndReset(unsigned int width, unsigned int height, const int memsetValue,
                                                          const bool async = true)
     {
         auto callback = std::bind(&TextureManager::releaseTexture<T>, this, std::placeholders::_1, std::placeholders::_2,
@@ -131,7 +131,7 @@ private:
 };
 
 template<typename T>
-void copyAndReleaseTexture(const CudaTextureHost<T> &dst, std::unique_ptr<CudaTextureHost<T> > src, const int height,
+void copyAndReleaseTexture(CudaTextureHost<T> &dst, std::unique_ptr<CudaTextureHost<T> > src, const int height,
                            const int width)
 {
     if (const cudaError_t err = cudaMemcpy(dst.getPointer(), src->getPointer(),
@@ -141,7 +141,7 @@ void copyAndReleaseTexture(const CudaTextureHost<T> &dst, std::unique_ptr<CudaTe
 }
 
 template<typename T>
-void copyTexture(const CudaTextureHost<T> &dst, const CudaTextureHost<T> &src, const int height, const int width)
+void copyTexture(CudaTextureHost<T> &dst, const CudaTextureHost<T> &src, const int height, const int width)
 {
     if (const cudaError_t err = cudaMemcpy(dst.getPointer(), src.getPointer(),
                                            sizeof(T) * height * width,

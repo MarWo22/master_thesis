@@ -11,6 +11,31 @@
 
 #define MAX_PLATE_COUNT 255
 
+struct PlateTexturesWrite
+{
+    CudaTexture<uint8_t> *plateIdsPtr;
+    CudaTexture<float> *heightMapPtr;
+};
+
+struct PlateTexturesRead
+{
+    const CudaTexture<uint8_t> *plateIdsPtr;
+    const CudaTexture<float> *heightMapPtr;
+    const PlateData *plateData;
+};
+
+struct NoiseParameters
+{
+    const int seed;
+    const unsigned int simIndex;
+};
+
+struct DivergenceTextures
+{
+    uint32_t *divergenceBitmap;
+    uint32_t *hasDivergedBitmap;
+};
+
 __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const VoronoiSeed *seeds, int numSeeds);
 
 __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idTexturePtr,
@@ -27,11 +52,8 @@ __global__ void statisticsPass(PlateData *w_plateData, IterationStatistics *w_st
 
 __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int octaves);
 
-
-__global__ void plateMovement(CudaTexture<uint8_t> *idTexturePtr, CudaTexture<uint8_t> *writeIdTexturePtr,
-                              const PlateData *plateLookup);
-
-__global__ void updatePlateData(PlateData *plateLookup, Vec2<int> callSize);
+__global__ void updatePlateData(PlateData *plateLookup, const Vec2<float> *r_velocityChanges, const float *r_plateMass,
+                                const int *r_plateSize);
 
 __global__ void getPixelMovements(const CudaTexture<uint8_t> *r_idTexturePtr,
                                   const PlateData *r_plateLookup,
@@ -57,19 +79,21 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
 __global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *plateLookup,
                                 const CudaTexture<uint8_t> *r_plateIdsPtr, float4 *samples);
 
-__global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, const Vec2<float> r_pivot,
+__global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, Vec2<float> r_pivot,
                                        const CudaTexture<uint8_t> *r_plateIdsPtr, Vec2<float> *output);
 
-__global__ void splitPlate(const IterationStatistics *r_stats, const uint8_t *r_newPlateId, const Vec2<float> r_pivot,
+__global__ void splitPlate(const IterationStatistics *r_stats, const uint8_t *r_newPlateId, Vec2<float> r_pivot,
                            const Vec2<float> *r_dir, CudaTexture<uint8_t> *r_plateIdsPtr, PlateData *plateLookup);
 
 __global__ void selectUnusedPlateId(PlateData *plateLookup, uint8_t *plateId);
 
-__global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
-                                  const CudaTexture<uint32_t> *r_collisionsPtr, PlateData *r_plateLookup,
-                                  CudaTexture<uint8_t> *w_plateIdsPtr, CudaTexture<float> *w_heightMapPtr,
-                                  CudaTexture<float> *w_convergenceMapPtr,
-                                  CudaTexture<uint8_t> *w_platesHaveCollidedPtr);
+__global__ void processCollisions(PlateTexturesRead r_plateTextures, PlateTexturesWrite w_plateTextures,
+                                  const CudaTexture<uint32_t> *r_collisionsPtr, const uint32_t *r_divergenceBitmap,
+                                  uint32_t *w_hasDivergedBitmap, CudaTexture<float> *w_convergenceMapPtr,
+                                  CudaTexture<uint8_t> *w_platesHaveCollidedPtr, Vec2<float> *w_velocityChanges,
+                                  NoiseParameters noiseParameters);
+
+__global__ void flipDivergedBitmap(uint32_t *divergenceBitmap, const uint32_t *hasDivergedBitmap);
 
 __global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
                              const CudaTexture<float> *r_upliftMapPtr, const CudaTexture<bool> *r_gridMapPtr,
@@ -85,7 +109,7 @@ __global__ void processUplift(const CudaTexture<float> *w_upliftMapPtr, const Cu
 
 __global__ void createUpliftGrid(const CudaTexture<float> *r_upliftMapPtr, CudaTexture<bool> *w_gridMapPtr);
 
-__device__ bool collisionContains(const uint32_t collision, const uint8_t plateId);
+__device__ bool collisionContains(uint32_t collision, uint8_t plateId);
 
 __global__ void downscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTexture<float> *w_outputMapPtr,
                                 int inWidth, int inHeight, int outWidth, int outHeight);
@@ -93,25 +117,24 @@ __global__ void downscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTex
 __global__ void upscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTexture<float> *w_outputMapPtr, int inWidth,
                               int inHeight, int outWidth, int outHeight);
 
-__device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateLookup,
+__device__ void processDivergence(PlateTexturesRead r_plateTextures, PlateTexturesWrite w_plateTextures,
                                   const CudaTexture<uint32_t> *r_collisionsPtr,
-                                  const CudaTexture<float> *r_heightMapPtr, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                  CudaTexture<float> *w_heightMapPtr, const unsigned int invokeIndex);
+                                  const uint32_t *r_divergenceBitmap,
+                                  uint32_t *w_hasDivergedBitmap,
+                                  unsigned int invokeIndex, NoiseParameters noiseParameters);
 
 
-__device__ void processConvergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
-                                   const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                   CudaTexture<float> *w_heightMapPtr, CudaTexture<float> *w_convergenceMapPtr,
+__device__ void processConvergence(PlateTexturesRead r_plateTextures, PlateTexturesWrite w_plateTextures,
+                                   CudaTexture<float> *w_convergenceMapPtr,
                                    CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
                                    uint8_t plateA, uint8_t plateB, uint8_t plateC,
                                    uint8_t plateD, unsigned int invokeIndex);
 
-__device__ void processMovement(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<float> *r_heightMapPtr,
-                                const PlateData *r_plateLookup, CudaTexture<uint8_t> *w_plateIdsPtr,
-                                CudaTexture<float> *w_heightMapPtr, uint8_t originId, unsigned int invokeIndex);
+__device__ void processMovement(PlateTexturesRead r_plateTextures, PlateTexturesWrite w_plateTextures,
+                                uint8_t originId, unsigned int invokeIndex);
 
 __global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveCollidedPtr, const PlateData *r_plateLookup,
-                                    uint8_t *w_plateMergeIds);
+                                    const Vec2<float> *r_velocityChanges, uint8_t *w_plateMergeIds);
 
 __device__ int getNewPlateId(const unsigned int *labelsShared, const unsigned int *labelCountsShared,
                              unsigned int label, unsigned int numUniqueLabels);
@@ -143,5 +166,16 @@ __global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> 
 
 __global__ void evaporate(CudaTexture<float> *hydration, float deltatime);
 
+__global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
+                                      const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds,
+                                      float *w_plateMass, int *w_plateSize);
+
+__global__ void determineCollisionType(PlateTexturesRead r_plateTextures,
+                                       const CudaTexture<uint32_t> *r_collisionsPtr,
+                                       const uint32_t *r_collisionTypeBitmap,
+                                       CudaTexture<uint64_t> *w_continentalCrustCountMatrixPtr);
+
+__global__ void createCollisionTypeMatrix(const CudaTexture<uint64_t> *r_continentalCrustCountMatrixPtr,
+                                          uint32_t *w_collisionTypeBitmap);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH

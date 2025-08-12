@@ -8,8 +8,10 @@ struct KernelSettings
     float mergeVelocityDiffThreshold = 0.025f;
     int minPlateSize = 10;
 
-    float divergence_height_target = 10.f;
-    float divergence_interpolation_factor = 0.05f;
+    float continentalCrustThreshold = 80.f;
+
+    float divergence_height_target = 20.f;
+    float divergence_interpolation_factor = 0.04f;
 
     float hydrationPipeCrossSection = 1;
     float hydrationPipeLength = 10;
@@ -33,7 +35,8 @@ struct KernelSettings
                sedimentCapacity == other.sedimentCapacity &&
                sedimentDissolving == other.sedimentDissolving &&
                divergence_height_target == other.divergence_height_target &&
-               divergence_interpolation_factor == other.divergence_interpolation_factor;
+               divergence_interpolation_factor == other.divergence_interpolation_factor &&
+               continentalCrustThreshold == other.continentalCrustThreshold;
     }
 
     bool operator!=(const KernelSettings &other) const

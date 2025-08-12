@@ -130,7 +130,7 @@ public:
 
     static std::unique_ptr<CudaTextureHost> createManagedAndClear(const int width, const int height,
                                                                   ManagedCallback onReleaseCallback,
-                                                                  const T &memsetValue, const bool async = false)
+                                                                  const int memsetValue, const bool async = false)
     {
         std::unique_ptr<CudaTextureHost> ptr = std::unique_ptr<CudaTextureHost>(new CudaTextureHost(onReleaseCallback));
         ptr->initializeAndClear(width, height, memsetValue, async);
@@ -141,7 +141,7 @@ public:
     static std::unique_ptr<CudaTextureHost> createManagedAndClear(CudaTexture<T> *deviceTexture, T *rawCudaPtr,
                                                                   const int width, const int height,
                                                                   ManagedCallback onReleaseCallback,
-                                                                  const T &memsetValue, const bool async = false)
+                                                                  const int memsetValue, const bool async = false)
     {
         std::unique_ptr<CudaTextureHost> ptr = std::unique_ptr<CudaTextureHost>(new CudaTextureHost(
             deviceTexture, rawCudaPtr, width, height, onReleaseCallback));
@@ -170,7 +170,7 @@ public:
         constructAndCopyTextureObj(async);
     }
 
-    void memsetTexture(const T &memsetValue, const bool async)
+    void memsetTexture(const int memsetValue, const bool async)
     {
         if (async)
         {
@@ -185,7 +185,7 @@ public:
         }
     }
 
-    void initializeAndClear(const int width, const int height, const T &memsetValue, const bool async = false)
+    void initializeAndClear(const int width, const int height, const int memsetValue, const bool async = false)
     {
         m_width = width;
         m_height = height;
@@ -195,7 +195,8 @@ public:
         constructAndCopyTextureObj(async);
     }
 
-    T *getPointer() const { return m_rawCudaPointer; }
+    T *getPointer() { return m_rawCudaPointer; }
+    const T* getPointer() const { return m_rawCudaPointer; }
 
     CudaTexture<T> *deviceTexture() { return m_texture; }
     const CudaTexture<T> *deviceTexture() const { return m_texture; }
