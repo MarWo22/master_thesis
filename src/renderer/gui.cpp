@@ -153,6 +153,15 @@ void Gui::simulationSettingsSection()
             // velocity_threshold_merge
             // min_size
         }
+
+        if (ImGui::CollapsingHeader("Uplift Properties"))
+        {
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Uplift multiplier", &newSettings.upliftMultiplier, 0.01f, 0.01f, 50.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Uplift range", &newSettings.upliftRange, 1, 0, 100);
+        }
+
         if (ImGui::CollapsingHeader("Erosion Properties"))
         {
             ImGui::SetNextItemWidth(250);
@@ -166,7 +175,7 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Capacity", &newSettings.sedimentCapacity, 0.05f, 0.f, 10.f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Dissolving constant", &newSettings.sedimentDissolving, 0.001f, 0.f, 10.f);
+            ImGui::DragFloat("Dissolving constant", &newSettings.sedimentDissolving, 0.0001f, 0.f, 10.f);
         }
 
         ImGui::Unindent(15.0f);

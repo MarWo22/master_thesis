@@ -41,6 +41,8 @@ class PlateTectonicSim
     std::unique_ptr<CudaTextureHost<Vec2<float>>> m_hydrationVelocity;
     std::unique_ptr<CudaTextureHost<float>> m_sedimentLevel;
 
+    std::unique_ptr<CudaTextureHost<float>> m_pressure;
+
     /*
      *  Persistent CUDA data containers
      *  Still implemented as a texture for simplicity reasons

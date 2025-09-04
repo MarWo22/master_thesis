@@ -11,13 +11,16 @@ struct KernelSettings
     float divergence_height_target = 10.f;
     float divergence_interpolation_factor = 0.05f;
 
+    float upliftMultiplier = 1.f;
+    int upliftRange = 50;
+
     float hydrationPipeCrossSection = 1;
     float hydrationPipeLength = 10;
-    float hydrationRainfall = 1.0;
-    float hydrationEvaporation = 0.02;
+    float hydrationRainfall = 3.0;
+    float hydrationEvaporation = 0.03;
     float gravity = 9.81;
     float sedimentCapacity = 0.3;
-    float sedimentDissolving = 0.001;
+    float sedimentDissolving = 0.01;
 
     bool operator==(const KernelSettings &other) const
     {
@@ -25,6 +28,8 @@ struct KernelSettings
                mergeDotDirectionThreshold == other.mergeDotDirectionThreshold &&
                mergeVelocityDiffThreshold == other.mergeVelocityDiffThreshold &&
                minPlateSize == other.minPlateSize &&
+               upliftMultiplier == other.upliftMultiplier &&
+               upliftRange == other.upliftRange &&
                hydrationPipeCrossSection == other.hydrationPipeCrossSection &&
                hydrationPipeLength == other.hydrationPipeLength &&
                hydrationRainfall == other.hydrationRainfall &&

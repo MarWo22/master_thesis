@@ -107,6 +107,11 @@ void main() {
         colorNew = mix(vec3(0.451, 0.451, 0.451), vec3(0.71, 0.71, 0.71), (height - 300) / 500);
     }
 
+    if (mod(height, 10) <= 0.1)
+    {
+        colorNew = mix(colorNew, vec3(0.2, 0.2, 0.2), 0.5);
+    }
+
     if (showWater){
         float hydration = texture(waterTexture, texCoord).r;
         if(hydration > 20)
@@ -114,7 +119,6 @@ void main() {
             vec4 water = mix(vec4(0.639, 0.949, 1, 0.6), vec4(0, 0.588, 0.588, 1.0), clamp(hydration, 0, 100) / 100);
             colorNew = mix(colorNew, water.rgb, water.a);
         }
-
     }
     fragmentColor = vec4(colorNew, 1.0);
 

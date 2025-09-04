@@ -72,26 +72,16 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr);
 
 __global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
-                             const CudaTexture<float> *r_upliftMapPtr, const CudaTexture<bool> *r_gridMapPtr,
-                             CudaTexture<BlurBuffer> *w_bufferPtr, int range);
+                             const CudaTexture<float> *r_upliftMapPtr,
+                             CudaTexture<BlurBuffer> *w_bufferPtr);
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
-                               const CudaTexture<bool> *r_gridMapPtr, const CudaTexture<BlurBuffer> *r_bufferPtr,
-                               CudaTexture<float> *w_heightMapPtr, int range);
-
-__global__ void processUplift(const CudaTexture<float> *w_upliftMapPtr, const CudaTexture<bool> *r_gridMapPtr,
-                              CudaTexture<float> *w_heightMapPtr, int size,
-                              float noiseFrequency, float noiseIntensity, int seed);
+                               const CudaTexture<BlurBuffer> *r_bufferPtr,
+                               CudaTexture<float> *w_heightMapPtr);
 
 __global__ void createUpliftGrid(const CudaTexture<float> *r_upliftMapPtr, CudaTexture<bool> *w_gridMapPtr);
 
 __device__ bool collisionContains(const uint32_t collision, const uint8_t plateId);
-
-__global__ void downscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTexture<float> *w_outputMapPtr,
-                                int inWidth, int inHeight, int outWidth, int outHeight);
-
-__global__ void upscaleUplift(const CudaTexture<float> *r_inputMapPtr, CudaTexture<float> *w_outputMapPtr, int inWidth,
-                              int inHeight, int outWidth, int outHeight);
 
 __device__ void processDivergence(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateLookup,
                                   const CudaTexture<uint32_t> *r_collisionsPtr,
@@ -143,5 +133,8 @@ __global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> 
 
 __global__ void evaporate(CudaTexture<float> *hydration, float deltatime);
 
+__global__ void pressure(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr);
+
+__global__ void stress(const CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_stressPtr);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH
