@@ -58,7 +58,7 @@ add_executable(PlateTectonics
         src/cuda_compute/types/vec2.cuh
         src/cuda_compute/types/plate_data.h
         src/cuda_compute/types/iteration_statistics.h
-        src/cuda_compute/types/blur_buffer.h
+        src/cuda_compute/types/distance_field_buffer.h
         src/cuda_compute/plate_tectonics_kernel.cu
         src/cuda_compute/plate_tectonics_kernel.cuh
         src/cuda_compute/cuda_helper.cuh

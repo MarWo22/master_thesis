@@ -93,8 +93,13 @@ void Gui::renderSettingsSection()
             {
                 renderSettings.callCallback("renderSettingsChanged");
             }
-            if (ImGui::RadioButton("Show Uplift Areas", &renderSettings.renderMode,
-                                   RenderSettings::RenderMode::SHOW_UPLIFT_AREAS))
+            if (ImGui::RadioButton("Show Pressure Areas", &renderSettings.renderMode,
+                                   RenderSettings::RenderMode::SHOW_PRESSURE_AREAS))
+            {
+                renderSettings.callCallback("renderSettingsChanged");
+            }
+            if (ImGui::RadioButton("Show Stress Areas", &renderSettings.renderMode,
+                                   RenderSettings::RenderMode::SHOW_STRESS_AREAS))
             {
                 renderSettings.callCallback("renderSettingsChanged");
             }
@@ -176,6 +181,18 @@ void Gui::simulationSettingsSection()
             ImGui::DragFloat("Capacity", &newSettings.sedimentCapacity, 0.05f, 0.f, 10.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Dissolving constant", &newSettings.sedimentDissolving, 0.0001f, 0.f, 10.f);
+        }
+
+        if (ImGui::CollapsingHeader("Pressure Properties"))
+        {
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Pressure Accumulation Rate", &newSettings.pressureAccumulation, 0.001f, 0.f, 0.1f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Pressure Decay Rate", &newSettings.pressureDecayRate, 0.01f, 0.f, 1.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Pressure Blur Range", &newSettings.pressureBlurRange, 1, 1, 100);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Pressure Multiplier", &newSettings.pressureMultiplier, 0.01f, 0.f, 10.f);
         }
 
         ImGui::Unindent(15.0f);

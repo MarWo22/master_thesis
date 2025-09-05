@@ -11,7 +11,7 @@
 #include "math_functions.h"
 #include "types/iteration_statistics.h"
 #include "kernel_settings.cuh"
-#include "types/blur_buffer.h"
+#include "types/distance_field_buffer.h"
 
 
 // These should become dynamic or as input parameters:
@@ -560,15 +560,117 @@ __device__ bool collisionContains(const uint32_t collision, const uint8_t plateI
 }
 
 
+// Generic vertical distance field function - can be used for any float texture with plate constraints
+template<typename ValidatorFunc>
+__device__ DistanceFieldBuffer verticalDistanceFieldPass(const CudaTexture<float> &sourceTexture, 
+                                      const Vec2<int> &center, 
+                                      int range, 
+                                      ValidatorFunc validator)
+{
+    const float multiplier = 1.0f / range;
+    float bestValue = 0;
+    int bestOffset = 0;
+    
+    for (int i = -range; i <= range; i++)
+    {
+        Vec2<int> sample = center + Vec2<int>(0, i);
+        float sampleValue = sourceTexture[sample] - (abs((float)i) * multiplier);
+        
+        if (sampleValue > bestValue && validator(sample, i))
+        {
+            bestValue = sampleValue;
+            bestOffset = i;
+        }
+    }
+    
+    return DistanceFieldBuffer(bestOffset, bestValue);
+}
+
+// Generic horizontal distance field function - can be used for any blur buffer with plate constraints
+template<typename ValidatorFunc>
+__device__ float horizontalDistanceFieldPass(const CudaTexture<DistanceFieldBuffer> &bufferTexture,
+                                   const Vec2<int> &center,
+                                   int range,
+                                   ValidatorFunc validator)
+{
+    const float multiplier = 1.0f / range;
+    float bestValue = 0;
+    
+    for (int i = -range; i <= range; i++)
+    {
+        Vec2<int> sample = center + Vec2<int>(i, 0);
+        DistanceFieldBuffer buffer = bufferTexture[sample];
+        float adjustedValue = buffer.value - abs((float)i) * multiplier;
+        
+        if (adjustedValue > bestValue && validator(sample, i))
+        {
+            bestValue = adjustedValue;
+        }
+    }
+    
+    return bestValue;
+}
+
+// Generic vertical blur function - performs gaussian-style smoothing with plate constraints
+template<typename ValidatorFunc>
+__device__ float verticalBlurPass(const CudaTexture<float> &sourceTexture, 
+                                  const Vec2<int> &center, 
+                                  int range, 
+                                  ValidatorFunc validator)
+{
+    float sum = 0.0f;
+    float weightSum = 0.0f;
+    
+    for (int i = -range; i <= range; i++)
+    {
+        Vec2<int> sample = center + Vec2<int>(0, i);
+        
+        if (validator(sample, i))
+        {
+            // Gaussian weight - closer samples have higher weight
+            float weight = expf(-0.5f * (float)(i * i) / (float)(range * range / 4));
+            sum += sourceTexture[sample] * weight;
+            weightSum += weight;
+        }
+    }
+    
+    return weightSum > 0.0f ? sum / weightSum : sourceTexture[center];
+}
+
+// Generic horizontal blur function - performs gaussian-style smoothing with plate constraints
+template<typename ValidatorFunc>
+__device__ float horizontalBlurPass(const CudaTexture<float> &sourceTexture,
+                                    const Vec2<int> &center,
+                                    int range,
+                                    ValidatorFunc validator)
+{
+    float sum = 0.0f;
+    float weightSum = 0.0f;
+    
+    for (int i = -range; i <= range; i++)
+    {
+        Vec2<int> sample = center + Vec2<int>(i, 0);
+        
+        if (validator(sample, i))
+        {
+            // Gaussian weight - closer samples have higher weight
+            float weight = expf(-0.5f * (float)(i * i) / (float)(range * range / 4));
+            sum += sourceTexture[sample] * weight;
+            weightSum += weight;
+        }
+    }
+    
+    return weightSum > 0.0f ? sum / weightSum : sourceTexture[center];
+}
+
 __global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
                              const CudaTexture<float> *r_upliftMapPtr,
-                             CudaTexture<BlurBuffer> *w_bufferPtr)
+                             CudaTexture<DistanceFieldBuffer> *w_bufferPtr)
 {
     const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
     const CudaTexture<uint32_t> &r_collisions = *r_collisionsPtr;
     const CudaTexture<float> &r_uplift = *r_upliftMapPtr;
-    CudaTexture<BlurBuffer> &w_buffer = *w_bufferPtr;
-
+    CudaTexture<DistanceFieldBuffer> &w_buffer = *w_bufferPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_uplift.size()))
@@ -577,32 +679,21 @@ __global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const Cu
     const Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
-    const float multiplier = 1.0f / kernelSettings.upliftRange;
-    float value = 0;
-    int point = 0;
-    for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
-    {
-        Vec2<int> sample = center + Vec2<int>(0, i);
-        float x = r_uplift[sample] - (abs((float) i) * multiplier);
+    // Create validator lambda for uplift distance field
+    auto validator = [&](const Vec2<int> &sample, int offset) -> bool {
+        return collisionContains(r_collisions[sample], plateId);
+    };
 
-
-        if (x > value && collisionContains(r_collisions[sample], plateId))
-        {
-            value = x;
-            point = i;
-        }
-    }
-
-    w_buffer[invokeIndex] = BlurBuffer(point, value);
+    w_buffer[invokeIndex] = verticalDistanceFieldPass(r_uplift, center, kernelSettings.upliftRange, validator);
 }
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
-                               const CudaTexture<BlurBuffer> *r_bufferPtr,
+                               const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
                                CudaTexture<float> *w_heightMapPtr)
 {
     const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
     const CudaTexture<uint32_t> &r_collisions = *r_collisionsPtr;
-    const CudaTexture<BlurBuffer> &r_buffer = *r_bufferPtr;
+    const CudaTexture<DistanceFieldBuffer> &r_buffer = *r_bufferPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_buffer.size()))
@@ -611,23 +702,12 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
     const Vec2<int> center = r_buffer.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
-    const float multiplier = 1.0f / kernelSettings.upliftRange;
-    float value = 0;
+    // Create validator lambda for uplift distance field
+    auto validator = [&](const Vec2<int> &sample, int offset) -> bool {
+        return collisionContains(r_collisions[sample], plateId);
+    };
 
-    for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
-    {
-        Vec2<int> sample = center + Vec2<int>(i, 0);
-        BlurBuffer buffer = r_buffer[sample];
-
-        //float x = buffer.value + (abs((float)buffer.offset) * multiplier) - pythagoras[abs(buffer.offset)][abs(i)] * multiplier;
-        float x = buffer.value - abs((float) i) * multiplier;
-
-        if (x > value && collisionContains(r_collisions[sample], plateId))
-        {
-            value = x;
-        }
-    }
-
+    float value = horizontalDistanceFieldPass(r_buffer, center, kernelSettings.upliftRange, validator);
     (*w_heightMapPtr)[invokeIndex] += value * kernelSettings.upliftMultiplier;
 }
 
@@ -1272,35 +1352,100 @@ __global__ void evaporate(CudaTexture<float> *w_hydrationPtr, float deltatime)
         0.0f, hydration[idx] - (fminf(hydration[idx], 20) * kernelSettings.hydrationEvaporation * deltatime));
 }
 
-__global__ void pressure(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr)
+// Step 1: Accumulate pressure and reset at fault lines
+__global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr)
 {
     CudaTexture<float>& r_pressure = *r_pressurePtr;
     CudaTexture<float>& w_pressure = *w_pressurePtr;
     CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
     
     unsigned int idx = getInvokeIndex();
+    if (!isWithinBounds(idx, r_pressure.size()))
+        return;
+        
     Vec2<int> coord = getTextureIndex(r_pressurePtr->size());
-
     uint8_t plateId = r_plateIds[idx];
 
-    bool border = plateId != r_plateIds[coord + Vec2<int>(1, 0)];
+    // Check if this is a fault line (plate boundary)
+    bool isFault = false;
+    isFault = isFault || plateId != r_plateIds[coord + Vec2<int>(1, 0)];
+    isFault = isFault || plateId != r_plateIds[coord + Vec2<int>(0, 1)];
+    isFault = isFault || plateId != r_plateIds[coord + Vec2<int>(-1, 0)];
+    isFault = isFault || plateId != r_plateIds[coord + Vec2<int>(0, -1)];
 
-    border = border || plateId != r_plateIds[coord + Vec2<int>(0, 1)];
-    border = border || plateId != r_plateIds[coord + Vec2<int>(-1, 0)];
-    border = border || plateId != r_plateIds[coord + Vec2<int>(0, -1)];
-
-    if (border) 
+    if (isFault) 
     {
+        // Pressure is released at fault lines
         w_pressure[idx] = 0;
     }
     else
     {
-        w_pressure[idx] = fmaxf(0.001 +
-            r_pressure[idx] * 0.2 +
-            r_pressure[coord + Vec2<int>(1, 0)] * 0.2 +
-            r_pressure[coord + Vec2<int>(0, 1)] * 0.2 +
-            r_pressure[coord + Vec2<int>(-1, 0)] * 0.2 +
-            r_pressure[coord + Vec2<int>(0, -1)] * 0.2, 0);
+        // Accumulate pressure in plate interiors
+        w_pressure[idx] = r_pressure[idx] + kernelSettings.pressureAccumulation;
     }
+}
+
+// Step 2: Vertical blur pass for pressure propagation
+__global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
+                                     const CudaTexture<float> *r_pressurePtr,
+                                     CudaTexture<float> *w_bufferPtr)
+{
+    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
+    const CudaTexture<float> &r_pressure = *r_pressurePtr;
+    CudaTexture<float> &w_buffer = *w_bufferPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_pressure.size()))
+        return;
+
+    const Vec2<int> center = r_pressure.indexToCoordinate(invokeIndex);
+    const uint8_t plateId = r_plateIds[invokeIndex];
+
+    // Pressure propagates within the same plate only
+    auto validator = [&](const Vec2<int> &sample, int offset) -> bool {
+        return r_plateIds[sample] == plateId;
+    };
+
+    w_buffer[invokeIndex] = verticalBlurPass(r_pressure, center, kernelSettings.pressureBlurRange, validator);
+}
+
+// Step 3: Horizontal blur pass for pressure propagation
+__global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
+                                       const CudaTexture<float> *r_bufferPtr,
+                                       CudaTexture<float> *w_pressurePtr)
+{
+    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
+    const CudaTexture<float> &r_buffer = *r_bufferPtr;
+    CudaTexture<float> &w_pressure = *w_pressurePtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_buffer.size()))
+        return;
+
+    const Vec2<int> center = r_buffer.indexToCoordinate(invokeIndex);
+    const uint8_t plateId = r_plateIds[invokeIndex];
+
+    // Pressure propagates within the same plate only
+    auto validator = [&](const Vec2<int> &sample, int offset) -> bool {
+        return r_plateIds[sample] == plateId;
+    };
+
+    float processedPressure = horizontalBlurPass(r_buffer, center, kernelSettings.pressureBlurRange, validator);
+    
+    // Apply the processed pressure with multiplier
+    w_pressure[invokeIndex] = processedPressure * kernelSettings.pressureMultiplier;
+}
+
+__global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_MaterialPtr, CudaTexture<float>* w_stressPtr)
+{
+    const CudaTexture<float>& r_pressure = *r_pressurePtr;
+    const CudaTexture<float>& r_material = *r_MaterialPtr;
+    CudaTexture<float>& w_stress = *w_stressPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_pressure.size()))
+        return;
+
+    w_stress[invokeIndex] = r_pressure[invokeIndex] / max(r_material[invokeIndex], 1.0f);
 }
 

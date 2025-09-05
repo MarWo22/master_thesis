@@ -70,11 +70,17 @@ void loadTextures(CudaGlInteropManager &interopManager)
                                  heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
     Renderer::addTexture("velocityTexture", velocityTexture);
 
-    auto *upliftTexture = new Texture();
-    upliftTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
-    interopManager.addConnection("upliftTexture", upliftTexture->id(), sizeof(float), heightmapDimensions.x,
+    auto *pressureTexture = new Texture();
+    pressureTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("pressureTexture", pressureTexture->id(), sizeof(float), heightmapDimensions.x,
                                  heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
-    Renderer::addTexture("upliftTexture", upliftTexture);
+    Renderer::addTexture("pressureTexture", pressureTexture);
+
+    auto *stressTexture = new Texture();
+    stressTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    interopManager.addConnection("stressTexture", stressTexture->id(), sizeof(float), heightmapDimensions.x,
+                                 heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
+    Renderer::addTexture("stressTexture", stressTexture);
 
     auto *waterTexture = new Texture();
     waterTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);

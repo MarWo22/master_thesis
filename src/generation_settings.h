@@ -16,7 +16,8 @@ public:
             SHOW_COLLISION_AREAS,
             SHOW_PLATE_DIRECTIONS,
             SHOW_PLATE_VELOCITIES,
-            SHOW_UPLIFT_AREAS,
+            SHOW_PRESSURE_AREAS,
+            SHOW_STRESS_AREAS,
       };
 
       bool renderHeight = true;

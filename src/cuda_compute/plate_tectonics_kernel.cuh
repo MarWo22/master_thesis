@@ -6,7 +6,7 @@
 #include "types/plate_data.h"
 #include "types/vec2.cuh"
 #include "types/iteration_statistics.h"
-#include "types/blur_buffer.h"
+#include "types/distance_field_buffer.h"
 #include "types/voronoi_seed.h"
 
 #define MAX_PLATE_COUNT 255
@@ -73,10 +73,10 @@ __global__ void processCollisions(const CudaTexture<uint8_t> *r_plateIdsPtr, con
 
 __global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
                              const CudaTexture<float> *r_upliftMapPtr,
-                             CudaTexture<BlurBuffer> *w_bufferPtr);
+                             CudaTexture<DistanceFieldBuffer> *w_bufferPtr);
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
-                               const CudaTexture<BlurBuffer> *r_bufferPtr,
+                               const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
                                CudaTexture<float> *w_heightMapPtr);
 
 __global__ void createUpliftGrid(const CudaTexture<float> *r_upliftMapPtr, CudaTexture<bool> *w_gridMapPtr);
@@ -133,8 +133,16 @@ __global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> 
 
 __global__ void evaporate(CudaTexture<float> *hydration, float deltatime);
 
-__global__ void pressure(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr);
+__global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr);
 
-__global__ void stress(const CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_stressPtr);
+__global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
+                                     const CudaTexture<float> *r_pressurePtr,
+                                     CudaTexture<float> *w_bufferPtr);
+
+__global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
+                                       const CudaTexture<float> *r_bufferPtr,
+                                       CudaTexture<float> *w_pressurePtr);
+
+__global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_Material, CudaTexture<float>* w_stressPtr);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH

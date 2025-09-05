@@ -117,7 +117,8 @@ void PlateTectonicSim::executeIteration()
 void PlateTectonicSim::copyConstantTexturesInterop() const
 {
     m_interopManager->copyConnection("heightMap", m_heightMapTexture->getPointer());
-    m_interopManager->copyConnection("upliftTexture", m_pressure->getPointer());
+    m_interopManager->copyConnection("pressureTexture", m_pressure->getPointer());
+    m_interopManager->copyConnection("stressTexture", m_stress->getPointer());
 
     if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_PLATE_VELOCITIES)
         copyVelocitiesGL();
@@ -186,7 +187,7 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
 
     const auto upliftBufferA = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
     const auto upliftBufferB = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
-    const auto blurBuffer = m_textureManager.generateTexture<BlurBuffer>(m_width, m_height);
+    const auto blurBuffer = m_textureManager.generateTexture<DistanceFieldBuffer>(m_width, m_height);
 
     /*
      * STEP FOUR
@@ -348,9 +349,24 @@ void PlateTectonicSim::processPlateSplitting()
 {
     auto buffer = m_textureManager.generateTexture<float>(m_width, m_height);
 
-    pressure << <m_numBlocksPixels, THREADS_PER_BLOCK >> > (m_pressure->deviceTexture(), buffer->deviceTexture(), m_plateIdsTexture->deviceTexture());
+    // Step 1: Accumulate pressure and reset at fault lines
+    pressureAccumulation<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
+                                                                   m_pressure->deviceTexture(),
+                                                                   m_plateIdsTexture->deviceTexture());
 
-    cudaMemcpyAsync(m_pressure->getPointer(), buffer->getPointer(), sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice);
+    // Step 2-3: Apply pressure blur simulation - two-pass gaussian blur within plate constraints
+    pressureVerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+                                                                   m_pressure->deviceTexture(),
+                                                                   buffer->deviceTexture());
+
+    pressureHorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+                                                                     buffer->deviceTexture(),
+                                                                     m_pressure->deviceTexture());
+
+    // Step 4: Calculate stress from pressure and terrain height
+    stress<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
+                                                      m_heightMapTexture->deviceTexture(),
+                                                      m_stress->deviceTexture());
 
 
     int h_largest;
@@ -446,6 +462,8 @@ void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPl
     m_hydrationLevel.reset();
     m_hydrationVelocity.reset();
     m_sedimentLevel.reset();
+    m_pressure.reset();
+    m_stress.reset();
     m_plateDataLookup.reset();
     m_randStatesPlates.reset();
     m_iterationStats.reset();
@@ -482,8 +500,11 @@ void PlateTectonicSim::onRenderSettingChange()
         case RenderSettings::RenderMode::NORMAL:
             activeTextures = {"heightMap", "waterTexture"};
             break;
-        case RenderSettings::RenderMode::SHOW_UPLIFT_AREAS:
-            activeTextures = {"heightMap", "upliftTexture"};
+        case RenderSettings::RenderMode::SHOW_PRESSURE_AREAS:
+            activeTextures = {"heightMap", "pressureTexture"};
+            break;
+        case RenderSettings::RenderMode::SHOW_STRESS_AREAS:
+            activeTextures = {"heightMap", "stressTexture"};
             break;
         case RenderSettings::RenderMode::SHOW_COLLISION_AREAS:
             activeTextures = {"heightMap", "collisionMap"};
@@ -641,6 +662,7 @@ void PlateTectonicSim::initializeTextures()
     m_sedimentLevel = m_textureManager.generateTexture<float>(m_width, m_height);
 
     m_pressure = m_textureManager.generateTexture<float>(m_width, m_height);
+    m_stress = m_textureManager.generateTexture<float>(m_width, m_height);
 
     m_plateDataLookup = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);
     m_randStatesPlates = m_textureManager.generateTexture<curandState>(MAX_PLATE_COUNT, 1);

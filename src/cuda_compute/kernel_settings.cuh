@@ -22,6 +22,12 @@ struct KernelSettings
     float sedimentCapacity = 0.3;
     float sedimentDissolving = 0.01;
 
+    // Pressure system parameters
+    float pressureAccumulation = 0.02f;      // Rate of pressure buildup per iteration
+    float pressureDecayRate = 0.8f;          // How fast pressure decays at fault lines
+    int pressureBlurRange = 25;              // Range for pressure distance field propagation
+    float pressureMultiplier = 1.0f;         // Final pressure application multiplier
+
     bool operator==(const KernelSettings &other) const
     {
         return inelasticCollisionMultiplier == other.inelasticCollisionMultiplier &&
@@ -38,7 +44,11 @@ struct KernelSettings
                sedimentCapacity == other.sedimentCapacity &&
                sedimentDissolving == other.sedimentDissolving &&
                divergence_height_target == other.divergence_height_target &&
-               divergence_interpolation_factor == other.divergence_interpolation_factor;
+               divergence_interpolation_factor == other.divergence_interpolation_factor &&
+               pressureAccumulation == other.pressureAccumulation &&
+               pressureDecayRate == other.pressureDecayRate &&
+               pressureBlurRange == other.pressureBlurRange &&
+               pressureMultiplier == other.pressureMultiplier;
     }
 
     bool operator!=(const KernelSettings &other) const
