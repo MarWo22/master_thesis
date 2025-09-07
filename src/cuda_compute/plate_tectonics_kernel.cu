@@ -83,7 +83,7 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
         freq *= 10.f;
     }
 
-    r_height[invokeIndex] = 100;
+    r_height[invokeIndex] = value;
 }
 
 __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
@@ -1343,13 +1343,11 @@ __global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> 
     w_sediment[idx] = interpolate(Vec2<float>(coord.x - vel.x * deltatime, coord.y - vel.y * deltatime), r_sedimentPtr);
 }
 
-__global__ void evaporate(CudaTexture<float> *w_hydrationPtr, float deltatime)
+__global__ void evaporate(CudaTexture<float>* w_hydrationPtr, float deltatime)
 {
-    CudaTexture<float> &hydration = *w_hydrationPtr;
-
+    CudaTexture<float>& hydration = *w_hydrationPtr;
     unsigned int idx = getInvokeIndex();
-    hydration[idx] = fmaxf(
-        0.0f, hydration[idx] - (fminf(hydration[idx], 20) * kernelSettings.hydrationEvaporation * deltatime));
+    hydration[idx] = fmaxf(0.0f, hydration[idx] - (fminf(hydration[idx], 20) * kernelSettings.hydrationEvaporation * deltatime));
 }
 
 // Step 1: Accumulate pressure and reset at fault lines
@@ -1449,3 +1447,55 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
     w_stress[invokeIndex] = r_pressure[invokeIndex] / max(r_material[invokeIndex], 1.0f);
 }
 
+__global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr)
+{
+    CudaTexture<float> &w_material = *w_materialPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, w_material.size()))
+        return;
+
+    const Vec2<int> coord = w_material.indexToCoordinate(invokeIndex);
+
+    bool valid[8];
+    float diffs[8];
+    float totalDiff = 0.0f;
+
+    const Vec2<int> offsets[] = {
+        {-1,  0}, {1, 0}, {0, -1}, {0, 1},   // N, S, W, E
+        {-1, -1}, {-1, 1}, {1, -1}, {1, 1}   // NW, NE, SW, SE
+    };
+
+    for (int direction = 0; direction < 8; direction++)
+    {
+        const Vec2<int> neighborCoord = coord + offsets[direction];
+        
+        const float neighborHeight = w_material[neighborCoord];
+        const float diff = w_material[invokeIndex] - neighborHeight;
+
+        if (diff > kernelSettings.thermalThresholdAngle * kernelSettings.thermalCellSize)
+        {
+            valid[direction] = true;
+            totalDiff += diff;
+            diffs[direction] = diff;
+        }
+        else
+        {
+            valid[direction] = false;
+            diffs[direction] = 0;
+        }
+    }
+
+    if (totalDiff > 0.0f)
+    {
+        for (int direction = 0; direction < 8; direction++) 
+        {
+            if (valid[direction]) {
+                float flow = kernelSettings.thermalErosionAmplitude * (diffs[direction] / totalDiff);
+
+                w_material[invokeIndex] -= flow * kernelSettings.thermalErosionStrength;
+                w_material[coord + offsets[direction]] += flow * kernelSettings.thermalErosionStrength;
+            }
+        }
+    }
+}

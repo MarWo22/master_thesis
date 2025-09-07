@@ -57,8 +57,12 @@ void PlateTectonicSim::executeIteration()
     auto platesHaveCollided = m_textureManager.generateTextureAndReset<uint8_t>(MAX_PLATE_COUNT, MAX_PLATE_COUNT, 0);
 
     processCollisionUplift(heightMapTextureWrite.get(), plateIdsTextureWrite.get(), platesHaveCollided.get(), plateCollisions.get());
+    for (size_t i = 0; i < 500; i++)
+    {
+        thermalErosionKernel << <m_numBlocksPixels, THREADS_PER_BLOCK >> > (heightMapTextureWrite->deviceTexture());
+    }
 
-    applyHydraulicErosion(heightMapTextureWrite.get());
+    //applyHydraulicErosion(heightMapTextureWrite.get());
 
     copyAndReleaseTexture(*m_heightMapTexture, std::move(heightMapTextureWrite), m_height, m_width);
     copyAndReleaseTexture(*m_plateIdsTexture, std::move(plateIdsTextureWrite), m_height, m_width);
@@ -246,6 +250,9 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
                                                             sedimentBuffer->deviceTexture(),
                                                             m_hydrationVelocity->deviceTexture(), 1.0);
         evaporate<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_hydrationLevel->deviceTexture(), 1.0);
+
+        // Thermal erosion - slope-based material redistribution
+        
 
         cudaMemcpyAsync(m_sedimentLevel->getPointer(), sedimentBuffer->getPointer(), sizeof(float) * m_width * m_height,
                         cudaMemcpyDeviceToDevice);
@@ -576,7 +583,7 @@ void PlateTectonicSim::initializeTectonics(const int numStartingPlates, const st
     std::cout << "Initialized plate IDs\n";
     // Initialized the heightmap with simplex noise
     // The heightmap is written to the m_heightMapTexture texture
-    initHeightmap<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_heightMapTexture->deviceTexture(), m_seed, 1);
+    initHeightmap<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_heightMapTexture->deviceTexture(), m_seed, 4);
     std::cout << "Initialized heightmap\n";
 
     // Extracts the size and mass of the plates

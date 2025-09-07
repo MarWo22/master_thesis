@@ -51,8 +51,6 @@ add_executable(PlateTectonics
         src/cuda_compute/plate_tectonic_sim.h
         src/cuda_compute/texture_save.cu
         src/cuda_compute/texture_save.cuh
-        src/cuda_compute/flux_erosion.h
-        src/cuda_compute/flux_erosion.cu
         src/cuda_compute/cuda_noise.cuh
         src/config.h
         src/cuda_compute/types/vec2.cuh
@@ -67,8 +65,6 @@ add_executable(PlateTectonics
         src/cuda_compute/types/cuda_texture.cuh
         src/generation_settings.cpp
         src/generation_settings.h
-        src/cuda_compute/erosion_kernel.cu
-        src/cuda_compute/erosion_kernel.cuh
         src/cuda_compute/ccl.cu
         src/cuda_compute/ccl.cuh
         src/cuda_compute/kernel_settings.cuh

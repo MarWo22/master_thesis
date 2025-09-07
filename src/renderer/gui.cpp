@@ -178,9 +178,19 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Evaporation", &newSettings.hydrationEvaporation, 0.005f, 0.f, 500.f);
             ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Minimum Water Level", &newSettings.minimumWaterLevel, 1.0f, 0.f, 500.f);
+            ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Capacity", &newSettings.sedimentCapacity, 0.05f, 0.f, 10.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Dissolving constant", &newSettings.sedimentDissolving, 0.0001f, 0.f, 10.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Thermal Erosion Strength", &newSettings.thermalErosionStrength, 0.001f, 0.f, 2.0f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Thermal Erosion Amplitude", &newSettings.thermalErosionAmplitude, 0.01f, 0.f, 2.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Thermal Cell Size", &newSettings.thermalCellSize, 0.1f, 0.1f, 5.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Thermal Threshold Angle", &newSettings.thermalThresholdAngle, 0.01f, 0.f, 2.f);
         }
 
         if (ImGui::CollapsingHeader("Pressure Properties"))

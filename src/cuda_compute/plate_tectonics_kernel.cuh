@@ -131,7 +131,7 @@ __global__ void sediment(CudaTexture<float> *w_materialPtr, CudaTexture<float> *
 __global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> *w_sedimentPtr,
                           CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime);
 
-__global__ void evaporate(CudaTexture<float> *hydration, float deltatime);
+__global__ void evaporate(CudaTexture<float>* w_hydrationPtr, float deltatime);
 
 __global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr);
 
@@ -144,5 +144,7 @@ __global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr
                                        CudaTexture<float> *w_pressurePtr);
 
 __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_Material, CudaTexture<float>* w_stressPtr);
+
+__global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH
