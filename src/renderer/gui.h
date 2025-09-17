@@ -1,5 +1,6 @@
 #ifndef GUI_H
 #define GUI_H
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 class Gui {

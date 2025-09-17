@@ -2,11 +2,17 @@
 #define VEC2_CUH
 
 #include <cuda_runtime.h>
-#include <cmath>
+
 
 template <typename T>
 struct Vec2 {
     T x, y;
+
+    struct NormAndMag
+    {
+        Vec2 norm;
+        float mag;
+    };
 
     __device__ __host__ Vec2()
         : x(0)
@@ -85,6 +91,36 @@ struct Vec2 {
         float mag = magnitude();
         return Vec2<T>(x / mag, y / mag);
     }
+
+    __device__ Vec2<T> normalizedZeroSafe() const
+    {
+        constexpr float eps = 1e-20f;
+        float mag = max(magnitude(), eps);
+        return Vec2<T>(x / mag, y / mag);
+
+    }
+
+    __device__ NormAndMag normalizedAndMagnitude() const
+    {
+        float mag = magnitude();
+        return NormAndMag
+        {
+            Vec2(x / mag, y / mag),
+            mag
+        };
+    }
+
+    __device__ NormAndMag normalizedAndMagnitudeZeroSafe() const
+    {
+        constexpr float eps = 1e-20f;
+        float mag = max(magnitude(), eps);
+        return NormAndMag
+        {
+            Vec2(x / mag, y / mag),
+            mag
+        };
+    }
+
 
     __device__ float2 toFloat2() const
     {

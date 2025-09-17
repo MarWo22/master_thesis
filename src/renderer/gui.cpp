@@ -4,6 +4,7 @@
 
 #include "gui.h"
 
+#include <array>
 #include <chrono>
 #include <iostream>
 #include <random>
@@ -24,6 +25,9 @@
 RenderSettings renderSettings;
 SimulationSettings simulationSettings;
 SaveTextureGui saveTextureGui;
+
+std::array<GuiPlateData, MAX_PLATE_COUNT> guiPlateData;
+
 
 Gui::Gui()
     : m_frameCount(0)
@@ -57,29 +61,85 @@ void Gui::gui()
     saveTextureSection();
     executionSettingsSection();
 
-    ImGui::SetNextWindowSize(ImVec2(175, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowCollapsed(true, ImGuiCond_FirstUseEver); // Start collapsed
-    ImGui::Begin("Plate ID Legend", nullptr,
-                 ImGuiWindowFlags_NoBackground);
+
+    static bool render_with_transparency = false;
+
+    if (render_with_transparency)
+        ImGui::Begin("Plate ID Legend", nullptr, ImGuiWindowFlags_NoBackground);
+    else
+        ImGui::Begin("Plate ID Legend", nullptr);
 
     // Scrollable child region with fixed 300px height
 
-    ImGui::BeginChild("LegendScrollRegion", ImVec2(175, 300), false, ImGuiWindowFlags_AlwaysUseWindowPadding);
+    ImGui::BeginChild(
+        "LegendScrollRegion",
+        ImVec2(0, 0),
+        false,
+        ImGuiWindowFlags_AlwaysUseWindowPadding |
+        ImGuiWindowFlags_HorizontalScrollbar |
+        ImGuiWindowFlags_AlwaysVerticalScrollbar
+    );
+
+    bool pushed = false;
+    if (render_with_transparency)
+    {
+        pushed = true;
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 255)); // Black text
+    }
+
+    ImGui::Checkbox("Transparent window background", &render_with_transparency);
+
+
+    if (ImGui::Checkbox("Show Plate Info", &renderSettings.copyPlateData))
+        if (renderSettings.copyPlateData)
+            renderSettings.callCallback("copyPlateInfo");
+
+    ImGui::Spacing();
 
     for (int id = 0; id < MAX_PLATE_COUNT; ++id)
     {
-        glm::vec3 color = getColorFromID(id);
-        ImVec4 imColor(color.r, color.g, color.b, 1.0f);
+        if (!renderSettings.copyPlateData || guiPlateData[id].size > 0)
+        {
+            glm::vec3 color = getColorFromID(id);
+            ImVec4 imColor(color.r, color.g, color.b, 1.0f);
 
-        ImGui::ColorButton(("##color" + std::to_string(id)).c_str(), imColor,
-                           ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder,
-                           ImVec2(20, 20));
+            ImGui::ColorButton(("##color" + std::to_string(id)).c_str(), imColor,
+                               ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoBorder,
+                               ImVec2(20, 20));
 
-        ImGui::SameLine();
-        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 0, 0, 255)); // Black text
-        ImGui::Text("Plate ID: %d", id);
-        ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::Text("Plate ID: %d", id);
+        }
+        if (renderSettings.copyPlateData && guiPlateData[id].size > 0)
+        {
+            ImGui::Text("Mass: %.3f", guiPlateData[id].mass);
+            ImGui::Text("Size: %d", guiPlateData[id].size);
+            ImGui::Text("Velocity: %.3f", guiPlateData[id].velocity);
+            ImGui::Text("Direction: (%.3f, %.3f)", guiPlateData[id].direction.x, guiPlateData[id].direction.y);
+
+            std::ostringstream continental_ss;
+            for (int i = 0; i < guiPlateData[id].continental_len; ++i)
+            {
+                if (i > 0) continental_ss << ", ";
+                continental_ss << guiPlateData[id].continental[i];
+            }
+            std::string continental = continental_ss.str();
+
+            std::ostringstream subductions_ss;
+            for (int i = 0; i < guiPlateData[id].subduction_len; ++i)
+            {
+                if (i > 0) subductions_ss << ", ";
+                subductions_ss << guiPlateData[id].subductions[i];
+            }
+            std::string subductions = subductions_ss.str();
+
+            ImGui::Text("Continental collisions: (%s)", continental.c_str());
+            ImGui::Text("Subductions collisions: (%s)", subductions.c_str());
+        }
     }
+
+    if (pushed)
+        ImGui::PopStyleColor();
 
     ImGui::EndChild();
 
@@ -167,6 +227,9 @@ void Gui::renderSettingsSection()
                 if (ImGui::RadioButton("Render Raw Borders", &renderSettings.borderRenderMode,
                                        RenderSettings::BorderRenderMode::RAW_BORDER))
                     renderSettings.callCallback("renderSettingsChanged");
+                if (ImGui::RadioButton("Render Collision Borders", &renderSettings.borderRenderMode,
+                                       RenderSettings::BorderRenderMode::COLLISIONS))
+                    renderSettings.callCallback("renderSettingsChanged");
                 ImGui::Unindent(15.0f);
             }
 
@@ -198,12 +261,37 @@ void Gui::simulationSettingsSection()
         ImGui::Indent(15);
         if (ImGui::CollapsingHeader("Plate Properties"))
         {
+            if (ImGui::CollapsingHeader("Collision Momentum Properties"))
+            {
+                ImGui::Indent(15);
+
+                // e.g. ImGui Slider to update newSettings
+                ImGui::SetNextItemWidth(250);
+                ImGui::DragFloat("Inelastic Subduction Collision Multiplier",
+                                 &newSettings.inelasticCollisionMultiplierSubduction, 0.0005f, 0.f,
+                                 1.f);
+                ImGui::SetNextItemWidth(250);
+                ImGui::DragFloat("Inelastic Continental Collision Multiplier",
+                                 &newSettings.inelasticCollisionMultiplierContinental, 0.0005f, 0.f,
+                                 1.f);
+                ImGui::SetNextItemWidth(250);
+                ImGui::DragFloat("Subduction Friction Coefficient", &newSettings.frictionCoefficientSubduction, 0.0005f,
+                                 0.f,
+                                 5.f);
+                ImGui::SetNextItemWidth(250);
+                ImGui::DragFloat("Continental Friction Coefficient", &newSettings.frictionCoefficientContinental,
+                                 0.0005f, 0.f,
+                                 5.f);
+                ImGui::SetNextItemWidth(250);
+                ImGui::DragFloat("Environmental Drag Coefficient", &newSettings.environmentalDragCoefficient, 0.0001,
+                                 0.f, 1.f, "%.4f");
+
+                ImGui::Unindent(15.0f);
+            }
+
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Continental Crust Threshold", &newSettings.continentalCrustThreshold, 0.05f, 1.f, 250.f);
-            // e.g. ImGui Slider to update newSettings
-            ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Inelastic Collision Multiplier", &newSettings.inelasticCollisionMultiplier, 0.005f, 0.f,
-                             20.f);
+
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Merge Direction Dot Min Threshold", &newSettings.mergeDotDirectionThreshold, 0.001f, 0.0f,
                              1.f);

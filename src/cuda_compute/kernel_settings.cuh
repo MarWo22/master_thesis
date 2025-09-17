@@ -3,7 +3,12 @@
 
 struct KernelSettings
 {
-    float inelasticCollisionMultiplier = 10.f;
+    float inelasticCollisionMultiplierContinental = 1.f;
+    float inelasticCollisionMultiplierSubduction = 0.25f;
+    float environmentalDragCoefficient = 0.005f;
+    float frictionCoefficientContinental = 1.f;
+    float frictionCoefficientSubduction = 0.2f;
+
     float mergeDotDirectionThreshold = .995f;
     float mergeVelocityDiffThreshold = 0.025f;
     int minPlateSize = 10;
@@ -23,7 +28,9 @@ struct KernelSettings
 
     bool operator==(const KernelSettings &other) const
     {
-        return inelasticCollisionMultiplier == other.inelasticCollisionMultiplier &&
+        return inelasticCollisionMultiplierContinental == other.inelasticCollisionMultiplierContinental &&
+               inelasticCollisionMultiplierSubduction == other.inelasticCollisionMultiplierSubduction &&
+               environmentalDragCoefficient == other.environmentalDragCoefficient &&
                mergeDotDirectionThreshold == other.mergeDotDirectionThreshold &&
                mergeVelocityDiffThreshold == other.mergeVelocityDiffThreshold &&
                minPlateSize == other.minPlateSize &&

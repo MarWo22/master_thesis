@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <string>
 
-
+#include "cuda_compute/types/vec2.cuh"
 
 class  RenderSettings {
       std::unordered_map<std::string, std::vector<std::function<void()>>> m_callbacks;
@@ -30,7 +30,8 @@ public:
       {
             NO_BORDER,
             RAW_BORDER,
-            SMOOTH_BORDER
+            SMOOTH_BORDER,
+            COLLISIONS
       };
 
       bool renderHeight = true;
@@ -45,6 +46,9 @@ public:
       int renderMode = NORMAL;
       int shadingMode = NORMAL_SHADING;
       int borderRenderMode = NO_BORDER;
+
+      bool copyPlateData = false;
+
 
       void registerCallback(const std::string &ident, const std::function<void()> &);
       void callCallback(const std::string &ident);
@@ -75,5 +79,16 @@ struct SaveTextureGui
       std::function<void()> saveTextureCallback;
 };
 
+struct GuiPlateData
+{
+      float mass{};
+      int size{};
+      float velocity{};
+      Vec2<float> direction;
+      int subductions[256]{};   // fixed-size array
+      int continental[256]{};   // fixed-size array
+      int subduction_len{};
+      int continental_len{};
+};
 
 #endif //GENERATION_SETTINGS_H
