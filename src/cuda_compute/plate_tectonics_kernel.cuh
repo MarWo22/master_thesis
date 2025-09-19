@@ -57,10 +57,11 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
 __global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *plateLookup,
                                 const CudaTexture<uint8_t> *r_plateIdsPtr, float4 *samples);
 
-__global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, const Vec2<float> r_pivot,
+
+__global__ void findPlausibleSplitLine(const uint8_t highestStressPlateId, const Vec2<float> r_pivot,
                                        const CudaTexture<uint8_t> *r_plateIdsPtr, Vec2<float> *output);
 
-__global__ void splitPlate(const IterationStatistics *r_stats, const uint8_t *r_newPlateId, const Vec2<float> r_pivot,
+__global__ void splitPlate(const uint8_t highestStressPlateId, const uint8_t *r_newPlateId, const Vec2<float> r_pivot,
                            const Vec2<float> *r_dir, CudaTexture<uint8_t> *r_plateIdsPtr, PlateData *plateLookup);
 
 __global__ void selectUnusedPlateId(PlateData *plateLookup, uint8_t *plateId);
@@ -143,7 +144,9 @@ __global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr
                                        const CudaTexture<float> *r_bufferPtr,
                                        CudaTexture<float> *w_pressurePtr);
 
-__global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_Material, CudaTexture<float>* w_stressPtr);
+__global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_Material, CudaTexture<float>* w_stressPtr, const CudaTexture<uint8_t>* r_plateIdsPtr, const PlateData* r_plateData);
+
+__global__ void computePerimeterAreaRatios(PlateData *w_plateData);
 
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
 

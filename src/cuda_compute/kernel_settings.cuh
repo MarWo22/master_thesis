@@ -28,12 +28,15 @@ struct KernelSettings
     float pressureDecayRate = 0.8f;          // How fast pressure decays at fault lines
     int pressureBlurRange = 25;              // Range for pressure distance field propagation
     float pressureMultiplier = 1.0f;         // Final pressure application multiplier
+    float stressSplitThreshold = 0.07f;      // Stress threshold for plate splitting
 
     // Thermal erosion parameters
     float thermalErosionStrength = 1.0f;    // Strength of thermal erosion smoothing
     float thermalErosionAmplitude = 0.5f;     // Increased for 1km scale - more material movement
     float thermalCellSize = 1000.0f;          // 1000m (1km) cell size
     float thermalThresholdAngle = 0.5f;       // Tangent of the threshold angle for erosion
+    
+    // Precomputed Gaussian weights will be defined as constants
 
     bool operator==(const KernelSettings &other) const
     {
@@ -57,6 +60,7 @@ struct KernelSettings
                pressureDecayRate == other.pressureDecayRate &&
                pressureBlurRange == other.pressureBlurRange &&
                pressureMultiplier == other.pressureMultiplier &&
+               stressSplitThreshold == other.stressSplitThreshold &&
                thermalErosionStrength == other.thermalErosionStrength &&
                thermalErosionAmplitude == other.thermalErosionAmplitude &&
                thermalCellSize == other.thermalCellSize &&

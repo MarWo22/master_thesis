@@ -118,6 +118,9 @@ void Gui::renderSettingsSection()
             if (ImGui::Checkbox("Show Plate Directions", &renderSettings.renderDirections))
                 renderSettings.callCallback("renderSettingsChanged");
 
+            if (ImGui::Checkbox("Show Stress Peaks", &renderSettings.renderStressPeaks))
+                renderSettings.callCallback("renderSettingsChanged");
+
 
 
             ImGui::SetNextItemWidth(250);
@@ -203,6 +206,8 @@ void Gui::simulationSettingsSection()
             ImGui::DragInt("Pressure Blur Range", &newSettings.pressureBlurRange, 1, 1, 100);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Pressure Multiplier", &newSettings.pressureMultiplier, 0.01f, 0.f, 10.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Stress Split Threshold", &newSettings.stressSplitThreshold, 1.0f, 1.0f, 200.0f);
         }
 
         ImGui::Unindent(15.0f);

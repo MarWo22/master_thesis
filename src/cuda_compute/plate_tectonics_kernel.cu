@@ -14,6 +14,19 @@
 #include "types/distance_field_buffer.h"
 
 
+// Precomputed Gaussian weights for range -8 to +8 (sigma = 2.0)
+__constant__ float GAUSSIAN_WEIGHTS[17] = {
+    0.0003f, 0.0013f, 0.0044f, 0.0122f, 0.0273f, 0.0540f, 0.0958f, 0.1515f, 0.2120f,
+    0.2595f,
+    0.2120f, 0.1515f, 0.0958f, 0.0540f, 0.0273f, 0.0122f, 0.0044f
+};
+
+// Helper function to get Gaussian weight for given offset
+__device__ float getGaussianWeight(int offset) {
+    if (abs(offset) > 8) return 0.0f;
+    return GAUSSIAN_WEIGHTS[offset + 8]; // Convert offset to array index
+}
+
 // These should become dynamic or as input parameters:
 
 __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr,
@@ -93,6 +106,7 @@ __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
 {
     __shared__ float localMassSum[MAX_PLATE_COUNT];
     __shared__ int localSize[MAX_PLATE_COUNT];
+    __shared__ int localPerimeter[MAX_PLATE_COUNT];
 
     CudaTexture<uint8_t> &rw_idTexture = *rw_idTexturePtr;
 
@@ -104,6 +118,7 @@ __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
     {
         localMassSum[threadIdx.x] = 0;
         localSize[threadIdx.x] = 0;
+        localPerimeter[threadIdx.x] = 0;
     }
 
     __syncthreads();
@@ -117,11 +132,46 @@ __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
         plateID = mergedPlateID;
     }
 
-
     const float pixelHeight = (*r_heightTexturePtr)[invokeIndex];
+    const Vec2<int> coord = rw_idTexture.indexToCoordinate(invokeIndex);
+    const Vec2<int> mapSize = rw_idTexture.size();
 
     atomicAdd(&localMassSum[plateID], pixelHeight);
     atomicAdd(&localSize[plateID], 1);
+
+    // Check if this pixel is on the plate boundary for perimeter calculation
+    bool isBoundary = false;
+    
+    // Check 4-connected neighbors (N, E, S, W)
+    const Vec2<int> offsets[] = {
+        {0, -1}, {1, 0}, {0, 1}, {-1, 0}
+    };
+    
+    for (int i = 0; i < 4; i++)
+    {
+        const Vec2<int> neighborCoord = coord + offsets[i];
+     
+        // Check if neighbor belongs to different plate
+        uint8_t neighborPlateId = rw_idTexture[neighborCoord];
+        
+        // Apply same merging logic to neighbor
+        if (const uint8_t mergedNeighborId = r_plateMergeIds[neighborPlateId]; mergedNeighborId != MAX_PLATE_COUNT)
+        {
+            neighborPlateId = mergedNeighborId;
+        }
+        
+        if (neighborPlateId != plateID)
+        {
+            isBoundary = true;
+            break;
+        }
+    }
+    
+    // If this pixel is on the boundary, increment the perimeter count
+    if (isBoundary)
+    {
+        atomicAdd(&localPerimeter[plateID], 1);
+    }
 
     __syncthreads();
     if (threadIdx.x < MAX_PLATE_COUNT)
@@ -130,6 +180,8 @@ __global__ void finalPixelPass(CudaTexture<uint8_t> *rw_idTexturePtr,
             atomicAdd(&w_plateData[threadIdx.x].mass, localMassSum[threadIdx.x]);
         if (localSize[threadIdx.x] != 0)
             atomicAdd(&w_plateData[threadIdx.x].size, localSize[threadIdx.x]);
+        if (localPerimeter[threadIdx.x] != 0)
+            atomicAdd(&w_plateData[threadIdx.x].perimeter, localPerimeter[threadIdx.x]);
     }
 }
 
@@ -154,7 +206,7 @@ __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idText
     __syncthreads();
     const int plateID = r_idTexture[invokeIndex];
     const float pixelHeight = (*r_heightTexturePtr)[invokeIndex];
-
+    
     atomicAdd(&localSizeCounts[plateID], 1);
     atomicAdd(&localMassSum[plateID], pixelHeight);
 
@@ -627,8 +679,8 @@ __device__ float verticalBlurPass(const CudaTexture<float> &sourceTexture,
         
         if (validator(sample, i))
         {
-            // Gaussian weight - closer samples have higher weight
-            float weight = expf(-0.5f * (float)(i * i) / (float)(range * range / 4));
+            // Use precomputed Gaussian weight
+            float weight = getGaussianWeight(i);
             sum += sourceTexture[sample] * weight;
             weightSum += weight;
         }
@@ -653,8 +705,8 @@ __device__ float horizontalBlurPass(const CudaTexture<float> &sourceTexture,
         
         if (validator(sample, i))
         {
-            // Gaussian weight - closer samples have higher weight
-            float weight = expf(-0.5f * (float)(i * i) / (float)(range * range / 4));
+            // Use precomputed Gaussian weight
+            float weight = getGaussianWeight(i);
             sum += sourceTexture[sample] * weight;
             weightSum += weight;
         }
@@ -758,6 +810,7 @@ __global__ void updatePlateData(PlateData *plateLookup, const Vec2<int> callSize
 
     current.mass = 0; // Will be updated in the next pixel kernel.
     current.size = 0; // Will be updated in the next pixel kernel.
+    current.perimeter = 0; // Will be updated in the next pixel kernel.
     current.used = false;
 
     plateLookup[invokeIndex] = current;
@@ -1008,7 +1061,7 @@ __device__ Vec2<float> getDirForInvokeIndex(int index, Vec2<float> start, int n)
         (start.x * s) - (start.y * c));
 }
 
-__global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, const Vec2<float> r_pivot,
+__global__ void findPlausibleSplitLine(const uint8_t highestStressPlateId, const Vec2<float> r_pivot,
                                        const CudaTexture<uint8_t> *r_plateIdsPtr, Vec2<float> *output)
 {
     extern __shared__ float w_l_buffer[];
@@ -1023,7 +1076,7 @@ __global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, const
     Vec2<float> dir = getDirForInvokeIndex(invokeIndex, baseDir, n);
 
     float stepsize = 10.0f;
-    uint8_t foundPlate = r_stats->largestPlateId;
+    uint8_t foundPlate = highestStressPlateId;
     Vec2<float> point = r_pivot + dir * stepsize;
     float distance = stepsize;
 
@@ -1031,7 +1084,7 @@ __global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, const
     while (iterations < 100 && stepsize > minStepsize)
     {
         foundPlate = r_plateIds[Vec2<int>(point.x, point.y)];
-        if (foundPlate == r_stats->largestPlateId)
+        if (foundPlate == highestStressPlateId)
         {
             point += dir * stepsize;
             distance += stepsize;
@@ -1084,12 +1137,11 @@ __global__ void findPlausibleSplitLine(const IterationStatistics *r_stats, const
 
         *output = getDirForInvokeIndex(thread, baseDir, n);
 
-        printf("PlateId: %.i score: %.2f pivot: %.2f %.2f size: %.i \n", r_stats->largestPlateId, best, output->x,
-               output->y, r_stats->largestValue);
+        printf("PlateId: %.i score: %.2f pivot: %.2f %.2f \n", highestStressPlateId, best, output->x, output->y);
     }
 }
 
-__global__ void splitPlate(const IterationStatistics *r_stats, const uint8_t *r_newPlateId, const Vec2<float> r_pivot,
+__global__ void splitPlate(const uint8_t highestStressPlateId, const uint8_t *r_newPlateId, const Vec2<float> r_pivot,
                            const Vec2<float> *r_dir, CudaTexture<uint8_t> *w_plateIdsPtr, PlateData *plateLookup)
 {
     const unsigned int invokeIndex = getInvokeIndex();
@@ -1098,25 +1150,25 @@ __global__ void splitPlate(const IterationStatistics *r_stats, const uint8_t *r_
 
     if (invokeIndex == 0)
     {
-        printf("splitting from %.i to %.i \n", r_stats->largestPlateId, *r_newPlateId);
+        printf("splitting from %.i to %.i \n", highestStressPlateId, *r_newPlateId);
 
         //plateLookup[*r_newPlateId].direction += Vec2<float>(r_dir->y, -r_dir->x);
         //plateLookup[*r_newPlateId].direction = plateLookup[*r_newPlateId].direction.normalized();
 
-        plateLookup[*r_newPlateId].mass = plateLookup[r_stats->largestPlateId].mass * 0.5;
-        plateLookup[*r_newPlateId].size = plateLookup[r_stats->largestPlateId].size * 0.5;
-        //plateLookup[*r_newPlateId].velocity = plateLookup[r_stats->largestPlateId].velocity * 1.1;
+        plateLookup[*r_newPlateId].mass = plateLookup[highestStressPlateId].mass * 0.5;
+        plateLookup[*r_newPlateId].size = plateLookup[highestStressPlateId].size * 0.5;
+        //plateLookup[*r_newPlateId].velocity = plateLookup[highestStressPlateId].velocity * 1.1;
 
-        //plateLookup[r_stats->largestPlateId].direction += Vec2<float>(-r_dir->y, r_dir->x);
-        //plateLookup[r_stats->largestPlateId].direction = plateLookup[r_stats->largestPlateId].direction.normalized();
+        //plateLookup[highestStressPlateId].direction += Vec2<float>(-r_dir->y, r_dir->x);
+        //plateLookup[highestStressPlateId].direction = plateLookup[highestStressPlateId].direction.normalized();
 
-        plateLookup[r_stats->largestPlateId].mass *= 0.5;
-        plateLookup[r_stats->largestPlateId].size *= 0.5;
+        plateLookup[highestStressPlateId].mass *= 0.5;
+        plateLookup[highestStressPlateId].size *= 0.5;
 
-        //plateLookup[r_stats->largestPlateId].velocity *= 1.1;
+        //plateLookup[highestStressPlateId].velocity *= 1.1;
     }
 
-    if (w_plateIds[invokeIndex] == r_stats->largestPlateId)
+    if (w_plateIds[invokeIndex] == highestStressPlateId)
     {
         const Vec2<int> coordinate = w_plateIds.indexToCoordinate(invokeIndex);
 
@@ -1434,17 +1486,50 @@ __global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr
     w_pressure[invokeIndex] = processedPressure * kernelSettings.pressureMultiplier;
 }
 
-__global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_MaterialPtr, CudaTexture<float>* w_stressPtr)
+__global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_MaterialPtr, CudaTexture<float>* w_stressPtr, const CudaTexture<uint8_t>* r_plateIdsPtr, const PlateData* r_plateData)
 {
     const CudaTexture<float>& r_pressure = *r_pressurePtr;
     const CudaTexture<float>& r_material = *r_MaterialPtr;
     CudaTexture<float>& w_stress = *w_stressPtr;
+    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_pressure.size()))
         return;
 
-    w_stress[invokeIndex] = r_pressure[invokeIndex] / max(r_material[invokeIndex], 1.0f);
+    const uint8_t plateId = r_plateIds[invokeIndex];
+    const PlateData plateData = r_plateData[plateId];
+    
+    float baseStress = r_pressure[invokeIndex] / max(r_material[invokeIndex] * 0.1, 1.0f);
+    //w_stress[invokeIndex] = baseStress * plateData.breakScore;
+    w_stress[invokeIndex] = plateData.breakScore;
+
+}
+
+__global__ void computePerimeterAreaRatios(PlateData *w_plateData)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (invokeIndex >= MAX_PLATE_COUNT)
+        return;
+        
+    PlateData &plateData = w_plateData[invokeIndex];
+
+    if (plateData.size > 0) {
+        float area = static_cast<float>(plateData.size);
+        float perimeter = static_cast<float>(plateData.perimeter);
+        
+        float circularity = 1.0f - ((2 * CURAND_2PI * area) / (perimeter * perimeter));
+
+        float areaIncrease = area * 0.000f;
+
+        printf("area: %.4f \n", areaIncrease);
+
+        plateData.breakScore = circularity + areaIncrease; // circularity formula? need to include in research. 
+    } else {
+        plateData.breakScore = 1.0f;
+    }
+
+    printf("score: %.4f \n", plateData.breakScore);
 }
 
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr)

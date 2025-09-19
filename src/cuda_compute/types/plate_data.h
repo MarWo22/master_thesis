@@ -10,12 +10,16 @@ struct PlateData
     Vec2<float> velocityChange;
     int size;
     float mass;
+    int perimeter;
+    float breakScore;
     bool used;
 
     __host__ __device__ PlateData()
         : velocity(0)
         , size(0)
         , mass(0)
+        , perimeter(0)
+        , breakScore(1.0f)
         , used(false)
     {}
 };
