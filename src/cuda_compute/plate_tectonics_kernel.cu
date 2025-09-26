@@ -14,17 +14,13 @@
 #include "types/distance_field_buffer.h"
 
 
-// Precomputed Gaussian weights for range -8 to +8 (sigma = 2.0)
-__constant__ float GAUSSIAN_WEIGHTS[17] = {
-    0.0003f, 0.0013f, 0.0044f, 0.0122f, 0.0273f, 0.0540f, 0.0958f, 0.1515f, 0.2120f,
-    0.2595f,
-    0.2120f, 0.1515f, 0.0958f, 0.0540f, 0.0273f, 0.0122f, 0.0044f
-};
+// Helper function to get linear weight for given offset
+__device__ float getLinearWeight(int offset, int range) {
+    int absOffset = abs(offset);
+    if (absOffset > range) return 0.0f;
 
-// Helper function to get Gaussian weight for given offset
-__device__ float getGaussianWeight(int offset) {
-    if (abs(offset) > 8) return 0.0f;
-    return GAUSSIAN_WEIGHTS[offset + 8]; // Convert offset to array index
+    // Linear falloff: weight = 1.0 at center, 0.0 at range
+    return 1.0f - (float(absOffset) / float(range));
 }
 
 // These should become dynamic or as input parameters:
@@ -679,8 +675,8 @@ __device__ float verticalBlurPass(const CudaTexture<float> &sourceTexture,
         
         if (validator(sample, i))
         {
-            // Use precomputed Gaussian weight
-            float weight = getGaussianWeight(i);
+            // Use linear weight
+            float weight = getLinearWeight(i, range);
             sum += sourceTexture[sample] * weight;
             weightSum += weight;
         }
@@ -705,8 +701,8 @@ __device__ float horizontalBlurPass(const CudaTexture<float> &sourceTexture,
         
         if (validator(sample, i))
         {
-            // Use precomputed Gaussian weight
-            float weight = getGaussianWeight(i);
+            // Use linear weight
+            float weight = getLinearWeight(i, range);
             sum += sourceTexture[sample] * weight;
             weightSum += weight;
         }
@@ -1004,22 +1000,24 @@ __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr
     w_direction[invokeIndex] = {direction.x, direction.y};
 }
 
-__global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *plateLookup,
-                                const CudaTexture<uint8_t> *r_plateIdsPtr, float4 *samples)
+__global__ void accumulatePlateAngularCoords(const CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float4> *w_plateAngularSumsPtr, CudaTexture<int> *w_plateCountsPtr)
 {
-    __shared__ float4 angularCoords[256];
+    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
+    CudaTexture<float4> &w_plateAngularSums = *w_plateAngularSumsPtr;
+    CudaTexture<int> &w_plateCounts = *w_plateCountsPtr;
+
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, r_plateIdsPtr->size()))
+    if (!isWithinBounds(invokeIndex, r_plateIds.size()))
         return;
 
-    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
-    Vec2<int> coord = r_plateIds.indexToCoordinate(invokeIndex);
-
-    uint8_t currentId = r_plateIds[invokeIndex];
-    if (coord.x % 10 == 0 && coord.y % 10 == 0 && currentId == r_stats->largestPlateId)
+    // Sample every 10th pixel for efficiency (sparse sampling)
+    const Vec2<int> coord = r_plateIds.indexToCoordinate(invokeIndex);
+    if (coord.x % 10 == 0 && coord.y % 10 == 0)
     {
-        Vec2<float> floatCoord = Vec2<float>(coord.x, coord.y);
+        const uint8_t plateId = r_plateIds[invokeIndex];
+        const Vec2<float> floatCoord = Vec2<float>(coord.x, coord.y);
 
+        // Convert to angular coordinates for wrapping support
         float angleX = CURAND_2PI * floatCoord.x / r_plateIds.size().x;
         float angleY = CURAND_2PI * floatCoord.y / r_plateIds.size().y;
 
@@ -1028,25 +1026,49 @@ __global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *p
         float sinY = sinf(angleY);
         float cosY = cosf(angleY);
 
-        angularCoords[threadIdx.x] = make_float4(sinX, cosX, sinY, cosY);
-    } else
-    {
-        angularCoords[threadIdx.x] = make_float4(0, 0, 0, 0);
+        // Accumulate angular coordinates for this plate
+        atomicAdd(&w_plateAngularSums[plateId].x, sinX);
+        atomicAdd(&w_plateAngularSums[plateId].y, cosX);
+        atomicAdd(&w_plateAngularSums[plateId].z, sinY);
+        atomicAdd(&w_plateAngularSums[plateId].w, cosY);
+        atomicAdd(&w_plateCounts[plateId], 1);
     }
+}
 
-    __syncthreads();
+__global__ void calculatePlateCenters(const CudaTexture<uint8_t> *r_plateIdsPtr,
+                                    const CudaTexture<float4> *r_plateAngularSumsPtr, const CudaTexture<int> *r_plateCountsPtr,
+                                    PlateData *w_plateData)
+{
+    const unsigned int plateId = getInvokeIndex();
+    if (plateId >= MAX_PLATE_COUNT)
+        return;
 
-    if (threadIdx.x == 0)
+    const CudaTexture<float4> &r_plateAngularSums = *r_plateAngularSumsPtr;
+    const CudaTexture<int> &r_plateCounts = *r_plateCountsPtr;
+    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+
+    // Only process plates that have samples
+    if (r_plateCounts[plateId] > 0)
     {
-        float4 sum = {};
-        for (int i = 0; i < blockDim.x; ++i)
-        {
-            sum.x += angularCoords[i].x;
-            sum.y += angularCoords[i].y;
-            sum.z += angularCoords[i].z;
-            sum.w += angularCoords[i].w;
-        }
-        samples[blockIdx.x] = sum;
+        const float4 angularSums = r_plateAngularSums[plateId];
+        const int count = r_plateCounts[plateId];
+
+        float4 avgAngular;
+        avgAngular.x = angularSums.x / count;
+        avgAngular.y = angularSums.y / count;
+        avgAngular.z = angularSums.z / count;
+        avgAngular.w = angularSums.w / count;
+
+        // Convert back to Cartesian coordinates
+        float centerX = atan2f(avgAngular.x, avgAngular.y) * r_plateIds.size().x / CURAND_2PI;
+        float centerY = atan2f(avgAngular.z, avgAngular.w) * r_plateIds.size().y / CURAND_2PI;
+
+        // Handle negative angles
+        if (centerX < 0) centerX += r_plateIds.size().x;
+        if (centerY < 0) centerY += r_plateIds.size().y;
+
+        // Store in geometricCenter field
+        w_plateData[plateId].geometricCenter = Vec2<float>(centerX, centerY);
     }
 }
 
@@ -1402,17 +1424,17 @@ __global__ void evaporate(CudaTexture<float>* w_hydrationPtr, float deltatime)
     hydration[idx] = fmaxf(0.0f, hydration[idx] - (fminf(hydration[idx], 20) * kernelSettings.hydrationEvaporation * deltatime));
 }
 
-// Step 1: Accumulate pressure and reset at fault lines
+// Step 1: Accumulate pressure and reset at fault lines (using rain-like accumulation)
 __global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr)
 {
     CudaTexture<float>& r_pressure = *r_pressurePtr;
     CudaTexture<float>& w_pressure = *w_pressurePtr;
     CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
-    
+
     unsigned int idx = getInvokeIndex();
     if (!isWithinBounds(idx, r_pressure.size()))
         return;
-        
+
     Vec2<int> coord = getTextureIndex(r_pressurePtr->size());
     uint8_t plateId = r_plateIds[idx];
 
@@ -1423,14 +1445,14 @@ __global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaText
     isFault = isFault || plateId != r_plateIds[coord + Vec2<int>(-1, 0)];
     isFault = isFault || plateId != r_plateIds[coord + Vec2<int>(0, -1)];
 
-    if (isFault) 
+    if (isFault)
     {
         // Pressure is released at fault lines
         w_pressure[idx] = 0;
     }
     else
     {
-        // Accumulate pressure in plate interiors
+        // Accumulate pressure like rain accumulates hydration
         w_pressure[idx] = r_pressure[idx] + kernelSettings.pressureAccumulation;
     }
 }
@@ -1497,12 +1519,16 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
     if (!isWithinBounds(invokeIndex, r_pressure.size()))
         return;
 
+    const Vec2<int> coord = getTextureIndex(w_stress.size());
     const uint8_t plateId = r_plateIds[invokeIndex];
     const PlateData plateData = r_plateData[plateId];
     
     float baseStress = r_pressure[invokeIndex] / max(r_material[invokeIndex] * 0.1, 1.0f);
-    //w_stress[invokeIndex] = baseStress * plateData.breakScore;
-    w_stress[invokeIndex] = plateData.breakScore;
+
+    float distanceToCenter = plateData.geometricCenter.distance(Vec2<float>(coord.x, coord.y));
+    float distanceScore = 1.0f / (0.01f * distanceToCenter + 1.0f);
+    w_stress[invokeIndex] = baseStress * plateData.breakScore * distanceScore;
+    //w_stress[invokeIndex] = plateData.breakScore;
 
 }
 

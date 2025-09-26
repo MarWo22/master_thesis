@@ -97,6 +97,14 @@ void PlateTectonicSim::executeIteration()
     // Compute perimeter-area ratios after finalPixelPass updates the plate data
     computePerimeterAreaRatios<<<MAX_PLATE_COUNT, 1>>>(m_plateDataLookup->getPointer());
 
+    
+    auto plateAngularSums = m_textureManager.generateTexture<float4>(MAX_PLATE_COUNT, 1);
+    auto plateCounts = m_textureManager.generateTexture<int>(MAX_PLATE_COUNT, 1);
+    
+    accumulatePlateAngularCoords<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), plateAngularSums->deviceTexture(), plateCounts->deviceTexture());
+    cudaDeviceSynchronize();
+    calculatePlateCenters<<<MAX_PLATE_COUNT, 1>>>(m_plateIdsTexture->deviceTexture(), plateAngularSums->deviceTexture(), plateCounts->deviceTexture(), m_plateDataLookup->getPointer());
+
     statisticsPass<<<1, 1>>>(m_plateDataLookup->getPointer(), m_iterationStats->getPointer());
 
     processPlateSplitting();
@@ -421,7 +429,7 @@ void PlateTectonicSim::processPlateSplitting()
 
 Vec2<float> PlateTectonicSim::getPlateCenter()
 {
-    auto d_samples = m_textureManager.generateTexture<float4>(m_numBlocksPixels, 1);
+    /*auto d_samples = m_textureManager.generateTexture<float4>(m_numBlocksPixels, 1);
     findPlateCenter<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_iterationStats->getPointer(),
                                                               m_plateDataLookup->getPointer(),
                                                               m_plateIdsTexture->deviceTexture(),
@@ -447,9 +455,11 @@ Vec2<float> PlateTectonicSim::getPlateCenter()
     const float midX = m_width * angleX / CURAND_2PI;
     const float midY = m_height * angleY / CURAND_2PI;
 
-    delete[] h_samples;
+    delete[] h_samples;*/
 
-    return Vec2(midX, midY);
+    //return Vec2(midX, midY);
+
+    return Vec2<float>(0, 0);
 }
 
 void PlateTectonicSim::copyDirectionGL() const

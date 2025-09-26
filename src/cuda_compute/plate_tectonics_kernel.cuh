@@ -54,8 +54,12 @@ __global__ void createVelocityTexture(const CudaTexture<uint8_t> *r_plateIdsPtr,
 __global__ void createDirectionTexture(const CudaTexture<uint8_t> *r_plateIdsPtr, const PlateData *r_plateData,
                                        CudaTexture<float2> *w_directionPtr);
 
-__global__ void findPlateCenter(const IterationStatistics *r_stats, PlateData *plateLookup,
-                                const CudaTexture<uint8_t> *r_plateIdsPtr, float4 *samples);
+__global__ void accumulatePlateAngularCoords(const CudaTexture<uint8_t> *r_plateIdsPtr,
+                                           CudaTexture<float4> *w_plateAngularSumsPtr, CudaTexture<int> *w_plateCountsPtr);
+
+__global__ void calculatePlateCenters(const CudaTexture<uint8_t> *r_plateIdsPtr,
+                                    const CudaTexture<float4> *r_plateAngularSumsPtr, const CudaTexture<int> *r_plateCountsPtr,
+                                    PlateData *w_plateData);
 
 
 __global__ void findPlausibleSplitLine(const uint8_t highestStressPlateId, const Vec2<float> r_pivot,
@@ -149,5 +153,8 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
 __global__ void computePerimeterAreaRatios(PlateData *w_plateData);
 
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
+
+__global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePtr,
+                                          const CudaTexture<uint8_t> *r_plateIdsPtr);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH

@@ -193,7 +193,7 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Thermal Cell Size", &newSettings.thermalCellSize, 0.1f, 0.1f, 5.f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Thermal Threshold Angle", &newSettings.thermalThresholdAngle, 0.01f, 0.f, 2.f);
+            ImGui::DragFloat("Thermal Threshold Angle", &newSettings.thermalThresholdAngle, 0.01f, 0.01f, 2.f);
         }
 
         if (ImGui::CollapsingHeader("Pressure Properties"))
