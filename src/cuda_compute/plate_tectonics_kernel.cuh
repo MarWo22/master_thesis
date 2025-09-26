@@ -150,7 +150,7 @@ __global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr
 
 __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_Material, CudaTexture<float>* w_stressPtr, const CudaTexture<uint8_t>* r_plateIdsPtr, const PlateData* r_plateData);
 
-__global__ void computePerimeterAreaRatios(PlateData *w_plateData);
+__global__ void computeBreakScore(PlateData *w_plateData);
 
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
 

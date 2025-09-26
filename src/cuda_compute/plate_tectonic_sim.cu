@@ -95,7 +95,7 @@ void PlateTectonicSim::executeIteration()
                                                              m_plateDataLookup->getPointer());
 
     // Compute perimeter-area ratios after finalPixelPass updates the plate data
-    computePerimeterAreaRatios<<<MAX_PLATE_COUNT, 1>>>(m_plateDataLookup->getPointer());
+    computeBreakScore<<<MAX_PLATE_COUNT, 1>>>(m_plateDataLookup->getPointer());
 
     
     auto plateAngularSums = m_textureManager.generateTexture<float4>(MAX_PLATE_COUNT, 1);

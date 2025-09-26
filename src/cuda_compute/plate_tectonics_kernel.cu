@@ -1532,7 +1532,7 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
 
 }
 
-__global__ void computePerimeterAreaRatios(PlateData *w_plateData)
+__global__ void computeBreakScore(PlateData *w_plateData)
 {
     const unsigned int invokeIndex = getInvokeIndex();
     if (invokeIndex >= MAX_PLATE_COUNT)
@@ -1552,7 +1552,7 @@ __global__ void computePerimeterAreaRatios(PlateData *w_plateData)
 
         plateData.breakScore = circularity + areaIncrease; // circularity formula? need to include in research. 
     } else {
-        plateData.breakScore = 1.0f;
+        plateData.breakScore = 0.0f;
     }
 
     printf("score: %.4f \n", plateData.breakScore);
@@ -1609,4 +1609,33 @@ __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr)
             }
         }
     }
+}
+
+__global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePtr,
+                                          const CudaTexture<uint8_t> *r_plateIdsPtr)
+{
+    const CudaTexture<float> &r_pressure = *r_pressurePtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_pressure.size()))
+        return;
+
+    const Vec2<int> coord = r_pressure.indexToCoordinate(invokeIndex);
+
+    // Calculate gradient using central differences with automatic wrapping
+    Vec2<float> velocity = {0.0f, 0.0f};
+
+    // X-direction gradient
+    float leftPressure = r_pressure[r_pressure.coordinateToIndex({coord.x - 1, coord.y})];
+    float rightPressure = r_pressure[r_pressure.coordinateToIndex({coord.x + 1, coord.y})];
+    velocity.x = -(rightPressure - leftPressure) * 0.5f; // Negative for downward slope
+
+    // Y-direction gradient
+    float bottomPressure = r_pressure[r_pressure.coordinateToIndex({coord.x, coord.y - 1})];
+    float topPressure = r_pressure[r_pressure.coordinateToIndex({coord.x, coord.y + 1})];
+    velocity.y = -(topPressure - bottomPressure) * 0.5f; // Negative for downward slope
+
+    // For now, the result is calculated but not stored as requested
+    // The velocity vector represents the direction and magnitude of flow
+    // based on the pressure gradient (downward slope)
 }
