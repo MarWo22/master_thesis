@@ -1284,18 +1284,20 @@ __global__ void rain(CudaTexture<float> *w_hydrationPtr, float deltatime, unsign
 }
 
 __device__ float fluxSubComputation(const CudaTexture<float> r_material, const CudaTexture<float> r_hydration,
-                                    float flux, Vec2<int> coordinateSelf, Vec2<int> coordinateNeighbor, float deltatime)
+                                    float flux, Vec2<int> coordinateSelf, Vec2<int> coordinateNeighbor, float deltatime,
+                                    float pipeCrossSection, float gravity, float pipeLength)
 {
     float deltaHeight = r_material[coordinateSelf] + r_hydration[coordinateSelf] - r_material[coordinateNeighbor] -
                         r_hydration[coordinateNeighbor];
 
     return fmaxf(
-        0, flux + deltatime * kernelSettings.hydrationPipeCrossSection * (
-               (kernelSettings.gravity * deltaHeight) / kernelSettings.hydrationPipeLength));
+        0, flux + deltatime * pipeCrossSection * (
+               (gravity * deltaHeight) / pipeLength));
 }
 
 __global__ void flux(const CudaTexture<float> *r_materialPtr, const CudaTexture<float> *r_hydrationPtr,
-                     const CudaTexture<float4> *r_fluxPtr, CudaTexture<float4> *w_fluxPtr, float deltatime)
+                     const CudaTexture<float4> *r_fluxPtr, CudaTexture<float4> *w_fluxPtr, float deltatime,
+                     float pipeCrossSection, float gravity, float pipeLength)
 {
     const CudaTexture<float> &material = *r_materialPtr;
     const CudaTexture<float> &hydration = *r_hydrationPtr;
@@ -1309,13 +1311,13 @@ __global__ void flux(const CudaTexture<float> *r_materialPtr, const CudaTexture<
     float4 outflowFlux = make_float4(0, 0, 0, 0);
 
     outflowFlux.x = fluxSubComputation(material, hydration, current_f.x, coords, Vec2<int>(coords.x - 1, coords.y),
-                                       deltatime);
+                                       deltatime, pipeCrossSection, gravity, pipeLength);
     outflowFlux.y = fluxSubComputation(material, hydration, current_f.y, coords, Vec2<int>(coords.x, coords.y + 1),
-                                       deltatime);
+                                       deltatime, pipeCrossSection, gravity, pipeLength);
     outflowFlux.z = fluxSubComputation(material, hydration, current_f.z, coords, Vec2<int>(coords.x + 1, coords.y),
-                                       deltatime);
+                                       deltatime, pipeCrossSection, gravity, pipeLength);
     outflowFlux.w = fluxSubComputation(material, hydration, current_f.w, coords, Vec2<int>(coords.x, coords.y - 1),
-                                       deltatime);
+                                       deltatime, pipeCrossSection, gravity, pipeLength);
 
     float epsilon = 1e-6f;
     float fluxTotal = outflowFlux.x + outflowFlux.y + outflowFlux.z + outflowFlux.w + epsilon;
@@ -1332,7 +1334,8 @@ __global__ void flux(const CudaTexture<float> *r_materialPtr, const CudaTexture<
 }
 
 __global__ void flow(CudaTexture<float> *w_hydrationPtr, const CudaTexture<float4> *r_fluxPtr,
-                     CudaTexture<float4> *w_fluxPtr, CudaTexture<Vec2<float> > *w_velocityPtr, float deltatime)
+                     CudaTexture<float4> *w_fluxPtr, CudaTexture<Vec2<float> > *w_velocityPtr, float deltatime,
+                     float pipeLength)
 {
     CudaTexture<float> &hydration = *w_hydrationPtr;
     const CudaTexture<float4> &r_flux = *r_fluxPtr;
@@ -1354,7 +1357,7 @@ __global__ void flow(CudaTexture<float> *w_hydrationPtr, const CudaTexture<float
 
     float deltaVolume = deltatime * (flowIn - flowOut);
 
-    hydration[idx] = fmaxf(0.0f, hydration[idx] + deltaVolume / kernelSettings.hydrationPipeLength);
+    hydration[idx] = fmaxf(0.0f, hydration[idx] + deltaVolume / pipeLength);
 
     Vec2<float> netFlow;
 
@@ -1457,8 +1460,8 @@ __global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaText
     }
 }
 
-// Step 2: Vertical blur pass for pressure propagation
-__global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
+// Step 2: Vertical blur pass for pressure propagation (using flux-like calculations)
+__global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr,
                                      const CudaTexture<float> *r_pressurePtr,
                                      CudaTexture<float> *w_bufferPtr)
 {
@@ -1473,7 +1476,7 @@ __global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr,
     const Vec2<int> center = r_pressure.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
-    // Pressure propagates within the same plate only
+    // Pressure propagates within the same plate only (like flux constraints)
     auto validator = [&](const Vec2<int> &sample, int offset) -> bool {
         return r_plateIds[sample] == plateId;
     };
@@ -1481,8 +1484,8 @@ __global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr,
     w_buffer[invokeIndex] = verticalBlurPass(r_pressure, center, kernelSettings.pressureBlurRange, validator);
 }
 
-// Step 3: Horizontal blur pass for pressure propagation
-__global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
+// Step 3: Horizontal blur pass for pressure propagation (using flow-like calculations)
+__global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr,
                                        const CudaTexture<float> *r_bufferPtr,
                                        CudaTexture<float> *w_pressurePtr)
 {
@@ -1497,14 +1500,14 @@ __global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr
     const Vec2<int> center = r_buffer.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
-    // Pressure propagates within the same plate only
+    // Pressure propagates within the same plate only (like flow constraints)
     auto validator = [&](const Vec2<int> &sample, int offset) -> bool {
         return r_plateIds[sample] == plateId;
     };
 
     float processedPressure = horizontalBlurPass(r_buffer, center, kernelSettings.pressureBlurRange, validator);
-    
-    // Apply the processed pressure with multiplier
+
+    // Apply the processed pressure with multiplier (similar to flow calculations)
     w_pressure[invokeIndex] = processedPressure * kernelSettings.pressureMultiplier;
 }
 
@@ -1532,7 +1535,7 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
 
 }
 
-__global__ void computePerimeterAreaRatios(PlateData *w_plateData)
+__global__ void computeBreakScore(PlateData *w_plateData)
 {
     const unsigned int invokeIndex = getInvokeIndex();
     if (invokeIndex >= MAX_PLATE_COUNT)
@@ -1546,16 +1549,12 @@ __global__ void computePerimeterAreaRatios(PlateData *w_plateData)
         
         float circularity = 1.0f - ((2 * CURAND_2PI * area) / (perimeter * perimeter));
 
-        float areaIncrease = area * 0.000f;
-
-        printf("area: %.4f \n", areaIncrease);
+        float areaIncrease = area * 0.001f;
 
         plateData.breakScore = circularity + areaIncrease; // circularity formula? need to include in research. 
     } else {
-        plateData.breakScore = 1.0f;
+        plateData.breakScore = 0.0f;
     }
-
-    printf("score: %.4f \n", plateData.breakScore);
 }
 
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr)

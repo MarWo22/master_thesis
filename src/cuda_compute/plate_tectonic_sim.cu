@@ -87,7 +87,7 @@ void PlateTectonicSim::executeIteration()
      * mass and sizes
      */
 
-    determinePlateMerge<<<NUM_BLOCKS_PLATES_MATRIX, THREADS_PER_BLOCK>>>(platesHaveCollided->deviceTexture(), m_plateDataLookup->getPointer(), plateMergeIds->getPointer());
+    //determinePlateMerge<<<NUM_BLOCKS_PLATES_MATRIX, THREADS_PER_BLOCK>>>(platesHaveCollided->deviceTexture(), m_plateDataLookup->getPointer(), plateMergeIds->getPointer());
 
     finalPixelPass<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                              m_heightMapTexture->deviceTexture(),
@@ -95,7 +95,7 @@ void PlateTectonicSim::executeIteration()
                                                              m_plateDataLookup->getPointer());
 
     // Compute perimeter-area ratios after finalPixelPass updates the plate data
-    computePerimeterAreaRatios<<<MAX_PLATE_COUNT, 1>>>(m_plateDataLookup->getPointer());
+    computeBreakScore<<<MAX_PLATE_COUNT, 1>>>(m_plateDataLookup->getPointer());
 
     
     auto plateAngularSums = m_textureManager.generateTexture<float4>(MAX_PLATE_COUNT, 1);
@@ -150,7 +150,7 @@ void PlateTectonicSim::copyConstantTexturesInterop() const
         m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture->getPointer());
 
     if (renderSettings.renderWater)
-        m_interopManager->copyConnection("waterTexture", m_hydrationLevel->getPointer());
+        m_interopManager->copyConnection("waterTexture", m_pressure->getPointer());
 }
 
 void PlateTectonicSim::getPlateCollisions(CudaTextureHost<uint32_t> *plateCollisions)
@@ -254,11 +254,15 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
         flux<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(heightMapTextureWrite->deviceTexture(),
                                                        m_hydrationLevel->deviceTexture(),
                                                        m_hydrationFlux->deviceTexture(), fluxBuffer->deviceTexture(),
-                                                       1.0);
+                                                       1.0,
+                                                       kernelSettingsHost.hydrationPipeCrossSection,
+                                                       kernelSettingsHost.gravity,
+                                                       kernelSettingsHost.hydrationPipeLength);
         flow<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_hydrationLevel->deviceTexture(),
                                                        fluxBuffer->deviceTexture(),
                                                        m_hydrationFlux->deviceTexture(),
-                                                       m_hydrationVelocity->deviceTexture(), 1.0);
+                                                       m_hydrationVelocity->deviceTexture(), 1.0,
+                                                       kernelSettingsHost.hydrationPipeLength);
         sediment<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(heightMapTextureWrite->deviceTexture(),
                                                            m_sedimentLevel->deviceTexture(),
                                                            m_hydrationVelocity->deviceTexture(), 1.0);
@@ -370,21 +374,38 @@ void PlateTectonicSim::applyCCL()
 
 void PlateTectonicSim::processPlateSplitting()
 {
-    auto buffer = m_textureManager.generateTexture<float>(m_width, m_height);
+    // Create temporary flux buffer to avoid read/write conflicts
+    const auto pressureFluxBuffer = m_textureManager.generateTexture<float4>(m_width, m_height);
+
+    // Create flat zero texture for pressure flux (pressure flow should not be affected by terrain height)
+    const auto flatSurface = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0.0f);
 
     // Step 1: Accumulate pressure and reset at fault lines
     pressureAccumulation<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
                                                                    m_pressure->deviceTexture(),
                                                                    m_plateIdsTexture->deviceTexture());
 
-    // Step 2-3: Apply pressure blur simulation - two-pass gaussian blur within plate constraints
-    pressureVerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
-                                                                   m_pressure->deviceTexture(),
-                                                                   buffer->deviceTexture());
+    // Step 2-3: Apply pressure flow simulation using flux and flow kernels instead of blur
+    // Calculate pressure flux (pressure flows from high to low pressure areas)
+    // Use flat surface so only pressure differences drive flow, not terrain height
+    // Use pressure-specific parameters for tectonic pressure propagation
+    flux<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(flatSurface->deviceTexture(),
+                                                   m_pressure->deviceTexture(),
+                                                   m_pressureFlux->deviceTexture(),
+                                                   pressureFluxBuffer->deviceTexture(),
+                                                   1.0,
+                                                   kernelSettingsHost.pressurePipeCrossSection,
+                                                   kernelSettingsHost.pressureGravity,
+                                                   kernelSettingsHost.pressurePipeLength);
 
-    pressureHorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
-                                                                     buffer->deviceTexture(),
-                                                                     m_pressure->deviceTexture());
+    // Apply pressure flow (redistribute pressure based on flux)
+    // Read from pressureFluxBuffer, write to m_pressureFlux
+    flow<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
+                                                   pressureFluxBuffer->deviceTexture(),
+                                                   m_pressureFlux->deviceTexture(),
+                                                   m_pressureVelocity->deviceTexture(),
+                                                   1.0,
+                                                   kernelSettingsHost.pressurePipeLength);
 
     // Step 4: Calculate stress from pressure and terrain height
     stress<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
@@ -408,7 +429,7 @@ void PlateTectonicSim::processPlateSplitting()
 
     printf("max stress: %.4f", h_highest_stress);
 
-    if (h_highest_stress > kernelSettingsHost.stressSplitThreshold)
+    if (h_highest_stress > kernelSettingsHost.stressSplitThreshold && false)
     {
         auto d_dir = m_textureManager.generateTexture<Vec2<float> >(1, 1);
 
@@ -499,6 +520,8 @@ void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPl
     m_hydrationVelocity.reset();
     m_sedimentLevel.reset();
     m_pressure.reset();
+    m_pressureFlux.reset();
+    m_pressureVelocity.reset();
     m_stress.reset();
     m_plateDataLookup.reset();
     m_randStatesPlates.reset();
@@ -698,6 +721,8 @@ void PlateTectonicSim::initializeTextures()
     m_sedimentLevel = m_textureManager.generateTexture<float>(m_width, m_height);
 
     m_pressure = m_textureManager.generateTexture<float>(m_width, m_height);
+    m_pressureFlux = m_textureManager.generateTexture<float4>(m_width, m_height);
+    m_pressureVelocity = m_textureManager.generateTexture<Vec2<float>>(m_width, m_height);
     m_stress = m_textureManager.generateTexture<float>(m_width, m_height);
 
     m_plateDataLookup = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);

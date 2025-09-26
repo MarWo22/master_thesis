@@ -28,7 +28,12 @@ struct KernelSettings
     float pressureDecayRate = 0.8f;          // How fast pressure decays at fault lines
     int pressureBlurRange = 25;              // Range for pressure distance field propagation
     float pressureMultiplier = 1.0f;         // Final pressure application multiplier
-    float stressSplitThreshold = 0.07f;      // Stress threshold for plate splitting
+    float stressSplitThreshold = 10.07f;      // Stress threshold for plate splitting
+
+    // Pressure flow parameters (independent from hydration)
+    float pressurePipeCrossSection = 500.0f;  // Smaller cross-section for pressure (tectonic scale)
+    float pressureGravity = 1.0f;             // Different "gravity" for pressure propagation
+    float pressurePipeLength = 5.0f;          // Shorter pipe length for pressure flow
 
     // Thermal erosion parameters
     float thermalErosionStrength = 1.0f;    // Strength of thermal erosion smoothing
@@ -61,6 +66,9 @@ struct KernelSettings
                pressureBlurRange == other.pressureBlurRange &&
                pressureMultiplier == other.pressureMultiplier &&
                stressSplitThreshold == other.stressSplitThreshold &&
+               pressurePipeCrossSection == other.pressurePipeCrossSection &&
+               pressureGravity == other.pressureGravity &&
+               pressurePipeLength == other.pressurePipeLength &&
                thermalErosionStrength == other.thermalErosionStrength &&
                thermalErosionAmplitude == other.thermalErosionAmplitude &&
                thermalCellSize == other.thermalCellSize &&

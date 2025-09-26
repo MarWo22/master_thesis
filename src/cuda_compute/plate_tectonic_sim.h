@@ -42,6 +42,8 @@ class PlateTectonicSim
     std::unique_ptr<CudaTextureHost<float>> m_sedimentLevel;
 
     std::unique_ptr<CudaTextureHost<float>> m_pressure;
+    std::unique_ptr<CudaTextureHost<float4>> m_pressureFlux;
+    std::unique_ptr<CudaTextureHost<Vec2<float>>> m_pressureVelocity;
     std::unique_ptr<CudaTextureHost<float>> m_stress;
 
     /*

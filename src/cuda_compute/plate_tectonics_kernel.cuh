@@ -125,10 +125,12 @@ __global__ void copyNewPlateIdLookup(const PlateData *r_plateData, const uint8_t
 __global__ void rain(CudaTexture<float> *hydration, float deltatime, unsigned int seed);
 
 __global__ void flux(const CudaTexture<float> *r_materialPtr, const CudaTexture<float> *r_hydrationPtr,
-                     const CudaTexture<float4> *r_fluxPtr, CudaTexture<float4> *w_fluxPtr, float deltatime);
+                     const CudaTexture<float4> *r_fluxPtr, CudaTexture<float4> *w_fluxPtr, float deltatime,
+                     float pipeCrossSection, float gravity, float pipeLength);
 
 __global__ void flow(CudaTexture<float> *w_hydrationPtr, const CudaTexture<float4> *r_fluxPtr,
-                     CudaTexture<float4> *w_fluxPtr, CudaTexture<Vec2<float> > *w_velocityPtr, float deltatime);
+                     CudaTexture<float4> *w_fluxPtr, CudaTexture<Vec2<float> > *w_velocityPtr, float deltatime,
+                     float pipeLength);
 
 __global__ void sediment(CudaTexture<float> *w_materialPtr, CudaTexture<float> *w_sedimentPtr,
                          CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime);
@@ -150,7 +152,7 @@ __global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr
 
 __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTexture<float>* r_Material, CudaTexture<float>* w_stressPtr, const CudaTexture<uint8_t>* r_plateIdsPtr, const PlateData* r_plateData);
 
-__global__ void computePerimeterAreaRatios(PlateData *w_plateData);
+__global__ void computeBreakScore(PlateData *w_plateData);
 
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
 
