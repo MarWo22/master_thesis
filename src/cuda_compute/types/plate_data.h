@@ -11,12 +11,14 @@ struct PlateData
     int size;
     float mass;
     bool used;
+    bool hasMoved;
 
     __host__ __device__ PlateData()
         : velocity(0)
         , size(0)
         , mass(0)
         , used(false)
+        , hasMoved(false)
     {}
 };
 

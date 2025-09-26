@@ -91,7 +91,7 @@ class PlateTectonicSim
 
     std::unique_ptr<CudaTextureHost<uint32_t> > m_divergenceBitmap;
     // 0 - No collisions; 1 - Plate A is subducting; 2 - Plate B is subducting; 3 - Continental collision
-    std::unique_ptr<CudaTextureHost<uint32_t> > m_collisionTypeBitmap;
+    std::unique_ptr<CudaTextureHost<uint8_t> > m_collisionTypeBitmap;
 
     // Iteration counter
     unsigned int m_iterations;

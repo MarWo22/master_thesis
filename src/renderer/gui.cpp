@@ -114,6 +114,7 @@ void Gui::gui()
         {
             ImGui::Text("Mass: %.3f", guiPlateData[id].mass);
             ImGui::Text("Size: %d", guiPlateData[id].size);
+            ImGui::Text("Has moved: %s", guiPlateData[id].hasMoved ? "true" : "false");
             ImGui::Text("Velocity: %.3f", guiPlateData[id].velocity);
             ImGui::Text("Direction: (%.3f, %.3f)", guiPlateData[id].direction.x, guiPlateData[id].direction.y);
 
@@ -172,11 +173,6 @@ void Gui::renderSettingsSection()
         {
             ImGui::Indent(15);
             if (ImGui::RadioButton("Normal", &renderSettings.renderMode, RenderSettings::RenderMode::NORMAL))
-            {
-                renderSettings.callCallback("renderSettingsChanged");
-            }
-            if (ImGui::RadioButton("Show Collision Areas (requires a new iteration)", &renderSettings.renderMode,
-                                   RenderSettings::RenderMode::SHOW_COLLISION_AREAS))
             {
                 renderSettings.callCallback("renderSettingsChanged");
             }

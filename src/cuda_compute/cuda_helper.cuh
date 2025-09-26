@@ -80,7 +80,7 @@ __device__ __inline__ float remap(const float value, const float inStart, const 
     return outStart + (outStop - outStart) * ((value - inStart) / (inStop - inStart));
 }
 
-__device__ __inline__ unsigned int getUpperTriangleBitmapIndex(const unsigned int i, const unsigned int j,
+__device__ __inline__ unsigned int upperTriangleIndex(const unsigned int i, const unsigned int j,
                                                                const int matrixSize,
                                                                const unsigned int bitEntrySize = 1)
 {
@@ -89,6 +89,15 @@ __device__ __inline__ unsigned int getUpperTriangleBitmapIndex(const unsigned in
     const unsigned int base = minVal * (2 * matrixSize - minVal - 1) / 2;
     return bitEntrySize * (base + (maxVal - minVal - 1));
 }
+
+__device__ __inline__ unsigned int upperTriangleIndexUnchecked(const unsigned int i, const unsigned int j,
+                                                               const int matrixSize,
+                                                               const unsigned int bitEntrySize = 1)
+{
+    const unsigned int base = i * (2 * matrixSize - i - 1) / 2;
+    return bitEntrySize * (base + (j - i - 1));
+}
+
 
 template<typename T>
 __device__ __inline__ void swap(T &x, T &y) noexcept

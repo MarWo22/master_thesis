@@ -281,7 +281,7 @@ __device__ void processDivergence(const PlateTexturesRead r_plateTextures, Plate
         const uint8_t minPlate = previousPlateId < oppositePlateId ? previousPlateId : oppositePlateId;
         const uint8_t maxPlate = previousPlateId < oppositePlateId ? oppositePlateId : previousPlateId;
 
-        const unsigned int bitIndex = getUpperTriangleBitmapIndex(minPlate, maxPlate, MAX_PLATE_COUNT);
+        const unsigned int bitIndex = upperTriangleIndexUnchecked(minPlate, maxPlate, MAX_PLATE_COUNT);
         const unsigned int wordIndex = bitIndex / 32;
         const unsigned int bitOffset = bitIndex % 32;
         if (wordIndex >= 1013)
@@ -363,10 +363,11 @@ __device__ void applyInelasticCollision(const unsigned int *collisionTypes, Coll
         for (int j = i + 1; j != max_index; ++j)
         {
             const int index = (j * (j - 1)) / 2 + i;
-
+            const unsigned int collisionType = collisionTypes[index];
             // Again, doing a branch-free if using a conditional mask
             const float denominator = static_cast<float>(max_index) - 1.0f;
-            const float cond = (collisionTypes[index] == 3);
+            // True if any continental type
+            const float cond = collisionType == 0 || collisionType == 3 || collisionType == 4;
             const float multiplier =
                     cond * (kernelSettings.inelasticCollisionMultiplierContinental / denominator) +
                     (1.0f - cond) * (kernelSettings.inelasticCollisionMultiplierSubduction * denominator);
@@ -400,7 +401,7 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
     float force = 0;
 
     const int numCollidingPlates = plateIds[3] != MAX_PLATE_COUNT ? 4 : plateIds[2] != MAX_PLATE_COUNT ? 3 : 2;
-
+    const int pairLen = numCollidingPlates == 4 ? 6 : numCollidingPlates == 3 ? 3 : 1;
 
     bool hasSubducted[4] = {false, false, false, false};
     constexpr int pairLookup[6][2] = {
@@ -408,20 +409,30 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
         {0, 2}, {1, 2},
         {0, 3}, {1, 3}, {2, 3}
     };
-    constexpr int startOffset[3] = {0, 1, 3};
+
+    bool isMatched = false; // TODO: DEBUG REMOVE
+
     // Each pair registers the subducting plate in the array
-    for (int i = 0; i != numCollidingPlates - 1; ++i)
+    for (int accessPos = 0; accessPos != pairLen; ++accessPos)
     {
-        const int startPos = startOffset[i];
-        for (int j = 0; j != startPos; ++j)
-        {
-            const int accessPos = startOffset[i] + j;
-            const unsigned int collisionType = collisionTypes[accessPos];
-            if (collisionType == 0)
-                hasSubducted[pairLookup[accessPos][0]] = true;
-            else if (collisionType == 1)
-                hasSubducted[pairLookup[accessPos][1]] = true;
-        }
+        const unsigned int collisionType = collisionTypes[accessPos];
+
+        // TODO: DEBUG REMOVE
+        if (plateIds[pairLookup[accessPos][0]] == 15 && plateIds[pairLookup[accessPos][1]] == 2)
+            isMatched = true;
+        // END
+
+        if (collisionType == 1 || collisionType == 3)
+            hasSubducted[pairLookup[accessPos][0]] = true;
+        else if (collisionType == 2 || collisionType == 4)
+            hasSubducted[pairLookup[accessPos][1]] = true;
+    }
+
+    // TODO: DEBUG REMOVE
+    if (isMatched)
+    {
+        printf("Total %d: (%d, %d : %d), (%d, %d : %d), (%d, %d : %d)\n", invokeIndex,  plateIds[0], plateIds[1], collisionTypes[0], plateIds[0], plateIds[2], collisionTypes[1], plateIds[1], plateIds[2], collisionTypes[2]);
+        printf("sub %d: %d %d %d %d\n", numCollidingPlates, hasSubducted[0], hasSubducted[1], hasSubducted[2], hasSubducted[3]);
     }
 
     // The first plate that has not subducted underneath another plate will gain the pixel ownership
@@ -431,55 +442,57 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
         if (!hasSubducted[i])
             newPlateOwnerIndex = i;
 
-
     uint8_t newPlateOwner = plateIds[newPlateOwnerIndex];
+    float writeHeight = heights[newPlateOwnerIndex];
     float heightAddition = 0;
 
-    for (int i = 0; i < numCollidingPlates; ++i)
+    for (int accessPos = 0; accessPos != pairLen; ++accessPos)
     {
-        const int startPos = startOffset[i];
-        for (int j = 0; j != startPos; ++j)
+        const auto [index_a, index_b] = pairLookup[accessPos];
+
+        float height;
+        if (index_a == newPlateOwnerIndex)
+            height = heights[index_b];
+        else if (index_b == newPlateOwnerIndex)
+            height = heights[index_a];
+        else
+            continue;
+
+        const unsigned int collisionType = collisionTypes[accessPos];
+
+        if (height > writeHeight)
         {
-            const int accessPos = startOffset[i] + j;
-            const auto [index_a, index_b] = pairLookup[accessPos];
-            if (index_a == newPlateOwnerIndex)
-            {
-                const unsigned int collisionType = collisionTypes[accessPos];
-                const float height = heights[index_b];
-                if (collisionType == 1)
-                    heightAddition += 0.025f * height;
-                else
-                    heightAddition += 0.4f * height;
-            } else if (index_b == newPlateOwnerIndex)
-            {
-                const unsigned int collisionType = collisionTypes[accessPos];
-                const float height = heights[index_a];
-                if (collisionType == 2)
-                    heightAddition += 0.025f * height;
-                else
-                    heightAddition += 0.4f * height;
-            }
+            const float tmp = height;
+            height = writeHeight;
+            writeHeight = tmp;
+        }
+
+        heightAddition += collisionType == 0 ? 0.4f * height : 0.025f * height;
+
+        if (index_a == newPlateOwnerIndex && collisionType == 4)
+        {
+            //TODO: Mark the adjacent pixel as accreted
+            printf("Accretion1: %d %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b], collisionType);
+        }
+        else if (index_b == newPlateOwnerIndex && collisionType == 3)
+        {
+            printf("Accretion2: %d %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b], collisionType);
         }
     }
 
 
-    (*w_plateTextures.heightMapPtr)[invokeIndex] = heights[newPlateOwnerIndex];
+    (*w_plateTextures.heightMapPtr)[invokeIndex] = writeHeight;
 
     (*w_convergenceMapPtr)[invokeIndex] = 1;
     (*w_plateTextures.plateIdsPtr)[invokeIndex] = newPlateOwner;
 
     // Reporting the collision to the platesHaveCollided texture
-    for (int i = 0; i < numCollidingPlates; ++i)
+    for (int accessPos = 0; accessPos != pairLen; ++accessPos)
     {
-        const int startPos = startOffset[i];
-        for (int j = 0; j != startPos; ++j)
-        {
-            const int accessPos = startOffset[i] + j;
-            const auto [index_a, index_b] = pairLookup[accessPos];
-            const Vec2 accessVec = {index_a, index_b};
+        const auto [index_a, index_b] = pairLookup[accessPos];
+        const Vec2 accessVec = {index_a, index_b};
 
-            (*w_platesHaveCollidedPtr)[accessVec] = 1;
-        }
+        (*w_platesHaveCollidedPtr)[accessVec] = 1;
     }
 }
 
@@ -508,39 +521,53 @@ __device__ void processMovement(const PlateTexturesRead r_plateTextures, PlateTe
     w_height[textureIndex] = r_height[newTextureIndex];
 }
 
-__device__ unsigned int readCollisionType(const uint32_t *r_collisionTypeBitmap, const uint8_t plateA,
-                                          const uint8_t plateB)
-{
-    const uint8_t minPlate = plateA < plateB ? plateA : plateB;
-    const uint8_t maxPlate = plateA < plateB ? plateB : plateA;
-
-    const unsigned int bitIndex = getUpperTriangleBitmapIndex(minPlate, maxPlate, MAX_PLATE_COUNT, 2);
-    const unsigned int wordIndex = bitIndex / 32;
-    const unsigned int bitOffset = bitIndex % 32;
-
-    const unsigned int mask = 0b11u << bitOffset;
-    const unsigned int collisionType = (r_collisionTypeBitmap[wordIndex] & mask) >> bitOffset;
-    return collisionType;
-}
-
-__device__ unsigned int determineCollisionType(const uint32_t *r_collisionTypeBitmap, const uint8_t plateA,
+__device__ unsigned int determineCollisionType(const uint8_t *r_collisionTypeBitmap, const uint8_t plateA,
                                                const uint8_t plateB, const float heightA, const float heightB)
 {
-    // Determine the type of collision between the two current pixels, based on the collision type of the plates and the heights
-    if (heightA >= kernelSettings.continentalCrustThreshold and heightB >= kernelSettings.continentalCrustThreshold)
-        return 3;
+    const bool cond = plateA < plateB;
 
-    const unsigned int collisionType = readCollisionType(r_collisionTypeBitmap, plateA, plateB);
+    const uint8_t minPlate = cond ? plateA : plateB;
+    const uint8_t maxPlate = cond ? plateB : plateA;
+    const float minHeight = cond ? heightA : heightB;
+    const float maxHeight = cond ? heightB : heightA;
 
-    if (collisionType == 0 and heightA > kernelSettings.continentalCrustThreshold)
-        return 1;
-    if (collisionType == 1 and heightB >= kernelSettings.continentalCrustThreshold)
-        return 0;
+    const unsigned int index = upperTriangleIndexUnchecked(minPlate, maxPlate, MAX_PLATE_COUNT);
 
-    return collisionType;
+    const uint8_t collisionTypePacked = r_collisionTypeBitmap[index];
+    const bool hasType = collisionTypePacked >> 0 & 1;
+    const bool type = collisionTypePacked >> 1 & 1;
+    const bool polarity = collisionTypePacked >> 3 & 1;
+
+    // 0: Continental, 1: A under B, 2: B under A, 3: A under B Accretion, 4: B under A accretion
+    unsigned int output = 0;
+    if (hasType && type == 0)
+    {
+        if (polarity == 1)
+        {
+            if (minHeight >= kernelSettings.continentalCrustThreshold)
+                output = minPlate == plateA ? 3 : 4;
+            else
+                output = minPlate == plateA ? 1 : 2;
+        }
+
+        if (polarity == 0)
+        {
+            if (maxHeight >= kernelSettings.continentalCrustThreshold)
+                output = maxPlate == plateA ? 3 : 4;
+            else
+                output = maxPlate == plateA ? 1 : 2;
+        }
+    }
+
+    if (minPlate == 2 && maxPlate == 15)
+    {
+        printf("Type Output: %d %d %d\n", plateA, plateB, output);
+    }
+
+    return output;
 }
 
-__device__ void extractCollisionTypes(const uint32_t *r_collisionTypeBitmap, unsigned int *collisionTypes,
+__device__ void extractCollisionTypes(const uint8_t *r_collisionTypeBitmap, unsigned int *collisionTypes,
                                       const uint8_t *plateIds, const float *previousHeights)
 {
     const uint8_t plateA = plateIds[0];
@@ -568,7 +595,7 @@ __device__ void extractCollisionTypes(const uint32_t *r_collisionTypeBitmap, uns
 
 __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const CudaTexture<uint32_t> *r_collisionsPtr,
                                   const uint32_t *r_divergenceBitmap,
-                                  const uint32_t *r_collisionTypeBitmap, PlateTexturesWrite w_plateTextures,
+                                  const uint8_t *r_collisionTypeBitmap, PlateTexturesWrite w_plateTextures,
                                   uint32_t *w_hasDivergedBitmap, CudaTexture<float> *w_convergenceMapPtr,
                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
                                   CollisionVelocityChanges *w_velocityChanges,
@@ -656,37 +683,70 @@ __device__ float determineCollisionHeight(const CudaTexture<float> &r_heightMap,
 }
 
 __device__ void writeCollision(const float heightA, const float heightB, const uint8_t plateA, const uint8_t plateB,
-                               const uint32_t *r_collisionTypeBitmap,
-                               CudaTexture<uint64_t> &w_continentalCrustCountMatrix)
+                               const uint8_t *r_collisionTypeBitmap,
+                               CollisionTypeCounts *w_collisionTypeCounts)
 {
-    const uint8_t minPlate = plateA < plateB ? plateA : plateB;
-    const uint8_t maxPlate = plateA < plateB ? plateB : plateA;
+    const bool cond = plateA < plateB;
 
-    const unsigned int bitIndex = getUpperTriangleBitmapIndex(minPlate, maxPlate, MAX_PLATE_COUNT, 2);
-    const unsigned int wordIndex = bitIndex / 32;
-    const unsigned int bitOffset = bitIndex % 32;
+    // Minimums
+    const uint8_t minPlate = cond ? plateA : plateB;
+    const float minPlateHeight = cond ? heightA : heightB;
 
-    const unsigned int mask = 0b11u << bitOffset;
-    const unsigned int collisionType = (r_collisionTypeBitmap[wordIndex] & mask) >> bitOffset;
+    // Maximums
+    const uint8_t maxPlate = cond ? plateB : plateA;
+    const float maxPlateHeight = cond ? heightB : heightA;
 
-    if (collisionType != 0)
+    const unsigned int bitIndex = upperTriangleIndexUnchecked(minPlate, maxPlate, MAX_PLATE_COUNT);
+    const unsigned int wordIndex = bitIndex * 2 / 32;
+    const unsigned int bitOffset = bitIndex * 2 % 32;
+
+    const uint8_t collisionTypePacked = r_collisionTypeBitmap[wordIndex];
+
+    // Exit if a type already exists and is not to be updated yet
+    if (collisionTypePacked >> 0 & 1 && collisionTypePacked >> 4 & 0x0F) // TODO: add settingKernel
         return;
 
-    const uint64_t valueA = heightA > kernelSettings.continentalCrustThreshold
-                                ? (static_cast<uint64_t>(1) << 32) | 1
-                                : 1;
-    const uint64_t valueB = heightB > kernelSettings.continentalCrustThreshold
-                                ? (static_cast<uint64_t>(1) << 32) | 1
-                                : 1;
+    const bool minCont = minPlateHeight >= kernelSettings.continentalCrustThreshold;
+    const bool maxCont = maxPlateHeight >= kernelSettings.continentalCrustThreshold;
 
-    atomicAdd(&w_continentalCrustCountMatrix[Vec2<int>{plateA, plateB}], valueA);
-    atomicAdd(&w_continentalCrustCountMatrix[Vec2<int>{plateB, plateA}], valueB);
+    const float minWeight = minCont ? minPlateHeight * 5 : minPlateHeight;
+    const float maxWeight = maxCont ? maxPlateHeight * 5 : maxPlateHeight;
+
+    atomicAdd(&w_collisionTypeCounts[bitIndex].weightedHeightA, minWeight);
+    atomicAdd(&w_collisionTypeCounts[bitIndex].weightedHeightB, maxWeight);
+
+    if (minCont && maxCont)
+    {
+        if (minPlate == 2 && maxPlate == 15)
+            printf("Continental (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
+        atomicAdd(&w_collisionTypeCounts[bitIndex].continental, 1);
+    } else if (minCont)
+    {
+        if (minPlate == 2 && maxPlate == 15)
+            printf("SubductionBContinental (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
+        atomicAdd(&w_collisionTypeCounts[bitIndex].subductionsBContinental, 1);
+    } else if (maxCont)
+    {
+        if (minPlate == 2 && maxPlate == 15)
+            printf("SubductionAContinental (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
+        atomicAdd(&w_collisionTypeCounts[bitIndex].subductionsAContinental, 1);
+    } else if (minPlateHeight <= maxPlateHeight)
+    {
+        if (minPlate == 2 && maxPlate == 15)
+            printf("SubductionAOceanic (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
+        atomicAdd(&w_collisionTypeCounts[bitIndex].subductionsAOceanic, 1);
+    } else
+    {
+        if (minPlate == 2 && maxPlate == 15)
+            printf("SubductionBOceanic (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
+        atomicAdd(&w_collisionTypeCounts[bitIndex].subductionsBOceanic, 1);
+    }
 }
 
 __global__ void determineCollisionType(const PlateTexturesRead r_plateTextures,
                                        const CudaTexture<uint32_t> *r_collisionsPtr,
-                                       const uint32_t *r_collisionTypeBitmap,
-                                       CudaTexture<uint64_t> *w_continentalCrustCountMatrixPtr)
+                                       const uint8_t *r_collisionTypeBitmap,
+                                       CollisionTypeCounts *w_collisionTypeCounts)
 {
     const unsigned int invokeIndex = getInvokeIndex();
     const CudaTexture<float> &r_heightMap = *r_plateTextures.heightMapPtr;
@@ -696,7 +756,7 @@ __global__ void determineCollisionType(const PlateTexturesRead r_plateTextures,
     const uint32_t collisionsPacked = (*r_collisionsPtr)[invokeIndex];
 
     // Exit if there is no collision between plates
-    if (collisionsPacked < 0xFF)
+    if (collisionsPacked <= 0xFF)
         return;
 
     // Extract the four packed values
@@ -712,7 +772,6 @@ __global__ void determineCollisionType(const PlateTexturesRead r_plateTextures,
     plateD = MAX_PLATE_COUNT - plateD;
 
     const Vec2<int> textureIndex = getTextureIndex(invokeIndex, r_heightMap.size());
-    CudaTexture<uint64_t> &w_continentalCrustCountMatrix = *w_continentalCrustCountMatrixPtr;
 
     const float heightA = determineCollisionHeight(r_heightMap, r_plateTextures.plateData, plateA, textureIndex);
     const float heightB = determineCollisionHeight(r_heightMap, r_plateTextures.plateData, plateB, textureIndex);
@@ -720,89 +779,141 @@ __global__ void determineCollisionType(const PlateTexturesRead r_plateTextures,
     {
         const float heightC = determineCollisionHeight(r_heightMap, r_plateTextures.plateData, plateC, textureIndex);
         const float heightD = determineCollisionHeight(r_heightMap, r_plateTextures.plateData, plateD, textureIndex);
-        writeCollision(heightA, heightB, plateA, plateB, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
-        writeCollision(heightA, heightC, plateA, plateC, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
-        writeCollision(heightA, heightD, plateA, plateD, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
-        writeCollision(heightB, heightC, plateB, plateC, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
-        writeCollision(heightB, heightD, plateB, plateD, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
-        writeCollision(heightC, heightD, plateC, plateD, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
+        writeCollision(heightA, heightB, plateA, plateB, r_collisionTypeBitmap, w_collisionTypeCounts);
+        writeCollision(heightA, heightC, plateA, plateC, r_collisionTypeBitmap, w_collisionTypeCounts);
+        writeCollision(heightA, heightD, plateA, plateD, r_collisionTypeBitmap, w_collisionTypeCounts);
+        writeCollision(heightB, heightC, plateB, plateC, r_collisionTypeBitmap, w_collisionTypeCounts);
+        writeCollision(heightB, heightD, plateB, plateD, r_collisionTypeBitmap, w_collisionTypeCounts);
+        writeCollision(heightC, heightD, plateC, plateD, r_collisionTypeBitmap, w_collisionTypeCounts);
     } else if (plateC != MAX_PLATE_COUNT)
     {
         const float heightC = determineCollisionHeight(r_heightMap, r_plateTextures.plateData, plateC, textureIndex);
-        writeCollision(heightA, heightB, plateA, plateB, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
-        writeCollision(heightA, heightC, plateA, plateC, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
-        writeCollision(heightB, heightC, plateB, plateC, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
+        writeCollision(heightA, heightB, plateA, plateB, r_collisionTypeBitmap, w_collisionTypeCounts);
+        writeCollision(heightA, heightC, plateA, plateC, r_collisionTypeBitmap, w_collisionTypeCounts);
+        writeCollision(heightB, heightC, plateB, plateC, r_collisionTypeBitmap, w_collisionTypeCounts);
     } else
-        writeCollision(heightA, heightB, plateA, plateB, r_collisionTypeBitmap, w_continentalCrustCountMatrix);
+        writeCollision(heightA, heightB, plateA, plateB, r_collisionTypeBitmap, w_collisionTypeCounts);
 }
 
-__global__ void createCollisionTypeMatrix(const CudaTexture<uint64_t> *r_continentalCrustCountMatrixPtr,
-                                          uint32_t *w_collisionTypeBitmap)
+__global__ void createCollisionTypeMatrix(const CollisionTypeCounts *r_collisionTypeCounts,
+                                          uint8_t *rw_collisionTypeBitmap)
 {
     const unsigned int invokeIndex = getInvokeIndex();
     if (invokeIndex >= MAX_PLATE_COUNT * (MAX_PLATE_COUNT - 1) / 2)
         return;
 
+
     // Do some weird calculations to get plateA and plateB from the diagonal excluding upper triangle matrix
     // Had to ask chatgpt for this one
-    constexpr auto a = static_cast<float>(2 * MAX_PLATE_COUNT - 1);
-    const float discriminant = a * a - 8.0f * static_cast<float>(invokeIndex);
-    const float root = sqrtf(discriminant);
+    constexpr auto a = static_cast<double>(2 * MAX_PLATE_COUNT - 1);
+    const double discriminant = a * a - 8.0 * static_cast<float>(invokeIndex);
+    const double root = sqrt(discriminant);
     const auto plateA = static_cast<uint8_t>((a - root) * 0.5f);
     const unsigned int base = plateA * (2 * MAX_PLATE_COUNT - plateA - 1) / 2;
     const auto plateB = static_cast<uint8_t>(plateA + 1 + (invokeIndex - base));
 
-    // Get word and bit index of the entry in the two-bit triangle matrix
-    const unsigned int wordIndex = invokeIndex * 2 / 32;
-    const unsigned int bitOffset = invokeIndex * 2 % 32;
-
-    // Extract the bits
-    const unsigned int mask = 0b11u << bitOffset;
-    const unsigned int collisionType = (w_collisionTypeBitmap[wordIndex] & mask) >> bitOffset;
-
-    // Exit if there is already a registered collision type
-    if (collisionType != 0)
-        return;
-
-    const CudaTexture<uint64_t> &r_continentalCrustCountMatrix = *r_continentalCrustCountMatrixPtr;
+    const unsigned int collisionTypePacked = rw_collisionTypeBitmap[invokeIndex];
+    const bool hasType = (collisionTypePacked >> 0) & 1;
+    const uint8_t collisionCount = collisionTypePacked >> 4 & 0x0F;
 
     // Extract the count of overall colliding pixels and count of continental pixels for A
-    const uint64_t plateACount = r_continentalCrustCountMatrix[Vec2<int>{plateA, plateB}];
-    const auto collisionCount = static_cast<uint32_t>(plateACount & 0xFFFFFFFFULL); // lower 32 bits
-    const auto continentalCountA = static_cast<uint32_t>((plateACount >> 32) & 0xFFFFFFFF); // upper 32 bits
+    const CollisionTypeCounts collisionTypeCounts = r_collisionTypeCounts[invokeIndex];
 
-    // Exit if there is no collision
-    if (collisionCount == 0)
+    const uint32_t totalCollisionSize = collisionTypeCounts.subductionsAContinental + collisionTypeCounts.
+                                        subductionsAOceanic + collisionTypeCounts.subductionsBContinental +
+                                        collisionTypeCounts.subductionsBOceanic + collisionTypeCounts.continental;
+
+    // Exit if there is already a registered collision type
+    if (hasType and collisionCount < 4) // TODO: Change to kernelSetting
+    {
+        // Increment the collisionCount if a type has been assigned already
+        if (totalCollisionSize > 0)
+            rw_collisionTypeBitmap[invokeIndex] = collisionTypePacked & 0x0F | (collisionCount + 1 & 0x0F) << 4;
         return;
-
-    // Extract continental pixels for B as well
-    const uint64_t plateBCount = r_continentalCrustCountMatrix[Vec2<int>{plateB, plateA}];
-    const auto continentalCountB = static_cast<uint32_t>((plateBCount >> 32) & 0xFFFFFFFF); // upper 32 bits
-
-    if (collisionCount != 0)
-        printf("%d: (%d %d) - (%d %d)\n", collisionCount, continentalCountA, continentalCountB, plateA, plateB);
-
-    // If both have at least 75% continental, it is considered a continental collision
-    // Otherwise, the minority will subduct
-    if (continentalCountA >= collisionCount * 0.75 && continentalCountB >= collisionCount * 0.75)
-    {
-        // 3 is continental collision
-        atomicOr(&w_collisionTypeBitmap[wordIndex], 3u << bitOffset);
-        printf("%d & %d are continental -(%d)-\n", plateA, plateB, collisionCount);
-    } else if (continentalCountA < continentalCountB)
-    {
-        // 1 is plateA subduction
-        atomicOr(&w_collisionTypeBitmap[wordIndex], 1u << bitOffset);
-        printf("%d is subducting under %d -(%d)-\n", plateA, plateB, collisionCount);
-    } else
-    {
-        // 2 is plateB subduction
-        atomicOr(&w_collisionTypeBitmap[wordIndex], 2u << bitOffset);
-        printf("%d is subducting under %d -(%d)-\n", plateB, plateA, collisionCount);
     }
+
+    // No type is assigned if a collision is not large enough
+    if (totalCollisionSize < 50) // TODO: Change to kernelSetting
+    {
+        return;
+    }
+
+    // Clear the counter
+    uint8_t output = collisionTypePacked & 0x0F;
+    const bool hasPolarity = (collisionTypePacked >> 2) & 1;
+    const bool polarityASubducting = collisionTypePacked >> 3 & 1;
+
+    const int continentalOpposingA = collisionTypeCounts.subductionsBContinental + collisionTypeCounts.continental;
+    const int continentalOpposingB = collisionTypeCounts.subductionsAContinental + collisionTypeCounts.continental;
+    const int subductionAPower = collisionTypeCounts.subductionsAContinental + collisionTypeCounts.subductionsAOceanic -
+                                 continentalOpposingA;
+    const int subductionBPower = collisionTypeCounts.subductionsBContinental + collisionTypeCounts.subductionsBOceanic -
+                                 continentalOpposingB;
+
+
+    // If continental->continental collisions are the most occurring ones, the collision is continental
+    if (collisionTypeCounts.continental >= collisionTypeCounts.subductionsAContinental + collisionTypeCounts.
+        subductionsAOceanic &&
+        collisionTypeCounts.continental >= collisionTypeCounts.subductionsBContinental + collisionTypeCounts.
+        subductionsBOceanic)
+    {
+        // HasType is set to true, and type is set to 1 (continental)
+        output |= 0b00000011;
+        printf("CONTINENTAL %d %d %d %d %d %d %d %d %f %f %d       %d%d%d%d%d%d%d%d\n", plateA, plateB,
+               collisionTypeCounts.subductionsAContinental,
+               collisionTypeCounts.subductionsAOceanic, collisionTypeCounts.subductionsBContinental,
+               collisionTypeCounts.subductionsBOceanic, collisionTypeCounts.continental, totalCollisionSize,
+               collisionTypeCounts.weightedHeightA, collisionTypeCounts.weightedHeightB, invokeIndex,
+               (output >> 7) & 1,
+               (output >> 6) & 1,
+               (output >> 5) & 1,
+               (output >> 4) & 1,
+               (output >> 3) & 1,
+               (output >> 2) & 1,
+               (output >> 1) & 1,
+               (output >> 0) & 1);
+    } else if (subductionAPower > 0 && subductionAPower > subductionBPower && (!hasPolarity || polarityASubducting))
+    {
+        // HasType and HasPolarity is set to true, and type is set to 0 (subduction), and polarity set to 1 (Plate A Subducting)
+        output = output & ~0b00000010 | 0b00001101;
+        printf("SubductionA %d %d %d %d %d %d %d %d %f %f %d       %d%d%d%d%d%d%d%d\n", plateA, plateB,
+               collisionTypeCounts.subductionsAContinental,
+               collisionTypeCounts.subductionsAOceanic, collisionTypeCounts.subductionsBContinental,
+               collisionTypeCounts.subductionsBOceanic, collisionTypeCounts.continental, totalCollisionSize,
+               collisionTypeCounts.weightedHeightA, collisionTypeCounts.weightedHeightB, invokeIndex,
+               (output >> 7) & 1,
+               (output >> 6) & 1,
+               (output >> 5) & 1,
+               (output >> 4) & 1,
+               (output >> 3) & 1,
+               (output >> 2) & 1,
+               (output >> 1) & 1,
+               (output >> 0) & 1);
+    } else if (subductionBPower > 0 && subductionBPower > subductionAPower && (!hasPolarity || !polarityASubducting))
+    {
+        // HasType and HasPolarity is set to true, and type is set to 1 (subduction), and polarity set to 0 (Plate B Subducting)
+        output = output & ~0b00001010 | 0b00000101;
+        printf("SubductionB %d %d %d %d %d %d %d %d %f %f %d       %d%d%d%d%d%d%d%d\n", plateA, plateB,
+               collisionTypeCounts.subductionsAContinental,
+               collisionTypeCounts.subductionsAOceanic, collisionTypeCounts.subductionsBContinental,
+               collisionTypeCounts.subductionsBOceanic, collisionTypeCounts.continental, totalCollisionSize,
+               collisionTypeCounts.weightedHeightA, collisionTypeCounts.weightedHeightB, invokeIndex,
+               (output >> 7) & 1,
+               (output >> 6) & 1,
+               (output >> 5) & 1,
+               (output >> 4) & 1,
+               (output >> 3) & 1,
+               (output >> 2) & 1,
+               (output >> 1) & 1,
+               (output >> 0) & 1);
+    }
+
+
+    rw_collisionTypeBitmap[invokeIndex] = output;
 }
 
-__global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint32_t *r_collisionTypeBitmap, GuiPlateData *w_plateDataGui)
+__global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint8_t *r_collisionTypeBitmap,
+                                       GuiPlateData *w_plateDataGui)
 {
     const unsigned int invokeIndex = getInvokeIndex();
     if (invokeIndex >= MAX_PLATE_COUNT)
@@ -812,6 +923,7 @@ __global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint3
 
     w_plateDataGui[invokeIndex].mass = plateData.mass;
     w_plateDataGui[invokeIndex].size = plateData.size;
+    w_plateDataGui[invokeIndex].hasMoved = plateData.hasMoved;
     w_plateDataGui[invokeIndex].velocity = plateData.velocity;
     w_plateDataGui[invokeIndex].direction = plateData.direction;
 
@@ -826,25 +938,32 @@ __global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint3
         const uint8_t minPlate = invokeIndex < i ? invokeIndex : i;
         const uint8_t maxPlate = invokeIndex < i ? i : invokeIndex;
 
-        const unsigned int bitIndex = getUpperTriangleBitmapIndex(minPlate, maxPlate, MAX_PLATE_COUNT, 2);
-        const unsigned int wordIndex = bitIndex / 32;
-        const unsigned int bitOffset = bitIndex % 32;
 
-        const unsigned int mask = 0b11u << bitOffset;
-        const unsigned int collisionType = (r_collisionTypeBitmap[wordIndex] & mask) >> bitOffset;
-        switch (collisionType)
+        const unsigned int entryIndex = upperTriangleIndexUnchecked(minPlate, maxPlate, MAX_PLATE_COUNT);
+
+        const uint8_t collisionTypePacked = r_collisionTypeBitmap[entryIndex];
+
+        const bool hasType = collisionTypePacked >> 0 & 1;
+        const bool typeIsContinental = collisionTypePacked >> 1 & 1;
+        const bool polarity = collisionTypePacked >> 3 & 1;
+
+        if (!hasType)
+            continue;
+
+        if (typeIsContinental)
         {
-            case 1:
-                w_plateDataGui[invokeIndex].subductions[subduction_idx++] = minPlate == invokeIndex ? maxPlate : -minPlate;
-                break;
-            case 2:
-                w_plateDataGui[invokeIndex].subductions[subduction_idx++] = maxPlate == invokeIndex ? -minPlate : maxPlate;
-                break;
-            case 3:
-                w_plateDataGui[invokeIndex].continental[continental_idx++] = minPlate == invokeIndex ? maxPlate : minPlate;
-                break;
-            default:
-                break;
+            w_plateDataGui[invokeIndex].continental[continental_idx++] = minPlate == invokeIndex ? maxPlate : minPlate;
+        }
+        else
+        {
+            if (polarity)
+                w_plateDataGui[invokeIndex].subductions[subduction_idx++] = minPlate == invokeIndex
+                                                                                ? maxPlate
+                                                                                : -minPlate;
+            else
+                w_plateDataGui[invokeIndex].subductions[subduction_idx++] = minPlate == invokeIndex
+                                                                                ? -maxPlate
+                                                                                : minPlate;
         }
     }
 
@@ -1119,10 +1238,14 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
     PlateData current = rw_plateLookup[threadIdx.x];
 
     const Vec2 center = current.pixelCenter + current.direction * current.velocity;
-    current.pixelCenter = {
+    const Vec2 newPixelCenter = {
         center.x - floor(center.x),
         center.y - floor(center.y)
     };
+
+    current.hasMoved = newPixelCenter != center;
+
+    current.pixelCenter = newPixelCenter;
 
     const auto [inelasticDirectionalChange, frictionLoss] = r_velocityChanges[threadIdx.x];
 

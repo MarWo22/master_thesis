@@ -42,6 +42,18 @@ struct CollisionVelocityChanges
     float frictionLoss{};
 };
 
+struct CollisionTypeCounts
+{
+    float weightedHeightA;
+    float weightedHeightB;
+    int subductionsAContinental;
+    int subductionsAOceanic;
+    int subductionsBContinental;
+    int subductionsBOceanic;
+    int continental;
+};
+
+
 __global__ void initPlateIDs(const CudaTexture<uint8_t> *idTexturePtr, const VoronoiSeed *seeds, int numSeeds);
 
 __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idTexturePtr,
@@ -96,7 +108,7 @@ __global__ void splitPlate(const IterationStatistics *r_stats, const uint8_t *r_
 __global__ void selectUnusedPlateId(PlateData *plateLookup, uint8_t *plateId);
 
 __global__ void processCollisions(PlateTexturesRead r_plateTextures, const CudaTexture<uint32_t> *r_collisionsPtr,
-                                  const uint32_t *r_divergenceBitmap, const uint32_t *r_collisionTypeBitmap,
+                                  const uint32_t *r_divergenceBitmap, const uint8_t *r_collisionTypeBitmap,
                                   PlateTexturesWrite w_plateTextures, uint32_t *w_hasDivergedBitmap,
                                   CudaTexture<float> *w_convergenceMapPtr,
                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
@@ -181,13 +193,13 @@ __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
 
 __global__ void determineCollisionType(PlateTexturesRead r_plateTextures,
                                        const CudaTexture<uint32_t> *r_collisionsPtr,
-                                       const uint32_t *r_collisionTypeBitmap,
-                                       CudaTexture<uint64_t> *w_continentalCrustCountMatrixPtr);
+                                       const uint8_t *r_collisionTypeBitmap,
+                                       CollisionTypeCounts *w_collisionTypeCounts);
 
-__global__ void createCollisionTypeMatrix(const CudaTexture<uint64_t> *r_continentalCrustCountMatrixPtr,
-                                          uint32_t *w_collisionTypeBitmap);
+__global__ void createCollisionTypeMatrix(const CollisionTypeCounts *r_collisionTypeCounts,
+                                          uint8_t *w_collisionTypeBitmap);
 
-__global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint32_t *r_collisionTypeBitmap,
+__global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint8_t *r_collisionTypeBitmap,
                                  GuiPlateData *w_plateDataGui);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH

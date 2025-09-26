@@ -109,17 +109,6 @@ void PlateTectonicSim::executeIteration()
     cudaDeviceSynchronize();
     if (m_interopManager)
     {
-        if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_COLLISION_AREAS)
-        {
-            CudaTextureHost<uint8_t> glTexture;
-            glTexture.initialize(m_width, m_height);
-            convertCollisionMapForGL<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(
-                m_plateCollisions->deviceTexture(), glTexture.deviceTexture());
-            CUDA_ERROR_CHECK();
-            m_interopManager->copyConnection("collisionMap", glTexture.getPointer());
-        }
-        if (renderSettings.copyPlateData)
-            copyPlateDataGui();
         copyConstantTexturesInterop();
     }
 
@@ -140,6 +129,10 @@ void PlateTectonicSim::copyConstantTexturesInterop() const
     if (renderSettings.renderDirections)
         copyDirectionGL();
 
+    if (renderSettings.copyPlateData)
+        copyPlateDataGui();
+
+
     if (renderSettings.borderRenderMode == RenderSettings::BorderRenderMode::RAW_BORDER ||
         renderSettings.borderRenderMode == RenderSettings::BorderRenderMode::SMOOTH_BORDER ||
         renderSettings.shadingMode == RenderSettings::ShadingMode::SHOW_PLATE_IDS)
@@ -147,8 +140,11 @@ void PlateTectonicSim::copyConstantTexturesInterop() const
         m_interopManager->copyConnection("cudaPlateTexture", m_plateIdsTexture->getPointer());
     }
 
-    // if (renderSettings.borderRenderMode == RenderSettings::BorderRenderMode::COLLISIONS)
-    //     m_interopManager->copyConnection("collisionMap", m_plateCollisions->getPointer());
+    if (renderSettings.borderRenderMode == RenderSettings::BorderRenderMode::COLLISIONS)
+    {
+        std::cout << "copying collisionMap\n";
+        m_interopManager->copyConnection("collisionMap", m_plateCollisions->getPointer());
+    }
 
     if (renderSettings.renderWater)
         m_interopManager->copyConnection("waterTexture", m_hydrationLevel->getPointer());
@@ -235,16 +231,16 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
     };
 
 
-    const auto continentalCollisionCountMatrix = m_textureManager.generateTextureAndReset<uint64_t>(
+    const auto collisionTypeCounts = m_textureManager.generateTextureAndReset<CollisionTypeCounts>(
         MAX_PLATE_COUNT, MAX_PLATE_COUNT, 0);
 
     determineCollisionType<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(readTextures, plateCollisions->deviceTexture(),
                                                                      m_collisionTypeBitmap->getPointer(),
-                                                                     continentalCollisionCountMatrix->deviceTexture());
+                                                                     collisionTypeCounts->getPointer());
     CUDA_ERROR_CHECK();
 
     createCollisionTypeMatrix<<<NUM_BLOCKS_TRIANGLE_ENTRIES, THREADS_PER_BLOCK>>>(
-        continentalCollisionCountMatrix->deviceTexture(), m_collisionTypeBitmap->getPointer());
+        collisionTypeCounts->getPointer(), m_collisionTypeBitmap->getPointer());
     CUDA_ERROR_CHECK();
 
     processCollisions<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(readTextures,
@@ -554,9 +550,6 @@ void PlateTectonicSim::onRenderSettingChange()
         case RenderSettings::RenderMode::SHOW_UPLIFT_AREAS:
             activeTextures = {"heightMap", "upliftTexture"};
             break;
-        case RenderSettings::RenderMode::SHOW_COLLISION_AREAS:
-            activeTextures = {"heightMap", "collisionMap"};
-            break;
         case RenderSettings::RenderMode::SHOW_PLATE_VELOCITIES:
             activeTextures = {"heightMap", "velocityTexture"};
             break;
@@ -571,7 +564,10 @@ void PlateTectonicSim::onRenderSettingChange()
         activeTextures.emplace_back("cudaPlateTexture");
     }
     if (renderSettings.borderRenderMode == RenderSettings::BorderRenderMode::COLLISIONS)
+    {
+        std::cout << "Emplacing back\n";
         activeTextures.emplace_back("collisionMap");
+    }
 
     if (renderSettings.renderWater)
         activeTextures.emplace_back("waterTexture");
@@ -746,7 +742,7 @@ void PlateTectonicSim::initializeTextures()
     m_iterationStats = m_textureManager.generateTexture<IterationStatistics>(1, 1);
 
     m_divergenceBitmap = m_textureManager.generateTextureAndReset<uint32_t>(NUM_WORDS_TRIANGLE_SINGLE_BITS, 1, 0);
-    m_collisionTypeBitmap = m_textureManager.generateTextureAndReset<uint32_t>(NUM_WORDS_TRIANGLE_DOUBLE_BITS, 1, 0);
+    m_collisionTypeBitmap = m_textureManager.generateTextureAndReset<uint8_t>(NUM_TRIANGLE_ENTRIES, 1, 0);
     cudaDeviceSynchronize();
 }
 

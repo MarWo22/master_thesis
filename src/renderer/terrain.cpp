@@ -77,6 +77,7 @@ void Terrain::render(const Camera &camera)
             m_waterTexture->bind(GL_TEXTURE2);
             m_arrowTexture->bind(GL_TEXTURE3);
             m_directionTexture->bind(GL_TEXTURE4);
+            m_collisionTexture->bind(GL_TEXTURE5);
             break;
         case RenderSettings::RenderMode::SHOW_COLLISION_AREAS:
             m_regionShader->bind();

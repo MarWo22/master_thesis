@@ -6,6 +6,7 @@ layout(binding = 1) uniform sampler2D platesTexture;
 layout(binding = 2) uniform sampler2D waterTexture;
 layout(binding = 3) uniform sampler2D arrowTexture;
 layout(binding = 4) uniform sampler2D directionTexture;
+layout(binding = 5) uniform usampler2D collisionTexture;
 
 uniform int borderRenderType;
 uniform bool showWater;
@@ -15,6 +16,8 @@ uniform float continentalCrustThreshold;
 
 in vec2 texCoord;
 in vec4 color;
+
+
 
 float sobelEdge(vec2 uv, sampler2D tex, vec2 texel) {
     float tl = texture(tex, uv + texel * vec2(-1, -1)).r;
@@ -86,6 +89,16 @@ void renderRawBorder() {
 
     if (region != leftRegion || region != rightRegion || region != botRegion || region != topRegion)
     fragmentColor = vec4(1, 0, 0, 1);
+}
+
+void renderCollisionBorder() {
+    ivec2 texelCoord = ivec2(texCoord * textureSize(collisionTexture, 0));
+    uint value = texelFetch(collisionTexture, texelCoord, 0).r;
+
+    if (value == 0)
+    fragmentColor = vec4(1, 1, 1, 1);
+    else if (((value >> 8) & 0xFFu) != 0u)
+    fragmentColor = vec4(0, 0, 0, 1);
 }
 
 void drawDirectionArrows()
@@ -230,14 +243,14 @@ void main() {
     switch (shadingType)
     {
         case 0:
-            colorNew = normalShading(height);
-            break;
+        colorNew = normalShading(height);
+        break;
         case 1:
-            colorNew = crustTypeShading(height);
-            break;
+        colorNew = crustTypeShading(height);
+        break;
         case 2:
-            colorNew = plateIdShading();
-            break;
+        colorNew = plateIdShading();
+        break;
     }
 
     if (showWater){
@@ -266,6 +279,9 @@ void main() {
         break;
         case 2:
         renderSmoothBorder();
+        break;
+        case 3:
+        renderCollisionBorder();
         break;
     }
 }

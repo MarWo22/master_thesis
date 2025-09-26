@@ -84,6 +84,7 @@ struct GuiPlateData
       float mass{};
       int size{};
       float velocity{};
+      bool hasMoved{};
       Vec2<float> direction;
       int subductions[256]{};   // fixed-size array
       int continental[256]{};   // fixed-size array
