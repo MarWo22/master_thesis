@@ -2103,9 +2103,12 @@ __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr)
 }
 
 __global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePtr,
-                                          const CudaTexture<uint8_t> *r_plateIdsPtr)
+                                          const CudaTexture<uint8_t> *r_plateIdsPtr,
+                                          CudaTexture<Vec2<float>>* w_pressureVelocityPtr)
 {
     const CudaTexture<float> &r_pressure = *r_pressurePtr;
+    const CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    CudaTexture<Vec2<float>>& w_pressureVelocity = *w_pressureVelocityPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, r_pressure.size()))
@@ -2113,20 +2116,18 @@ __global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePt
 
     const Vec2<int> coord = r_pressure.indexToCoordinate(invokeIndex);
 
-    // Calculate gradient using central differences with automatic wrapping
+    // Calculate gradient using central differences
     Vec2<float> velocity = {0.0f, 0.0f};
 
     // X-direction gradient
     float leftPressure = r_pressure[r_pressure.coordinateToIndex({coord.x - 1, coord.y})];
     float rightPressure = r_pressure[r_pressure.coordinateToIndex({coord.x + 1, coord.y})];
-    velocity.x = -(rightPressure - leftPressure) * 0.5f; // Negative for downward slope
+    velocity.x = -(rightPressure - leftPressure); // Negative for downward slope
 
     // Y-direction gradient
     float bottomPressure = r_pressure[r_pressure.coordinateToIndex({coord.x, coord.y - 1})];
     float topPressure = r_pressure[r_pressure.coordinateToIndex({coord.x, coord.y + 1})];
-    velocity.y = -(topPressure - bottomPressure) * 0.5f; // Negative for downward slope
+    velocity.y = -(topPressure - bottomPressure); // Negative for downward slope
 
-    // For now, the result is calculated but not stored as requested
-    // The velocity vector represents the direction and magnitude of flow
-    // based on the pressure gradient (downward slope)
+    w_pressureVelocity[invokeIndex] = velocity;
 }
