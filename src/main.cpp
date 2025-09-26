@@ -59,8 +59,8 @@ void loadTextures(CudaGlInteropManager &interopManager)
     auto *collisionMap = new Texture();
     collisionMap->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
     Renderer::addTexture("collisionMap", collisionMap);
-    interopManager.addConnection("collisionMap", collisionMap->id(), sizeof(uint8_t), heightmapDimensions.x,
-                                 heightmapDimensions.y, GL_R8, GL_RED, GL_UNSIGNED_BYTE);
+    interopManager.addConnection("collisionMap", collisionMap->id(), sizeof(uint32_t), heightmapDimensions.x,
+                                 heightmapDimensions.y, GL_R32UI, GL_RED_INTEGER, GL_UNSIGNED_INT);
     Renderer::addTexture("collisionMap", collisionMap);
 
     auto *velocityTexture = new Texture();

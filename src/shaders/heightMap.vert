@@ -18,7 +18,7 @@ void main() {
     const float height = texture(heightMap, texCoordIn).r;
     float hydration = 0;
     if(showWater)
-        hydration = max(texture(waterTexture, texCoordIn).r - 20, 0);;
+        hydration = max(texture(waterTexture, texCoordIn).r - 20, 0);
 
     texCoord = texCoordIn;
     color = vec4(vec3(height), 1);

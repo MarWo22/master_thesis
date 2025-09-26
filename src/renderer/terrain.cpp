@@ -3,8 +3,11 @@
 #include <iostream>
 
 #include "../generation_settings.h"
+#include "../cuda_compute/kernel_settings.cuh"
 
 extern RenderSettings renderSettings;
+extern KernelSettings kernelSettingsHost;
+
 
 void Terrain::Vertex::init(const int xPos, const int zPos, const int sizeX, const int sizeZ)
 {
@@ -65,15 +68,18 @@ void Terrain::render(const Camera &camera)
             m_heightmapShader->bind();
             m_heightmapShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapShader->setUniform("displaceHeight", renderSettings.renderHeight ? 1 : 0);
-            m_heightmapShader->setUniform("showBorders", renderSettings.renderBorders ? 1 : 0);
+            m_heightmapShader->setUniform("borderRenderType", renderSettings.borderRenderMode);
             m_heightmapShader->setUniform("showWater", renderSettings.renderWater ? 1 : 0);
             m_heightmapShader->setUniform("heightMultiplier", renderSettings.heightMultiplier);
             m_heightmapShader->setUniform("showDirectionArrows", renderSettings.renderDirections ? 1 : 0);
+            m_heightmapShader->setUniform("shadingType", renderSettings.shadingMode);
+            m_heightmapShader->setUniform("continentalCrustThreshold", kernelSettingsHost.continentalCrustThreshold);
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_platesTexture->bind(GL_TEXTURE1);
             m_waterTexture->bind(GL_TEXTURE2);
             m_arrowTexture->bind(GL_TEXTURE3);
             m_directionTexture->bind(GL_TEXTURE4);
+            m_collisionTexture->bind(GL_TEXTURE5);
             break;
         case RenderSettings::RenderMode::SHOW_COLLISION_AREAS:
             m_regionShader->bind();

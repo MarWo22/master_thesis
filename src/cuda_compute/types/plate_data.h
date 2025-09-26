@@ -14,6 +14,7 @@ struct PlateData
     int perimeter;
     float breakScore;
     bool used;
+    bool hasMoved;
 
     __host__ __device__ PlateData()
         : velocity(0)
@@ -22,6 +23,7 @@ struct PlateData
         , perimeter(0)
         , breakScore(1.0f)
         , used(false)
+        , hasMoved(false)
     {}
 };
 

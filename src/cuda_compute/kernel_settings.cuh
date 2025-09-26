@@ -3,13 +3,20 @@
 
 struct KernelSettings
 {
-    float inelasticCollisionMultiplier = 10.f;
+    float inelasticCollisionMultiplierContinental = 1.f;
+    float inelasticCollisionMultiplierSubduction = 0.25f;
+    float environmentalDragCoefficient = 0.005f;
+    float frictionCoefficientContinental = 1.f;
+    float frictionCoefficientSubduction = 0.2f;
+
     float mergeDotDirectionThreshold = .995f;
     float mergeVelocityDiffThreshold = 0.025f;
     int minPlateSize = 10;
 
-    float divergence_height_target = 10.f;
-    float divergence_interpolation_factor = 0.05f;
+    float continentalCrustThreshold = 80.f;
+
+    float divergence_height_target = 20.f;
+    float divergence_interpolation_factor = 0.04f;
 
     float upliftMultiplier = 1.f;
     int upliftRange = 50;
@@ -40,7 +47,9 @@ struct KernelSettings
 
     bool operator==(const KernelSettings &other) const
     {
-        return inelasticCollisionMultiplier == other.inelasticCollisionMultiplier &&
+        return inelasticCollisionMultiplierContinental == other.inelasticCollisionMultiplierContinental &&
+               inelasticCollisionMultiplierSubduction == other.inelasticCollisionMultiplierSubduction &&
+               environmentalDragCoefficient == other.environmentalDragCoefficient &&
                mergeDotDirectionThreshold == other.mergeDotDirectionThreshold &&
                mergeVelocityDiffThreshold == other.mergeVelocityDiffThreshold &&
                minPlateSize == other.minPlateSize &&
@@ -64,7 +73,8 @@ struct KernelSettings
                thermalErosionStrength == other.thermalErosionStrength &&
                thermalErosionAmplitude == other.thermalErosionAmplitude &&
                thermalCellSize == other.thermalCellSize &&
-               thermalThresholdAngle == other.thermalThresholdAngle;
+               thermalThresholdAngle == other.thermalThresholdAngle &&
+               continentalCrustThreshold == other.continentalCrustThreshold;
     }
 
     bool operator!=(const KernelSettings &other) const
