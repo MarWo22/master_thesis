@@ -438,7 +438,8 @@ void PlateTectonicSim::processPlateSplitting()
     // Step 1: Accumulate pressure and reset at fault lines
     pressureAccumulation<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
                                                                    m_pressure->deviceTexture(),
-                                                                   m_plateIdsTexture->deviceTexture());
+                                                                   m_plateIdsTexture->deviceTexture(),
+                                                                   m_heightMapTexture->deviceTexture());
 
     // Step 2-3: Apply pressure blur simulation
     pressureVerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),

@@ -76,7 +76,7 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
     float d = 0.001f;
     float value = 0;
 
-    float amp = .1f;
+    float amp = 100.0f;
     float freq = 0.01f;
 
     for (int octave = 0; octave < octaves; octave++)
@@ -1919,11 +1919,12 @@ __global__ void evaporate(CudaTexture<float>* w_hydrationPtr, float deltatime)
 }
 
 // Step 1: Accumulate pressure and reset at fault lines (using rain-like accumulation)
-__global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr)
+__global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr, CudaTexture<float>* r_materialPtr)
 {
     CudaTexture<float>& r_pressure = *r_pressurePtr;
     CudaTexture<float>& w_pressure = *w_pressurePtr;
     CudaTexture<uint8_t>& r_plateIds = *r_plateIdsPtr;
+    CudaTexture<float>& r_material = *r_materialPtr;
 
     unsigned int idx = getInvokeIndex();
     if (!isWithinBounds(idx, r_pressure.size()))
@@ -1947,7 +1948,7 @@ __global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaText
     else
     {
         // Accumulate pressure like rain accumulates hydration
-        w_pressure[idx] = r_pressure[idx] + kernelSettings.pressureAccumulation;
+        w_pressure[idx] = r_pressure[idx] + kernelSettings.pressureAccumulation * r_material[idx];
     }
 }
 
@@ -2017,11 +2018,11 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
     const uint8_t plateId = r_plateIds[invokeIndex];
     const PlateData plateData = r_plateData[plateId];
     
-    float baseStress = r_pressure[invokeIndex] / max(r_material[invokeIndex] * 0.1, 1.0f);
+    float baseStress = r_pressure[invokeIndex] / max(min(r_material[invokeIndex], 200.0f), 1.0f);
 
     float distanceToCenter = plateData.geometricCenter.distance(Vec2<float>(coord.x, coord.y));
     float distanceScore = 1.0f / (0.01f * distanceToCenter + 1.0f);
-    w_stress[invokeIndex] = baseStress * plateData.breakScore * distanceScore;
+    w_stress[invokeIndex] = baseStress * plateData.breakScore;
     //w_stress[invokeIndex] = plateData.breakScore;
 
 }

@@ -181,7 +181,7 @@ __global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> 
 
 __global__ void evaporate(CudaTexture<float>* w_hydrationPtr, float deltatime);
 
-__global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr);
+__global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaTexture<float>* w_pressurePtr, CudaTexture<uint8_t>* r_plateIdsPtr, CudaTexture<float>* r_materialPtr);
 
 __global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
                                      const CudaTexture<float> *r_pressurePtr,
