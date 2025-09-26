@@ -92,6 +92,9 @@ struct GuiPlateData
       int continental[256]{};   // fixed-size array
       int subduction_len{};
       int continental_len{};
+      float break_score{};
+      float perimeter{};
+      float circularity{};
 };
 
 #endif //GENERATION_SETTINGS_H

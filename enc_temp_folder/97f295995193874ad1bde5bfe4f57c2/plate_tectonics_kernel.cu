@@ -2040,7 +2040,7 @@ __global__ void computeBreakScore(PlateData *w_plateData)
         
         plateData.circularity = 1.0f - ((2 * CURAND_2PI * area) / (perimeter * perimeter));
 
-        float areaIncrease = area * 0;
+        float areaIncrease = area * 0.000f;
 
         plateData.breakScore = plateData.circularity + areaIncrease; // circularity formula? need to include in research. 
     } else {

@@ -13,6 +13,7 @@ struct PlateData
     float mass;
     int perimeter;
     float breakScore;
+    float circularity;
     bool used;
     bool hasMoved;
 

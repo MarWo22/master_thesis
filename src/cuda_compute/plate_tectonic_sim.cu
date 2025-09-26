@@ -84,7 +84,7 @@ void PlateTectonicSim::executeIteration()
      */
 
 
-    applyPlateMovementChanges<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer(),
+    applyPlateMovementChanges << <NUM_BLOCKS_PLATES, THREADS_PER_BLOCK >> > (m_plateDataLookup->getPointer(), plateVelocityChanges->getPointer());
 
     // processPlateSplitting();
 
@@ -290,13 +290,6 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
                                                            blurBuffer->deviceTexture());
     CUDA_ERROR_CHECK();
 
-    VerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
-                                                           plateCollisions->deviceTexture(),
-                                                           upliftBufferA->deviceTexture(),
-                                                           upliftGrid->deviceTexture(),
-                                                           blurBuffer->deviceTexture());
-    CUDA_ERROR_CHECK();
-
     HorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                              plateCollisions->deviceTexture(),
                                                              blurBuffer->deviceTexture(),
@@ -447,7 +440,7 @@ void PlateTectonicSim::processPlateSplitting()
                                                                    m_pressure->deviceTexture(),
                                                                    m_plateIdsTexture->deviceTexture());
 
-    // Step 2-3: Apply pressure blur simulation - two-pass gaussian blur within plate constraints
+    // Step 2-3: Apply pressure blur simulation
     pressureVerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                                    m_pressure->deviceTexture(),
                                                                    buffer->deviceTexture());
@@ -478,7 +471,7 @@ void PlateTectonicSim::processPlateSplitting()
 
     printf("max stress: %.4f", h_highest_stress);
 
-    if (h_highest_stress > kernelSettingsHost.stressSplitThreshold)
+    if (h_highest_stress > kernelSettingsHost.stressSplitThreshold && false)
     {
         auto d_dir = m_textureManager.generateTexture<Vec2<float> >(1, 1);
 

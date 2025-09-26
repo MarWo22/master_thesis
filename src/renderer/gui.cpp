@@ -136,6 +136,11 @@ void Gui::gui()
 
             ImGui::Text("Continental collisions: (%s)", continental.c_str());
             ImGui::Text("Subductions collisions: (%s)", subductions.c_str());
+
+            ImGui::Text("Perimeter: (%i)", guiPlateData[id].perimeter);
+            ImGui::Text("Circularity: (%.2f)", guiPlateData[id].circularity);
+            ImGui::Text("Break score: (%.2f)", guiPlateData[id].break_score);
+
         }
     }
 
