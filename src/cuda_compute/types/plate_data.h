@@ -8,8 +8,12 @@ struct PlateData
     Vec2<float> direction;
     Vec2<float> pixelCenter; // ranges from [0,1]
     Vec2<float> velocityChange;
+    Vec2<float> geometricCenter; // geometric center of the plate
     int size;
     float mass;
+    int perimeter;
+    float breakScore;
+    float circularity;
     bool used;
     bool hasMoved;
 
@@ -17,6 +21,8 @@ struct PlateData
         : velocity(0)
         , size(0)
         , mass(0)
+        , perimeter(0)
+        , breakScore(1.0f)
         , used(false)
         , hasMoved(false)
     {}

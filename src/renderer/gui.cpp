@@ -136,6 +136,11 @@ void Gui::gui()
 
             ImGui::Text("Continental collisions: (%s)", continental.c_str());
             ImGui::Text("Subductions collisions: (%s)", subductions.c_str());
+
+            ImGui::Text("Perimeter: (%i)", guiPlateData[id].perimeter);
+            ImGui::Text("Circularity: (%.2f)", guiPlateData[id].circularity);
+            ImGui::Text("Break score: (%.2f)", guiPlateData[id].break_score);
+
         }
     }
 
@@ -181,8 +186,13 @@ void Gui::renderSettingsSection()
             {
                 renderSettings.callCallback("renderSettingsChanged");
             }
-            if (ImGui::RadioButton("Show Uplift Areas", &renderSettings.renderMode,
-                                   RenderSettings::RenderMode::SHOW_UPLIFT_AREAS))
+            if (ImGui::RadioButton("Show Pressure Areas", &renderSettings.renderMode,
+                                   RenderSettings::RenderMode::SHOW_PRESSURE_AREAS))
+            {
+                renderSettings.callCallback("renderSettingsChanged");
+            }
+            if (ImGui::RadioButton("Show Stress Areas", &renderSettings.renderMode,
+                                   RenderSettings::RenderMode::SHOW_STRESS_AREAS))
             {
                 renderSettings.callCallback("renderSettingsChanged");
             }
@@ -236,6 +246,9 @@ void Gui::renderSettingsSection()
                 renderSettings.callCallback("renderSettingsChanged");
 
             if (ImGui::Checkbox("Show Plate Directions", &renderSettings.renderDirections))
+                renderSettings.callCallback("renderSettingsChanged");
+
+            if (ImGui::Checkbox("Show Stress Peaks", &renderSettings.renderStressPeaks))
                 renderSettings.callCallback("renderSettingsChanged");
 
 
@@ -307,6 +320,15 @@ void Gui::simulationSettingsSection()
             // velocity_threshold_merge
             // min_size
         }
+
+        if (ImGui::CollapsingHeader("Uplift Properties"))
+        {
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Uplift multiplier", &newSettings.upliftMultiplier, 0.01f, 0.01f, 50.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Uplift range", &newSettings.upliftRange, 1, 0, 100);
+        }
+
         if (ImGui::CollapsingHeader("Erosion Properties"))
         {
             ImGui::SetNextItemWidth(250);
@@ -318,9 +340,33 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Evaporation", &newSettings.hydrationEvaporation, 0.005f, 0.f, 500.f);
             ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Minimum Water Level", &newSettings.minimumWaterLevel, 1.0f, 0.f, 500.f);
+            ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Capacity", &newSettings.sedimentCapacity, 0.05f, 0.f, 10.f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Dissolving constant", &newSettings.sedimentDissolving, 0.001f, 0.f, 10.f);
+            ImGui::DragFloat("Dissolving constant", &newSettings.sedimentDissolving, 0.0001f, 0.f, 10.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Thermal Erosion Strength", &newSettings.thermalErosionStrength, 0.001f, 0.f, 2.0f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Thermal Erosion Amplitude", &newSettings.thermalErosionAmplitude, 0.01f, 0.f, 2.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Thermal Cell Size", &newSettings.thermalCellSize, 0.1f, 0.1f, 5.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Thermal Threshold Angle", &newSettings.thermalThresholdAngle, 0.01f, 0.01f, 2.f);
+        }
+
+        if (ImGui::CollapsingHeader("Pressure Properties"))
+        {
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Pressure Accumulation Rate", &newSettings.pressureAccumulation, 0.001f, 0.f, 0.1f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Pressure Decay Rate", &newSettings.pressureDecayRate, 0.01f, 0.f, 1.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Pressure Blur Range", &newSettings.pressureBlurRange, 1, 1, 100);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Pressure Multiplier", &newSettings.pressureMultiplier, 0.01f, 0.f, 10.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Stress Split Threshold", &newSettings.stressSplitThreshold, 1.0f, 1.0f, 200.0f);
         }
 
         ImGui::Unindent(15.0f);

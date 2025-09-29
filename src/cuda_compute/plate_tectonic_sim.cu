@@ -3,6 +3,10 @@
 #include <iostream>
 #include <map>
 #include <random>
+#include <thrust/device_vector.h>
+#include <thrust/sort.h>
+#include <thrust/reduce.h>
+#include <thrust/functional.h>
 
 #include "ccl.cuh"
 #include "cuda_gl_interop_manager.h"
@@ -13,10 +17,12 @@
 #include <thrust/device_vector.h>
 #include <thrust/iterator/constant_iterator.h>
 #include "texture_save.cuh"
+#include "kernel_settings.cuh"
 
 extern RenderSettings renderSettings;
 extern SimulationSettings simulationSettings;
 extern SaveTextureGui saveTextureGui;
+extern KernelSettings kernelSettingsHost;
 extern std::array<GuiPlateData, MAX_PLATE_COUNT> guiPlateData;
 
 PlateTectonicSim::PlateTectonicSim(const int width, const int height, const unsigned int seed,
@@ -64,7 +70,9 @@ void PlateTectonicSim::executeIteration()
     processCollisionUplift(heightMapTextureWrite.get(), plateIdsTextureWrite.get(), platesHaveCollided.get(),
                            m_plateCollisions.get(), plateVelocityChanges.get());
 
-    // applyHydraulicErosion(heightMapTextureWrite.get());
+    thermalErosionKernel << <m_numBlocksPixels, THREADS_PER_BLOCK >> > (heightMapTextureWrite->deviceTexture());
+
+    //applyHydraulicErosion(heightMapTextureWrite.get());
 
     copyAndReleaseTexture(*m_heightMapTexture, std::move(heightMapTextureWrite), m_height, m_width);
     copyAndReleaseTexture(*m_plateIdsTexture, std::move(plateIdsTextureWrite), m_height, m_width);
@@ -75,8 +83,8 @@ void PlateTectonicSim::executeIteration()
      * Apply the movement to the plates, and update the velocities and directions according to collisions.
      */
 
-    applyPlateMovementChanges<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer(),
-                                                                        plateVelocityChanges->getPointer());
+
+    applyPlateMovementChanges << <NUM_BLOCKS_PLATES, THREADS_PER_BLOCK >> > (m_plateDataLookup->getPointer(), plateVelocityChanges->getPointer());
 
     // processPlateSplitting();
 
@@ -87,7 +95,6 @@ void PlateTectonicSim::executeIteration()
      * Final maxplatematrix and full-pixel pass that allow for the merging and splitting of plates, and the updates of
      * mass and sizes
      */
-
 
     auto plateMergeIds = m_textureManager.generateTextureAndReset<uint8_t>(MAX_PLATE_COUNT, 1, MAX_PLATE_COUNT);
     determinePlateMerge<<<NUM_BLOCKS_PLATES_MATRIX, THREADS_PER_BLOCK>>>(
@@ -103,10 +110,25 @@ void PlateTectonicSim::executeIteration()
                                                                     plateSizeTexture->getPointer());
     CUDA_ERROR_CHECK();
 
+    // Compute perimeter-area ratios after finalPixelPass updates the plate data
+    computeBreakScore<<<MAX_PLATE_COUNT, 1>>>(m_plateDataLookup->getPointer());
+
+    
+    auto plateAngularSums = m_textureManager.generateTexture<float4>(MAX_PLATE_COUNT, 1);
+    auto plateCounts = m_textureManager.generateTexture<int>(MAX_PLATE_COUNT, 1);
+    
+    accumulatePlateAngularCoords<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), plateAngularSums->deviceTexture(), plateCounts->deviceTexture());
+    cudaDeviceSynchronize();
+    calculatePlateCenters<<<MAX_PLATE_COUNT, 1>>>(m_plateIdsTexture->deviceTexture(), plateAngularSums->deviceTexture(), plateCounts->deviceTexture(), m_plateDataLookup->getPointer());
 
     statisticsPass<<<1, 1>>>(m_plateDataLookup->getPointer(), m_iterationStats->getPointer());
+
+    processPlateSplitting();
+
     CUDA_ERROR_CHECK();
+
     cudaDeviceSynchronize();
+
     if (m_interopManager)
     {
         copyConstantTexturesInterop();
@@ -122,6 +144,8 @@ void PlateTectonicSim::executeIteration()
 void PlateTectonicSim::copyConstantTexturesInterop() const
 {
     m_interopManager->copyConnection("heightMap", m_heightMapTexture->getPointer());
+    m_interopManager->copyConnection("pressureTexture", m_pressure->getPointer());
+    m_interopManager->copyConnection("stressTexture", m_stress->getPointer());
 
     if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_PLATE_VELOCITIES)
         copyVelocitiesGL();
@@ -205,9 +229,7 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
 
     const auto upliftBufferA = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
     const auto upliftBufferB = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
-    const auto upliftGrid = m_textureManager.generateTexture<bool>(static_cast<int>(m_width * powf(0.5, de)),
-                                                                   static_cast<int>(m_height * powf(0.5, de)));
-    const auto blurBuffer = m_textureManager.generateTexture<BlurBuffer>(m_width, m_height);
+    const auto blurBuffer = m_textureManager.generateTexture<DistanceFieldBuffer>(m_width, m_height);
 
     /*
      * STEP FOUR
@@ -217,7 +239,6 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
      * The presence of one plate indicates a simple movement, and more indicates a convergence. Generation of new crust
      * and movement of original crust is dealt with in this step.
      */
-
 
     const auto hasDivergedBitmap = m_textureManager.generateTextureAndReset<uint32_t>(
         NUM_WORDS_TRIANGLE_SINGLE_BITS, 1, 0);
@@ -266,22 +287,16 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
      * Perform uplift
      */
 
-    createUpliftGrid<<<static_cast<int>(m_numBlocksPixels * 0.125), static_cast<int>(THREADS_PER_BLOCK * 0.125)>>>(
-        upliftBufferA->deviceTexture(), upliftGrid->deviceTexture());
-    CUDA_ERROR_CHECK();
-
     VerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                            plateCollisions->deviceTexture(),
                                                            upliftBufferA->deviceTexture(),
-                                                           upliftGrid->deviceTexture(),
-                                                           blurBuffer->deviceTexture(), 50);
+                                                           blurBuffer->deviceTexture());
     CUDA_ERROR_CHECK();
 
     HorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                              plateCollisions->deviceTexture(),
-                                                             upliftGrid->deviceTexture(),
                                                              blurBuffer->deviceTexture(),
-                                                             heightMapTextureWrite->deviceTexture(), 50);
+                                                             heightMapTextureWrite->deviceTexture());
     CUDA_ERROR_CHECK();
 }
 
@@ -290,7 +305,7 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
     const auto fluxBuffer = m_textureManager.generateTexture<float4>(m_width, m_height);
     const auto sedimentBuffer = m_textureManager.generateTexture<float>(m_width, m_height);
 
-    for (size_t i = 0; i < 100; i++)
+    for (size_t i = 0; i < 10; i++)
     {
         rain<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_hydrationLevel->deviceTexture(), 1.0, m_seed + m_iterations);
         CUDA_ERROR_CHECK();
@@ -313,7 +328,9 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
                                                             m_hydrationVelocity->deviceTexture(), 1.0);
         CUDA_ERROR_CHECK();
         evaporate<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_hydrationLevel->deviceTexture(), 1.0);
+
         CUDA_ERROR_CHECK();
+
         cudaMemcpyAsync(m_sedimentLevel->getPointer(), sedimentBuffer->getPointer(), sizeof(float) * m_width * m_height,
                         cudaMemcpyDeviceToDevice);
         CUDA_ERROR_CHECK();
@@ -419,34 +436,68 @@ void PlateTectonicSim::applyCCL()
 
 void PlateTectonicSim::processPlateSplitting()
 {
-    int h_largest;
-    const int *d_largest = &m_iterationStats->getPointer()->largestValue;
-    cudaMemcpy(&h_largest, d_largest, sizeof(int), cudaMemcpyDeviceToHost);
+    auto buffer = m_textureManager.generateTexture<float>(m_width, m_height);
 
-    printf("largest: %.i\n", h_largest);
-    if (h_largest > 220000)
+    // Step 1: Accumulate pressure and reset at fault lines
+    pressureAccumulation<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
+                                                                   m_pressure->deviceTexture(),
+                                                                   m_plateIdsTexture->deviceTexture(),
+                                                                   m_heightMapTexture->deviceTexture());
+
+    // Step 2-3: Apply pressure blur simulation
+    pressureVerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+                                                                   m_pressure->deviceTexture(),
+                                                                   buffer->deviceTexture());
+
+    pressureHorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+                                                                     buffer->deviceTexture(),
+                                                                     m_pressure->deviceTexture());
+
+    // Step 4: Calculate stress from pressure and terrain height
+    stress<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
+                                                      m_heightMapTexture->deviceTexture(),
+                                                      m_stress->deviceTexture(),
+                                                      m_plateIdsTexture->deviceTexture(),
+                                                      m_plateDataLookup->getPointer());
+
+    const size_t numPixels = m_width * m_height;
+    
+    thrust::device_ptr<uint8_t> keys_ptr(m_plateIdsTexture->getPointer());
+    thrust::device_ptr<float> values_ptr(m_stress->getPointer());
+    
+    // Find the pixel with maximum stress across all plates
+    auto max_pixel_iter = thrust::max_element(values_ptr, values_ptr + numPixels);
+    size_t max_pixel_index = max_pixel_iter - values_ptr;
+    
+    float h_highest_stress = *max_pixel_iter;
+    uint8_t h_highest_stress_plate_id = keys_ptr[max_pixel_index];
+    Vec2<float> h_stress_location = Vec2<float>(max_pixel_index % m_width, max_pixel_index / m_width);
+
+    printf("max stress: %.4f", h_highest_stress);
+
+    if (h_highest_stress > kernelSettingsHost.stressSplitThreshold && false)
     {
-        const Vec2<float> h_pivot = getPlateCenter();
         auto d_dir = m_textureManager.generateTexture<Vec2<float> >(1, 1);
 
-        findPlausibleSplitLine<<<1, 10, 10 * sizeof(float)>>>(m_iterationStats->getPointer(), h_pivot,
+        findPlausibleSplitLine<<<1, 10, 10 * sizeof(float)>>>(h_highest_stress_plate_id, h_stress_location,
                                                               m_plateIdsTexture->deviceTexture(), d_dir->getPointer());
         CUDA_ERROR_CHECK();
         auto newPlateId = m_textureManager.generateTexture<uint8_t>(1, 1);
 
         selectUnusedPlateId<<<1, 1>>>(m_plateDataLookup->getPointer(), newPlateId->getPointer());
-        CUDA_ERROR_CHECK();
-        splitPlate << <m_numBlocksPixels, THREADS_PER_BLOCK >> >(m_iterationStats->getPointer(),
-                                                                 newPlateId->getPointer(), h_pivot,
+
+        splitPlate << <m_numBlocksPixels, THREADS_PER_BLOCK >> >(h_highest_stress_plate_id,
+                                                                 newPlateId->getPointer(), h_stress_location,
                                                                  d_dir->getPointer(),
                                                                  m_plateIdsTexture->deviceTexture(),
                                                                  m_plateDataLookup->getPointer());
+        CUDA_ERROR_CHECK();
     }
 }
 
 Vec2<float> PlateTectonicSim::getPlateCenter()
 {
-    auto d_samples = m_textureManager.generateTexture<float4>(m_numBlocksPixels, 1);
+    /*auto d_samples = m_textureManager.generateTexture<float4>(m_numBlocksPixels, 1);
     findPlateCenter<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_iterationStats->getPointer(),
                                                               m_plateDataLookup->getPointer(),
                                                               m_plateIdsTexture->deviceTexture(),
@@ -473,9 +524,11 @@ Vec2<float> PlateTectonicSim::getPlateCenter()
     const float midX = m_width * angleX / CURAND_2PI;
     const float midY = m_height * angleY / CURAND_2PI;
 
-    delete[] h_samples;
+    delete[] h_samples;*/
 
-    return Vec2(midX, midY);
+    //return Vec2(midX, midY);
+
+    return Vec2<float>(0, 0);
 }
 
 void PlateTectonicSim::copyDirectionGL() const
@@ -514,6 +567,8 @@ void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPl
     m_hydrationLevel.reset();
     m_hydrationVelocity.reset();
     m_sedimentLevel.reset();
+    m_pressure.reset();
+    m_stress.reset();
     m_plateDataLookup.reset();
     m_randStatesPlates.reset();
     m_iterationStats.reset();
@@ -550,8 +605,11 @@ void PlateTectonicSim::onRenderSettingChange()
         case RenderSettings::RenderMode::NORMAL:
             activeTextures = {"heightMap"};
             break;
-        case RenderSettings::RenderMode::SHOW_UPLIFT_AREAS:
-            activeTextures = {"heightMap", "upliftTexture"};
+        case RenderSettings::RenderMode::SHOW_PRESSURE_AREAS:
+            activeTextures = {"heightMap", "pressureTexture"};
+            break;
+        case RenderSettings::RenderMode::SHOW_STRESS_AREAS:
+            activeTextures = {"heightMap", "stressTexture"};
             break;
         case RenderSettings::RenderMode::SHOW_PLATE_VELOCITIES:
             activeTextures = {"heightMap", "velocityTexture"};
@@ -648,7 +706,9 @@ void PlateTectonicSim::initializeTectonics(const int numStartingPlates, const st
     std::cout << "Initialized plate IDs\n";
     // Initialized the heightmap with simplex noise
     // The heightmap is written to the m_heightMapTexture texture
-    initHeightmap<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_heightMapTexture->deviceTexture(), m_seed, 1);
+
+    initHeightmap<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_heightMapTexture->deviceTexture(), m_seed, 4);
+
     CUDA_ERROR_CHECK();
     std::cout << "Initialized heightmap\n";
 
@@ -739,6 +799,9 @@ void PlateTectonicSim::initializeTextures()
     m_hydrationFlux = m_textureManager.generateTexture<float4>(m_width, m_height);
     m_hydrationVelocity = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
     m_sedimentLevel = m_textureManager.generateTexture<float>(m_width, m_height);
+
+    m_pressure = m_textureManager.generateTexture<float>(m_width, m_height);
+    m_stress = m_textureManager.generateTexture<float>(m_width, m_height);
 
     m_plateDataLookup = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);
     m_randStatesPlates = m_textureManager.generateTexture<curandState>(MAX_PLATE_COUNT, 1);

@@ -16,7 +16,8 @@ public:
             SHOW_COLLISION_AREAS,
             SHOW_PLATE_DIRECTIONS,
             SHOW_PLATE_VELOCITIES,
-            SHOW_UPLIFT_AREAS,
+            SHOW_PRESSURE_AREAS,
+            SHOW_STRESS_AREAS,
       };
 
       enum ShadingMode
@@ -38,6 +39,7 @@ public:
       bool renderWater = true;
       bool renderDirections = false;
       float heightMultiplier = 1;
+      bool renderStressPeaks = false;
 
       // The actual settings. Could make them private with getter/setters, but I think this is sufficient
       int executionIterations = 1;
@@ -90,6 +92,9 @@ struct GuiPlateData
       int continental[256]{};   // fixed-size array
       int subduction_len{};
       int continental_len{};
+      float break_score{};
+      float perimeter{};
+      float circularity{};
 };
 
 #endif //GENERATION_SETTINGS_H

@@ -113,7 +113,7 @@ void MallocTestNoManager()
     CudaTextureHost<float> upliftBufferA;
     CudaTextureHost<float> upliftBufferB;
     CudaTextureHost<bool> upliftGrid;
-    CudaTextureHost<BlurBuffer> blurBuffer;
+    CudaTextureHost<DistanceFieldBuffer> blurBuffer;
     CudaTextureHost<uint8_t> platesHaveCollided;
     heightMapTextureWrite.initialize(m_width, m_height);
     plateIdsTextureWrite.initialize(m_width, m_height);
@@ -154,7 +154,7 @@ void MallocTestManager(TextureManager &textureManager)
     auto upliftBufferA = textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
     auto upliftBufferB = textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
     auto upliftGrid = textureManager.generateTexture<bool>(m_width, m_height);
-    auto blurBuffer = textureManager.generateTexture<BlurBuffer>(m_width, m_height);
+    auto blurBuffer = textureManager.generateTexture<DistanceFieldBuffer>(m_width, m_height);
     auto platesHaveCollided = textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, 0);
     auto fluxBuffer = textureManager.generateTexture<float4>(m_width, m_height);
     auto sedimentBuffer = textureManager.generateTexture<float>(m_width, m_height);
