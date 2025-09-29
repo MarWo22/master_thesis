@@ -84,7 +84,8 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
         freq *= 10.f;
     }
 
-    r_height[invokeIndex] = value * 2000;
+    const float norm = value * 9;
+    r_height[invokeIndex] = 5000.0f + norm * (15000.0f - 5000.0f);
 }
 
 
@@ -394,9 +395,9 @@ __device__ void applyInelasticCollision(const unsigned int *collisionTypes, Coll
 }
 
 __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTexture<float> *w_convergenceMapPtr,
-                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr, const uint8_t *plateIds,
-                                   const unsigned int *collisionTypes, const float *heights,
-                                   const unsigned int invokeIndex)
+                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr, CudaTexture<uint8_t> *w_accretionTexturePtr, const uint8_t *plateIds,
+                                   const unsigned int *collisionTypes, const float *heights, const PlateData *plateIdsData,
+                                   const unsigned int invokeIndex, const Vec2<int> textureIndex)
 {
     float force = 0;
 
@@ -476,7 +477,20 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
         }
         else if (index_b == newPlateOwnerIndex && collisionType == 3)
         {
-            printf("Accretion2: %d %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b], collisionType);
+            const Vec2<int> originalIndexA = previousTextureIndex(textureIndex, plateIdsData[index_a]);
+            if (originalIndexA != textureIndex)
+            {
+                printf("Writing accretion\n");
+                (*w_accretionTexturePtr)[originalIndexA] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
+            }
+            else
+            {
+                const Vec2 offset = plateIdsData[index_b].pixelCenter + plateIdsData[index_b].direction * plateIdsData[index_b].velocity;
+                const Vec2 pixelOffset = {static_cast<int>(floor(offset.x)), static_cast<int>(floor(offset.y))};
+                const Vec2 oppositePixelIndex = textureIndex + pixelOffset;
+                (*w_accretionTexturePtr)[oppositePixelIndex] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
+                printf("Writing accretion1\n");
+            }
         }
     }
 
@@ -598,6 +612,7 @@ __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const
                                   const uint8_t *r_collisionTypeBitmap, PlateTexturesWrite w_plateTextures,
                                   uint32_t *w_hasDivergedBitmap, CudaTexture<float> *w_convergenceMapPtr,
                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
+                                  CudaTexture<uint8_t> *w_accretionTexturePtr,
                                   CollisionVelocityChanges *w_velocityChanges,
                                   const NoiseParameters noiseParameters)
 {
@@ -635,6 +650,7 @@ __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const
                 plateIds[3] != MAX_PLATE_COUNT ? r_plateTextures.plateData[plateIds[3]] : PlateData()
             };
 
+
             const CudaTexture<float> &r_heightMap = *r_plateTextures.heightMapPtr;
             const float previousHeights[4] = {
                 r_heightMap[previousTextureIndex(texCoords, plateIdsData[0])],
@@ -651,8 +667,8 @@ __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const
             extractCollisionTypes(r_collisionTypeBitmap, collisionTypes, plateIds, previousHeights);
 
             applyInelasticCollision(collisionTypes, w_velocityChanges, plateIds, previousHeights, plateIdsData);
-            processConvergence(w_plateTextures, w_convergenceMapPtr, w_platesHaveCollidedPtr, plateIds,
-                               collisionTypes, previousHeights, invokeIndex);
+            processConvergence(w_plateTextures, w_convergenceMapPtr, w_platesHaveCollidedPtr, w_accretionTexturePtr, plateIds,
+                               collisionTypes, previousHeights, plateIdsData, invokeIndex, texCoords);
         }
         // Otherwise, only one plate moves into the pixel, indicating ordinary movement
         else
@@ -660,6 +676,25 @@ __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const
             processMovement(r_plateTextures, w_plateTextures, plateIds[0], invokeIndex);
         }
     }
+}
+
+__global__ void applyAccretion(const CudaTexture<float> *r_heightMapPtr, const CudaTexture<uint8_t> *r_accretionTexturePtr,
+    CudaTexture<uint8_t> *w_plateIdsPtr)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (!isWithinBounds(invokeIndex, r_heightMapPtr->size()))
+        return;
+
+    const uint8_t accretionId = MAX_PLATE_COUNT - (*r_accretionTexturePtr)[invokeIndex];
+
+    // No accretion happened
+    if (accretionId == MAX_PLATE_COUNT)
+        return;
+
+    // Accretion is only applied if the accreted pixel is also continental
+    if ((*r_heightMapPtr)[invokeIndex] >= kernelSettings.continentalCrustThreshold)
+        (*w_plateIdsPtr)[invokeIndex] = accretionId;
 }
 
 __global__ void flipDivergedBitmap(uint32_t *divergenceBitmap, const uint32_t *hasDivergedBitmap)

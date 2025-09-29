@@ -243,6 +243,8 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
         collisionTypeCounts->getPointer(), m_collisionTypeBitmap->getPointer());
     CUDA_ERROR_CHECK();
 
+    auto accretionTexture = m_textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, 0);
+
     processCollisions<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(readTextures,
                                                                 plateCollisions->deviceTexture(),
                                                                 m_divergenceBitmap->getPointer(),
@@ -251,6 +253,7 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
                                                                 hasDivergedBitmap->getPointer(),
                                                                 upliftBufferA->deviceTexture(),
                                                                 platesHaveCollided->deviceTexture(),
+                                                                accretionTexture->deviceTexture(),
                                                                 velocityChanges->getPointer(),
                                                                 {static_cast<int>(m_seed), m_iterations});
     CUDA_ERROR_CHECK();

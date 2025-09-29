@@ -24,7 +24,7 @@ void main() {
     color = vec4(vec3(height), 1);
 
     if (displaceHeight)
-        gl_Position = vpMat * vec4(position.x, (height + hydration) * heightMultiplier, position.z, 1.0);
+        gl_Position = vpMat * vec4(position.x, (height + hydration) / 1000 * heightMultiplier, position.z, 1.0);
     else
         gl_Position = vpMat * vec4(position.x, 0, position.z, 1.0);
 

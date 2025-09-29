@@ -13,7 +13,7 @@ struct KernelSettings
     float mergeVelocityDiffThreshold = 0.025f;
     int minPlateSize = 10;
 
-    float continentalCrustThreshold = 80.f;
+    float continentalCrustThreshold = 10000.f;
 
     float divergence_height_target = 20.f;
     float divergence_interpolation_factor = 0.04f;

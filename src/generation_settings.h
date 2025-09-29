@@ -37,7 +37,7 @@ public:
       bool renderHeight = true;
       bool renderWater = true;
       bool renderDirections = false;
-      float heightMultiplier = 0.2;
+      float heightMultiplier = 1;
 
       // The actual settings. Could make them private with getter/setters, but I think this is sufficient
       int executionIterations = 1;

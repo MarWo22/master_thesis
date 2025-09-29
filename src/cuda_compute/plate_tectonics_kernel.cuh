@@ -11,6 +11,7 @@
 
 #define MAX_PLATE_COUNT 255u
 
+
 struct PlateTexturesWrite
 {
     CudaTexture<uint8_t> *plateIdsPtr;
@@ -112,8 +113,12 @@ __global__ void processCollisions(PlateTexturesRead r_plateTextures, const CudaT
                                   PlateTexturesWrite w_plateTextures, uint32_t *w_hasDivergedBitmap,
                                   CudaTexture<float> *w_convergenceMapPtr,
                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
+                                  CudaTexture<uint8_t> *w_accretionTexturePtr,
                                   CollisionVelocityChanges *w_velocityChanges,
                                   NoiseParameters noiseParameters);
+
+__global__ void applyAccretion(const CudaTexture<float> *r_heightMapPtr,
+                               const CudaTexture<uint8_t> *r_accretionTexturePtr, CudaTexture<uint8_t> *w_plateIdsPtr);
 
 __global__ void flipDivergedBitmap(uint32_t *divergenceBitmap, const uint32_t *hasDivergedBitmap);
 
@@ -200,6 +205,6 @@ __global__ void createCollisionTypeMatrix(const CollisionTypeCounts *r_collision
                                           uint8_t *w_collisionTypeBitmap);
 
 __global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint8_t *r_collisionTypeBitmap,
-                                 GuiPlateData *w_plateDataGui);
+                                       GuiPlateData *w_plateDataGui);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH

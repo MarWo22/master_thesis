@@ -240,7 +240,7 @@ void Gui::renderSettingsSection()
 
 
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Height Displacement Multiplier", &renderSettings.heightMultiplier, 0.1f, 0.f, 500.f);
+            ImGui::DragFloat("Height Displacement Multiplier", &renderSettings.heightMultiplier, 0.01f, 0.f, 10.f);
 
             ImGui::Unindent(15.0f);
         }
