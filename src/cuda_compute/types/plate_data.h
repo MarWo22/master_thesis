@@ -9,6 +9,7 @@ struct PlateData
     Vec2<float> pixelCenter; // ranges from [0,1]
     Vec2<float> velocityChange;
     Vec2<float> geometricCenter; // geometric center of the plate
+    Vec2<float> forceFromPressure; // accumulated pressure velocity for the plate
     int size;
     float mass;
     int perimeter;
@@ -23,6 +24,7 @@ struct PlateData
         , mass(0)
         , perimeter(0)
         , breakScore(1.0f)
+        , forceFromPressure({0.0f, 0.0f})
         , used(false)
         , hasMoved(false)
     {}

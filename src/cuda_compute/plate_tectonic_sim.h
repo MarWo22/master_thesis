@@ -82,6 +82,7 @@ class PlateTectonicSim
 
     std::unique_ptr<CudaTextureHost<float>> m_pressure;
     std::unique_ptr<CudaTextureHost<float>> m_stress;
+    std::unique_ptr<CudaTextureHost<Vec2<float>>> m_pressureVelocity;
 
     /*
      *  Persistent CUDA data containers

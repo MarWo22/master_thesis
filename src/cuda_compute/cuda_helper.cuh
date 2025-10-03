@@ -80,6 +80,11 @@ __device__ __inline__ float remap(const float value, const float inStart, const 
     return outStart + (outStop - outStart) * ((value - inStart) / (inStop - inStart));
 }
 
+__device__ __inline__ float inverseClampedLerp(float value, float min, float max)
+{
+    return clamp01((value - min) / (max - min));
+}
+
 __device__ __inline__ unsigned int upperTriangleIndex(const unsigned int i, const unsigned int j,
                                                                const int matrixSize,
                                                                const unsigned int bitEntrySize = 1)

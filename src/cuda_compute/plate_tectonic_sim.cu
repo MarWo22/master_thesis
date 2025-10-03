@@ -86,8 +86,6 @@ void PlateTectonicSim::executeIteration()
 
     applyPlateMovementChanges << <NUM_BLOCKS_PLATES, THREADS_PER_BLOCK >> > (m_plateDataLookup->getPointer(), plateVelocityChanges->getPointer());
 
-    // processPlateSplitting();
-
     // applyCCL();
 
     /*
@@ -107,7 +105,8 @@ void PlateTectonicSim::executeIteration()
                                                                     m_heightMapTexture->deviceTexture(),
                                                                     plateMergeIds->getPointer(),
                                                                     m_plateDataLookup->getPointer(),
-                                                                    plateSizeTexture->getPointer());
+                                                                    plateSizeTexture->getPointer(),
+                                                                    m_pressureVelocity->deviceTexture());
     CUDA_ERROR_CHECK();
 
     // Compute perimeter-area ratios after finalPixelPass updates the plate data
@@ -449,6 +448,11 @@ void PlateTectonicSim::processPlateSplitting()
     pressureHorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                                      buffer->deviceTexture(),
                                                                      m_pressure->deviceTexture());
+
+    // Calculate pressure velocity from pressure gradients
+    calculatePressureVelocity<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
+                                                                        m_plateIdsTexture->deviceTexture(),
+                                                                        m_pressureVelocity->deviceTexture());
 
     // Step 4: Calculate stress from pressure and terrain height
     stress<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
@@ -799,6 +803,7 @@ void PlateTectonicSim::initializeTextures()
 
     m_pressure = m_textureManager.generateTexture<float>(m_width, m_height);
     m_stress = m_textureManager.generateTexture<float>(m_width, m_height);
+    m_pressureVelocity = m_textureManager.generateTexture<Vec2<float>>(m_width, m_height);
 
     m_plateDataLookup = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);
     m_randStatesPlates = m_textureManager.generateTexture<curandState>(MAX_PLATE_COUNT, 1);

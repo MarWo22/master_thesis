@@ -99,11 +99,13 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
 
 __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
                                       const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds,
-                                      PlateData *w_plateLookup, int *w_plateSize)
+                                      PlateData *w_plateLookup, int *w_plateSize,
+                                      const CudaTexture<Vec2<float>> *r_pressureSlopePtr)
 {
     __shared__ float localMassSum[MAX_PLATE_COUNT];
     __shared__ int localSize[MAX_PLATE_COUNT];
     __shared__ int localPerimeter[MAX_PLATE_COUNT];
+    __shared__ Vec2<float> localPressureSlope[MAX_PLATE_COUNT];
 
     CudaTexture<uint8_t> &rw_plateIds = *rw_plateIdsPtr;
 
@@ -116,6 +118,7 @@ __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
         localMassSum[threadIdx.x] = 0;
         localSize[threadIdx.x] = 0;
         localPerimeter[threadIdx.x] = 0;
+        localPressureSlope[threadIdx.x] = {0.0f, 0.0f};
     }
 
     __syncthreads();
@@ -130,11 +133,14 @@ __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
     }
 
     const float pixelHeight = (*r_heightTexturePtr)[invokeIndex];
+    const Vec2<float> pixelVelocity = (*r_pressureSlopePtr)[invokeIndex];
     const Vec2<int> coord = rw_plateIds.indexToCoordinate(invokeIndex);
     const Vec2<int> mapSize = rw_plateIds.size();
 
     atomicAdd(&localMassSum[plateID], pixelHeight);
     atomicAdd(&localSize[plateID], 1);
+    atomicAdd(&localPressureSlope[plateID].x, pixelVelocity.x);
+    atomicAdd(&localPressureSlope[plateID].y, pixelVelocity.y);
 
     // Check if this pixel is on the plate boundary for perimeter calculation
     bool isBoundary = false;
@@ -179,6 +185,11 @@ __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
             atomicAdd(&w_plateLookup[threadIdx.x].size, localSize[threadIdx.x]);
         if (localPerimeter[threadIdx.x] != 0)
             atomicAdd(&w_plateLookup[threadIdx.x].perimeter, localPerimeter[threadIdx.x]);
+        if (localPressureSlope[threadIdx.x].x != 0.0f || localPressureSlope[threadIdx.x].y != 0.0f)
+        {
+            atomicAdd(&w_plateLookup[threadIdx.x].forceFromPressure.x, localPressureSlope[threadIdx.x].x);
+            atomicAdd(&w_plateLookup[threadIdx.x].forceFromPressure.y, localPressureSlope[threadIdx.x].y);
+        }
     }
 }
 
@@ -1023,34 +1034,6 @@ __global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint8
     w_plateDataGui[invokeIndex].subduction_len = subduction_idx;
 }
 
-__global__ void createUpliftGrid(const CudaTexture<float> *r_upliftMapPtr, CudaTexture<bool> *w_gridMapPtr)
-{
-    const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, w_gridMapPtr->size()))
-        return;
-    Vec2<int> coord = w_gridMapPtr->indexToCoordinate(invokeIndex);
-
-    CudaTexture<float> r_upliftMap = *r_upliftMapPtr;
-    Vec2<int> mapSize = r_upliftMapPtr->size();
-    Vec2<int> gridSize = w_gridMapPtr->size();
-
-    Vec2<int> sampleSize = Vec2<int>(mapSize.x / gridSize.x, mapSize.y / gridSize.y);
-
-    bool value = false;
-    int samples = 0;
-
-    for (int y = 0; y < sampleSize.y && !value; y++)
-    {
-        for (int x = 0; x < sampleSize.x && !value; x++)
-        {
-            value = r_upliftMap[Vec2<int>(coord.x * sampleSize.x + x, coord.y * sampleSize.y + y)] > 0;
-            samples++;
-        }
-    }
-
-    (*w_gridMapPtr)[coord] = value;
-}
-
 __device__ bool collisionContains(const uint32_t collision, const uint8_t plateId)
 {
     uint8_t plateA = MAX_PLATE_COUNT - collision & 0xFF;
@@ -1255,13 +1238,18 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
     const auto [inelasticDirectionalChange, frictionLoss] = r_velocityChanges[threadIdx.x];
 
     const Vec2<float> originalVelocityVector = current.direction * current.velocity;
-    const Vec2<float> newVelocityVector = originalVelocityVector;
+    const Vec2<float> newVelocityVector = originalVelocityVector + (current.forceFromPressure / max(current.mass, 1.0f) * 0.01f);
+    
+    float x = (current.forceFromPressure / max(current.mass, 1.0f)).magnitude();
+
+    if(x > 0.00001f)
+        printf("speed increase: %.4f \n", (current.forceFromPressure / max(current.mass, 1.0f)).magnitude());
 
     const auto [norm, mag] = newVelocityVector.normalizedAndMagnitudeZeroSafe();
 
     current.direction = norm;
     const float postCollisionVelocity = max(mag - frictionLoss, 0.f);
-    current.velocity = postCollisionVelocity * (1 - kernelSettings.environmentalDragCoefficient);
+    current.velocity = clamp01(postCollisionVelocity * (1 - kernelSettings.environmentalDragCoefficient));
 
     current.mass = 0;
     current.size = 0;
@@ -2020,11 +2008,9 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
     
     float baseStress = r_pressure[invokeIndex] / max(min(r_material[invokeIndex], 200.0f), 1.0f);
 
-    float distanceToCenter = plateData.geometricCenter.distance(Vec2<float>(coord.x, coord.y));
-    float distanceScore = 1.0f / (0.01f * distanceToCenter + 1.0f);
+    /*float distanceToCenter = plateData.geometricCenter.distance(Vec2<float>(coord.x, coord.y));
+    float distanceScore = 1.0f / (0.01f * distanceToCenter + 1.0f);*/
     w_stress[invokeIndex] = baseStress * plateData.breakScore;
-    //w_stress[invokeIndex] = plateData.breakScore;
-
 }
 
 __global__ void computeBreakScore(PlateData *w_plateData)
@@ -2038,10 +2024,14 @@ __global__ void computeBreakScore(PlateData *w_plateData)
     if (plateData.size > 0) {
         float area = static_cast<float>(plateData.size);
         float perimeter = static_cast<float>(plateData.perimeter);
-        
+
+        if (invokeIndex < 5) {
+            printf("Plate %d: size=%d, perimeter=%d\n", invokeIndex, plateData.size, plateData.perimeter);
+        }
+
         plateData.circularity = 1.0f - ((2 * CURAND_2PI * area) / (perimeter * perimeter));
 
-        float areaIncrease = area * 0;
+        float areaIncrease = inverseClampedLerp(area, kernelSettings.targetMinimumPlateArea, kernelSettings.targetMaximumPlateArea);
 
         plateData.breakScore = plateData.circularity + areaIncrease; // circularity formula? need to include in research. 
     } else {

@@ -137,7 +137,7 @@ void Gui::gui()
             ImGui::Text("Continental collisions: (%s)", continental.c_str());
             ImGui::Text("Subductions collisions: (%s)", subductions.c_str());
 
-            ImGui::Text("Perimeter: (%i)", guiPlateData[id].perimeter);
+            ImGui::Text("Perimeter: (%d)", guiPlateData[id].perimeter);
             ImGui::Text("Circularity: (%.2f)", guiPlateData[id].circularity);
             ImGui::Text("Break score: (%.2f)", guiPlateData[id].break_score);
 
@@ -367,6 +367,8 @@ void Gui::simulationSettingsSection()
             ImGui::DragFloat("Pressure Multiplier", &newSettings.pressureMultiplier, 0.01f, 0.f, 10.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Stress Split Threshold", &newSettings.stressSplitThreshold, 1.0f, 1.0f, 200.0f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragIntRange2("Plate area target", &newSettings.targetMinimumPlateArea, &newSettings.targetMaximumPlateArea, 1.0f, 1, 300000);
         }
 
         ImGui::Unindent(15.0f);

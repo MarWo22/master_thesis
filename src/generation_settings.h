@@ -85,6 +85,7 @@ struct GuiPlateData
 {
       float mass{};
       int size{};
+      int perimeter{};
       float velocity{};
       bool hasMoved{};
       Vec2<float> direction;
@@ -93,7 +94,6 @@ struct GuiPlateData
       int subduction_len{};
       int continental_len{};
       float break_score{};
-      float perimeter{};
       float circularity{};
 };
 

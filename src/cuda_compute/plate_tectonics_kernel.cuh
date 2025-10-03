@@ -129,8 +129,6 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
                                const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
                                CudaTexture<float> *w_heightMapPtr);
 
-__global__ void createUpliftGrid(const CudaTexture<float> *r_upliftMapPtr, CudaTexture<bool> *w_gridMapPtr);
-
 __device__ bool collisionContains(uint32_t collision, uint8_t plateId);
 
 __device__ void processDivergence(PlateTexturesRead r_plateTextures, PlateTexturesWrite w_plateTextures,
@@ -198,11 +196,13 @@ __global__ void computeBreakScore(PlateData *w_plateData);
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
 
 __global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePtr,
-                                          const CudaTexture<uint8_t> *r_plateIdsPtr);
+                                          const CudaTexture<uint8_t> *r_plateIdsPtr,
+                                          CudaTexture<Vec2<float>> *w_velocityPtr);
 
 __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
                                       const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds,
-                                      PlateData *w_plateLookup, int *w_plateSize);
+                                      PlateData *w_plateLookup, int *w_plateSize,
+                                      const CudaTexture<Vec2<float>> *r_pressureVelocityPtr);
 
 __global__ void determineCollisionType(PlateTexturesRead r_plateTextures,
                                        const CudaTexture<uint32_t> *r_collisionsPtr,

@@ -36,6 +36,8 @@ struct KernelSettings
     int pressureBlurRange = 25;              // Range for pressure distance field propagation
     float pressureMultiplier = 1.0f;         // Final pressure application multiplier
     float stressSplitThreshold = 0.07f;      // Stress threshold for plate splitting
+    int targetMinimumPlateArea = 100;
+    int targetMaximumPlateArea = 100000;
 
     // Thermal erosion parameters
     float thermalErosionStrength = 1.0f;    // Strength of thermal erosion smoothing
@@ -69,6 +71,8 @@ struct KernelSettings
                pressureDecayRate == other.pressureDecayRate &&
                pressureBlurRange == other.pressureBlurRange &&
                pressureMultiplier == other.pressureMultiplier &&
+               targetMinimumPlateArea == other.targetMinimumPlateArea &&
+               targetMaximumPlateArea == other.targetMaximumPlateArea &&
                stressSplitThreshold == other.stressSplitThreshold &&
                thermalErosionStrength == other.thermalErosionStrength &&
                thermalErosionAmplitude == other.thermalErosionAmplitude &&
