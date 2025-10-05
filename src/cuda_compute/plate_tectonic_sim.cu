@@ -453,7 +453,6 @@ void PlateTectonicSim::mergePlates()
                                                                     m_plateDataLookup->getPointer(),
                                                                     m_pressureVelocity->deviceTexture());
     CUDA_ERROR_CHECK();
-
 }
 
 void PlateTectonicSim::processPlateSplitting()
@@ -502,16 +501,9 @@ void PlateTectonicSim::processPlateSplitting()
 
     if (h_highest_stress > kernelSettingsHost.stressSplitThreshold)
     {
-        SplitPlateV2(Vec2<int>(static_cast<int>(h_stress_location.x + 0.5), static_cast<int>(h_stress_location.y + 0.5)), h_highest_stress_plate_id);
-
-
-
-
-
-
-
-
-
+        SplitPlateV2(
+            Vec2<int>(static_cast<int>(h_stress_location.x + 0.5), static_cast<int>(h_stress_location.y + 0.5)),
+            h_highest_stress_plate_id);
 
         return;
 
@@ -842,7 +834,7 @@ void PlateTectonicSim::initializeTextures()
 
     m_pressure = m_textureManager.generateTexture<float>(m_width, m_height);
     m_stress = m_textureManager.generateTexture<float>(m_width, m_height);
-    m_pressureVelocity = m_textureManager.generateTexture<Vec2<float>>(m_width, m_height);
+    m_pressureVelocity = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
 
     m_plateDataLookup = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);
     m_randStatesPlates = m_textureManager.generateTexture<curandState>(MAX_PLATE_COUNT, 1);
@@ -917,11 +909,13 @@ void PlateTectonicSim::HydrationSubSim() const
 
 void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
 {
+    std::cout << static_cast<int>(oldPlateId) << " is splitting\n";
     auto l_effortToBoundaryMap = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
     auto l_effortToBoundaryMapNext = m_textureManager.generateTexture<float>(m_width, m_height);
     auto hasChangedDevice = m_textureManager.generateTextureAndReset<int>(1, 1, 0);
 
-    initEffortToBoundary<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), l_effortToBoundaryMap->deviceTexture(), oldPlateId);
+    initEffortToBoundary<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+                                                                   l_effortToBoundaryMap->deviceTexture(), oldPlateId);
 
     // Ping-pong buffer iterations with early exit
     constexpr int maxIterations = 10000;
@@ -952,16 +946,17 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
 
     auto newPlateId = m_textureManager.generateTexture<uint8_t>(1, 1);
 
-    selectUnusedPlateId << <1, 1 >> > (m_plateDataLookup->getPointer(), newPlateId->getPointer());
+    selectUnusedPlateId << <1, 1 >> >(m_plateDataLookup->getPointer(), newPlateId->getPointer());
 
     uint8_t newPlateIdHost;
     cudaMemcpy(&newPlateIdHost, newPlateId->getPointer(), sizeof(uint8_t), cudaMemcpyDeviceToHost);
 
 
-    BacktrackPath<<<1, 1>>>(l_effortToBoundaryMap->deviceTexture(), m_plateIdsTexture->deviceTexture(), point, newPlateIdHost);
+    BacktrackPath<<<1, 1>>>(l_effortToBoundaryMap->deviceTexture(), m_plateIdsTexture->deviceTexture(), point,
+                            newPlateIdHost);
 
     // Flood fill one side of the split with the new plate ID
-   
+
     int floodFillIterations = 0;
     hasChangedHost = 1;
     constexpr int maxFloodFillIterations = 10000;
@@ -988,6 +983,10 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
         m_plateIdsTexture->deviceTexture(),
         newPlateIdHost
     );
+
+    countSizePostSplit<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+                                                                 m_heightMapTexture->deviceTexture(),
+                                                                 m_plateDataLookup->getPointer());
 
     std::cout << "Split plate!" << std::endl;
 }

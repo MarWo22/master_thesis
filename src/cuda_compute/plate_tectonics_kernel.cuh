@@ -241,4 +241,6 @@ __global__ void floodFillPlate(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t old
 
 __global__ void resetMaxPlateCountPixels(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t newPlateId);
 
+__global__ void countSizePostSplit(CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float> *r_heightPtr, PlateData *w_plateData);
+
 #endif //PLATE_TECTONICS_KERNEL_CUH

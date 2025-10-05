@@ -159,9 +159,9 @@ __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
         uint8_t neighborPlateId = rw_plateIds[neighborCoord];
 
         // Apply same merging logic to neighbor
-        if (const uint8_t mergedNeighborId = r_plateMergeIds[neighborPlateId]; mergedNeighborId != MAX_PLATE_COUNT)
+        if (const uint8_t mergedNeighborId = r_plateMergeIds[neighborPlateId]; mergedNeighborId != 0)
         {
-            neighborPlateId = mergedNeighborId;
+            neighborPlateId = MAX_PLATE_COUNT - mergedNeighborId;
         }
 
         if (neighborPlateId != plateID)
@@ -480,29 +480,15 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
         {0, 3}, {1, 3}, {2, 3}
     };
 
-    bool isMatched = false; // TODO: DEBUG REMOVE
-
     // Each pair registers the subducting plate in the array
     for (int accessPos = 0; accessPos != pairLen; ++accessPos)
     {
         const unsigned int collisionType = collisionTypes[accessPos];
 
-        // TODO: DEBUG REMOVE
-        if (plateIds[pairLookup[accessPos][0]] == 0 && plateIds[pairLookup[accessPos][1]] == 6)
-            isMatched = true;
-        // END
-
         if (collisionType == 1 || collisionType == 3)
             hasSubducted[pairLookup[accessPos][0]] = true;
         else if (collisionType == 2 || collisionType == 4)
             hasSubducted[pairLookup[accessPos][1]] = true;
-    }
-
-    // TODO: DEBUG REMOVE
-    if (isMatched)
-    {
-        printf("Total %d: (%d, %d : %d), (%d, %d : %d), (%d, %d : %d)\n", invokeIndex,  plateIds[0], plateIds[1], collisionTypes[0], plateIds[0], plateIds[2], collisionTypes[1], plateIds[1], plateIds[2], collisionTypes[2]);
-        printf("sub %d: %d %d %d %d\n", numCollidingPlates, hasSubducted[0], hasSubducted[1], hasSubducted[2], hasSubducted[3]);
     }
 
     // The first plate that has not subducted underneath another plate will gain the pixel ownership
@@ -542,19 +528,17 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
         if (index_a == newPlateOwnerIndex && collisionType == 4)
         {
             //TODO: Mark the adjacent pixel as accreted
-            printf("Accretion1: %d %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b], collisionType);
+            printf("Accretion1 TODO: %d %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b], collisionType);
         }
         else if (index_b == newPlateOwnerIndex && collisionType == 3)
         {
             const Vec2<int> originalIndexA = previousTextureIndex(textureIndex, plateIdsData[index_a]);
             if (originalIndexA != textureIndex)
             {
-                printf("Writing accretion %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b]);
                 (*w_accretionTexturePtr)[originalIndexA] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
             }
             else
             {
-                printf("Writing accretion2 %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b]);
                 const Vec2 offset = plateIdsData[index_b].pixelCenter + plateIdsData[index_b].direction * plateIdsData[index_b].velocity;
                 const Vec2 pixelOffset = {static_cast<int>(floor(offset.x)), static_cast<int>(floor(offset.y))};
                 const Vec2 oppositePixelIndex = textureIndex + pixelOffset;
@@ -631,11 +615,6 @@ __device__ unsigned int determineCollisionType(const uint8_t *r_collisionTypeBit
             else
                 output = maxPlate == plateA ? 1 : 2;
         }
-    }
-
-    if (minPlate == 2 && maxPlate == 15)
-    {
-        printf("Type Output: %d %d %d\n", plateA, plateB, output);
     }
 
     return output;
@@ -758,7 +737,6 @@ __global__ void applyAccretion(const CudaTexture<float> *r_heightMapPtr, const C
     // Accretion is only applied if the accreted pixel is also continental
     if ((*r_heightMapPtr)[invokeIndex] >= kernelSettings.continentalCrustThreshold)
     {
-        printf("Writing final accretion %d->%d %d\n", before, accretionId, invokeIndex);
         (*w_plateIdsPtr)[invokeIndex] = accretionId;
     }
 }
@@ -818,28 +796,19 @@ __device__ void writeCollision(const float heightA, const float heightB, const u
 
     if (minCont && maxCont)
     {
-        if (minPlate == 2 && maxPlate == 15)
-            printf("Continental (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
+
         atomicAdd(&w_collisionTypeCounts[bitIndex].continental, 1);
     } else if (minCont)
     {
-        if (minPlate == 2 && maxPlate == 15)
-            printf("SubductionBContinental (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
         atomicAdd(&w_collisionTypeCounts[bitIndex].subductionsBContinental, 1);
     } else if (maxCont)
     {
-        if (minPlate == 2 && maxPlate == 15)
-            printf("SubductionAContinental (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
         atomicAdd(&w_collisionTypeCounts[bitIndex].subductionsAContinental, 1);
     } else if (minPlateHeight <= maxPlateHeight)
     {
-        if (minPlate == 2 && maxPlate == 15)
-            printf("SubductionAOceanic (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
         atomicAdd(&w_collisionTypeCounts[bitIndex].subductionsAOceanic, 1);
     } else
     {
-        if (minPlate == 2 && maxPlate == 15)
-            printf("SubductionBOceanic (%d %d) %f %f\n", minPlate, maxPlate, minPlateHeight, maxPlateHeight);
         atomicAdd(&w_collisionTypeCounts[bitIndex].subductionsBOceanic, 1);
     }
 }
@@ -960,53 +929,14 @@ __global__ void createCollisionTypeMatrix(const CollisionTypeCounts *r_collision
     {
         // HasType is set to true, and type is set to 1 (continental)
         output |= 0b00000011;
-        printf("CONTINENTAL %d %d %d %d %d %d %d %d %f %f %d       %d%d%d%d%d%d%d%d\n", plateA, plateB,
-               collisionTypeCounts.subductionsAContinental,
-               collisionTypeCounts.subductionsAOceanic, collisionTypeCounts.subductionsBContinental,
-               collisionTypeCounts.subductionsBOceanic, collisionTypeCounts.continental, totalCollisionSize,
-               collisionTypeCounts.weightedHeightA, collisionTypeCounts.weightedHeightB, invokeIndex,
-               (output >> 7) & 1,
-               (output >> 6) & 1,
-               (output >> 5) & 1,
-               (output >> 4) & 1,
-               (output >> 3) & 1,
-               (output >> 2) & 1,
-               (output >> 1) & 1,
-               (output >> 0) & 1);
     } else if (subductionAPower > 0 && subductionAPower > subductionBPower && (!hasPolarity || polarityASubducting))
     {
         // HasType and HasPolarity is set to true, and type is set to 0 (subduction), and polarity set to 1 (Plate A Subducting)
         output = output & ~0b00000010 | 0b00001101;
-        printf("SubductionA %d %d %d %d %d %d %d %d %f %f %d       %d%d%d%d%d%d%d%d\n", plateA, plateB,
-               collisionTypeCounts.subductionsAContinental,
-               collisionTypeCounts.subductionsAOceanic, collisionTypeCounts.subductionsBContinental,
-               collisionTypeCounts.subductionsBOceanic, collisionTypeCounts.continental, totalCollisionSize,
-               collisionTypeCounts.weightedHeightA, collisionTypeCounts.weightedHeightB, invokeIndex,
-               (output >> 7) & 1,
-               (output >> 6) & 1,
-               (output >> 5) & 1,
-               (output >> 4) & 1,
-               (output >> 3) & 1,
-               (output >> 2) & 1,
-               (output >> 1) & 1,
-               (output >> 0) & 1);
     } else if (subductionBPower > 0 && subductionBPower > subductionAPower && (!hasPolarity || !polarityASubducting))
     {
         // HasType and HasPolarity is set to true, and type is set to 1 (subduction), and polarity set to 0 (Plate B Subducting)
         output = output & ~0b00001010 | 0b00000101;
-        printf("SubductionB %d %d %d %d %d %d %d %d %f %f %d       %d%d%d%d%d%d%d%d\n", plateA, plateB,
-               collisionTypeCounts.subductionsAContinental,
-               collisionTypeCounts.subductionsAOceanic, collisionTypeCounts.subductionsBContinental,
-               collisionTypeCounts.subductionsBOceanic, collisionTypeCounts.continental, totalCollisionSize,
-               collisionTypeCounts.weightedHeightA, collisionTypeCounts.weightedHeightB, invokeIndex,
-               (output >> 7) & 1,
-               (output >> 6) & 1,
-               (output >> 5) & 1,
-               (output >> 4) & 1,
-               (output >> 3) & 1,
-               (output >> 2) & 1,
-               (output >> 1) & 1,
-               (output >> 0) & 1);
     }
 
 
@@ -1147,6 +1077,8 @@ __global__ void getPlateMerges(const CudaTexture<bool> *r_neighborMatrixPtr, con
         printf("Reverting merge\n");
         return;
     }
+
+    printf("Succesfull merge %d and %d\n", textureIndex.x, textureIndex.y);
 
     // Call from within the kernel
     clearCollisionTypes<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(*w_collisionTypesPtr, xIsParent ? static_cast<int>(textureIndex.x) : static_cast<int>(textureIndex.y));
@@ -2471,4 +2403,70 @@ __global__ void resetMaxPlateCountPixels(CudaTexture<uint8_t> *rw_plateIdsPtr, u
 
     if (rw_plateIds[invokeIndex] == MAX_PLATE_COUNT)
         rw_plateIds[invokeIndex] = newPlateId;
+}
+
+__global__ void countSizePostSplit(CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float> *r_heightPtr, PlateData *w_plateData)
+{
+    __shared__ float localMassSum[MAX_PLATE_COUNT];
+    __shared__ int localSize[MAX_PLATE_COUNT];
+    __shared__ int localPerimeter[MAX_PLATE_COUNT];
+
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    const Vec2<int> mapSize = r_plateIdsPtr->size();
+
+    if (!isWithinBounds(invokeIndex, mapSize))
+        return;
+
+    if (threadIdx.x < MAX_PLATE_COUNT)
+    {
+        localMassSum[threadIdx.x] = 0;
+        localSize[threadIdx.x] = 0;
+        localPerimeter[threadIdx.x] = 0;
+    }
+
+    __syncthreads();
+
+    const float pixelHeight = (*r_heightPtr)[invokeIndex];
+    const Vec2<int> coord = getTextureIndex(invokeIndex, mapSize);
+    const uint8_t plateID = (*r_plateIdsPtr)[invokeIndex];
+
+    atomicAdd(&localMassSum[plateID], pixelHeight);
+    atomicAdd(&localSize[plateID], 1);
+
+    // Check if this pixel is on the plate boundary for perimeter calculation
+    bool isBoundary = false;
+
+    // Check 4-connected neighbors (N, E, S, W)
+    const Vec2<int> offsets[] = {
+        {0, -1}, {1, 0}, {0, 1}, {-1, 0}
+    };
+
+    for (int i = 0; i < 4; i++)
+    {
+        const Vec2<int> neighborCoord = coord + offsets[i];
+
+        if ((*r_plateIdsPtr)[neighborCoord] != plateID)
+        {
+            isBoundary = true;
+            break;
+        }
+    }
+
+    // If this pixel is on the boundary, increment the perimeter count
+    if (isBoundary)
+    {
+        atomicAdd(&localPerimeter[plateID], 1);
+    }
+
+    __syncthreads();
+    if (threadIdx.x < MAX_PLATE_COUNT)
+    {
+        if (localMassSum[threadIdx.x] != 0)
+            atomicAdd(&w_plateData[threadIdx.x].mass, localMassSum[threadIdx.x]);
+        if (localSize[threadIdx.x] != 0)
+            atomicAdd(&w_plateData[threadIdx.x].size, localSize[threadIdx.x]);
+        if (localPerimeter[threadIdx.x] != 0)
+            atomicAdd(&w_plateData[threadIdx.x].perimeter, localPerimeter[threadIdx.x]);
+    }
 }
