@@ -76,7 +76,7 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
     float d = 0.001f;
     float value = 0;
 
-    float amp = 100.0f;
+    float amp = 0.9f;
     float freq = 0.01f;
 
     for (int octave = 0; octave < octaves; octave++)
@@ -93,14 +93,13 @@ __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int 
         freq *= 10.f;
     }
 
-    const float norm = value * 9;
-    r_height[invokeIndex] = 5000.0f + norm * (15000.0f - 5000.0f);
+    r_height[invokeIndex] = 5000.0f + value * (15000.0f - 5000.0f);
 }
 
 
 __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
-                                      const CudaTexture<float> *r_heightTexturePtr, const uint8_t *r_plateMergeIds,
-                                      PlateData *w_plateLookup, int *w_plateSize)
+                                      const CudaTexture<float> *r_heightTexturePtr, const int *r_plateMergeIds,
+                                      PlateData *w_plateLookup)
 {
     __shared__ float localMassSum[MAX_PLATE_COUNT];
     __shared__ int localSize[MAX_PLATE_COUNT];
@@ -124,8 +123,9 @@ __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
     // Merge if the new merged plate is different from the original plate
     uint8_t plateID = rw_plateIds[invokeIndex];
 
-    if (const uint8_t mergedPlateID = r_plateMergeIds[plateID]; mergedPlateID != MAX_PLATE_COUNT)
+    if (int mergedPlateID = r_plateMergeIds[plateID]; mergedPlateID > 0)
     {
+        mergedPlateID = MAX_PLATE_COUNT - mergedPlateID;
         rw_plateIds[invokeIndex] = mergedPlateID;
         plateID = mergedPlateID;
     }
@@ -139,32 +139,32 @@ __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
 
     // Check if this pixel is on the plate boundary for perimeter calculation
     bool isBoundary = false;
-    
+
     // Check 4-connected neighbors (N, E, S, W)
     const Vec2<int> offsets[] = {
         {0, -1}, {1, 0}, {0, 1}, {-1, 0}
     };
-    
+
     for (int i = 0; i < 4; i++)
     {
         const Vec2<int> neighborCoord = coord + offsets[i];
-     
+
         // Check if neighbor belongs to different plate
         uint8_t neighborPlateId = rw_plateIds[neighborCoord];
-        
+
         // Apply same merging logic to neighbor
         if (const uint8_t mergedNeighborId = r_plateMergeIds[neighborPlateId]; mergedNeighborId != MAX_PLATE_COUNT)
         {
             neighborPlateId = mergedNeighborId;
         }
-        
+
         if (neighborPlateId != plateID)
         {
             isBoundary = true;
             break;
         }
     }
-    
+
     // If this pixel is on the boundary, increment the perimeter count
     if (isBoundary)
     {
@@ -204,7 +204,7 @@ __global__ void initPixelDependantPlateData(const CudaTexture<uint8_t> *r_idText
     __syncthreads();
     const int plateID = r_idTexture[invokeIndex];
     const float pixelHeight = (*r_heightTexturePtr)[invokeIndex];
-    
+
     atomicAdd(&localSizeCounts[plateID], 1);
     atomicAdd(&localMassSum[plateID], pixelHeight);
 
@@ -347,7 +347,8 @@ __device__ void processDivergence(const PlateTexturesRead r_plateTextures, Plate
     const auto noisePos = float3(static_cast<float>(textureIndex.x), static_cast<float>(textureIndex.y),
                                  static_cast<float>(noiseParameters.simIndex));
     const float noise = cudaNoise::simplexNoise(noisePos, 0.01f, noiseParameters.seed);
-    const float targetHeight = 1 + noise * (kernelSettings.divergence_height_target - 1);
+    const float targetHeight = kernelSettings.divergence_height_target_min + noise *
+        (kernelSettings.divergence_height_target_max - kernelSettings.divergence_height_target_min);
     const float originalHeight = (*r_plateTextures.heightMapPtr)[invokeIndex];
     const float value = cuda::std::lerp(originalHeight, targetHeight,
                                         kernelSettings.divergence_interpolation_factor);
@@ -367,19 +368,18 @@ __device__ Vec2<int> previousTextureIndex(const Vec2<int> currentTexIndex, const
 __device__ __inline__ void applyElasticVelocityChange(CollisionVelocityChanges *w_velocityChanges,
                                                       const PlateData &currPlateData,
                                                       const Vec2<float> &finalVelocity, const float plateMass,
-                                                      const float weight, const uint8_t plateID)
+                                                      const float weight, const uint8_t plateID, const bool hasContinental, const bool hasAccretion)
 {
-    const Vec2<float> velocityDiff = (finalVelocity - currPlateData.direction * currPlateData.velocity);
+    const Vec2<float> velocityDiff = finalVelocity - currPlateData.direction * currPlateData.velocity;
     const Vec2<float> weightedVelocityDiff = velocityDiff * weight;
-    const float massDiff = (plateMass / currPlateData.mass);
+    const float massDiff = plateMass / currPlateData.mass;
     const Vec2<float> velocityChange = weightedVelocityDiff * massDiff;
     atomicAddVec2(&w_velocityChanges[plateID].inelasticDirectionalChange, velocityChange);
 
     // If weight is greater than full-subduction weight, there has been at least one continental pair
     // Using a branch-free method
-    const float cond = weight > kernelSettings.inelasticCollisionMultiplierSubduction;
-    const float coefficient = cond * kernelSettings.frictionCoefficientContinental +
-                              (1.0f - cond) * kernelSettings.frictionCoefficientSubduction;
+
+    const float coefficient = hasContinental ? kernelSettings.frictionCoefficientContinental : hasAccretion ? kernelSettings.frictionCoefficientAccretion : kernelSettings.frictionCoefficientSubduction;
 
     const float friction = (currPlateData.velocity * coefficient) * massDiff;
     atomicAdd(&w_velocityChanges[plateID].frictionLoss, friction);
@@ -406,6 +406,8 @@ __device__ void applyInelasticCollision(const unsigned int *collisionTypes, Coll
     const PlateData &plateDData = plateIdsData[3];
 
     // Determine the weights
+    uint8_t continental_packed = 0;
+    uint8_t accretion_packed = 0;
     float weights[4] = {};
     const int max_index = plateD != MAX_PLATE_COUNT ? 4 : plateC != MAX_PLATE_COUNT ? 3 : 2;
 
@@ -416,14 +418,21 @@ __device__ void applyInelasticCollision(const unsigned int *collisionTypes, Coll
             const unsigned int collisionType = collisionTypes[index];
             // Again, doing a branch-free if using a conditional mask
             const float denominator = static_cast<float>(max_index) - 1.0f;
-            // True if any continental type
-            const float cond = collisionType == 0 || collisionType == 3 || collisionType == 4;
-            const float multiplier =
-                    cond * (kernelSettings.inelasticCollisionMultiplierContinental / denominator) +
-                    (1.0f - cond) * (kernelSettings.inelasticCollisionMultiplierSubduction * denominator);
 
-            weights[i] += multiplier;
-            weights[j] += multiplier;
+            const float multiplier = collisionType == 0 ? kernelSettings.inelasticCollisionMultiplierContinental :
+             collisionType == 3 || collisionType == 4 ? kernelSettings.inelasticCollisionMultiplierAccretion :
+             kernelSettings.inelasticCollisionMultiplierSubduction;
+
+            const float scaled = multiplier / denominator;
+
+            weights[i] += scaled;
+            weights[j] += scaled;
+
+            continental_packed |= (collisionType == 0) << i;
+            accretion_packed |= (collisionType == 3 || collisionType == 4) << i;
+
+            continental_packed |= (collisionType == 0) << j;
+            accretion_packed |= (collisionType == 3 || collisionType == 4) << j;
         }
 
     const Vec2 numerator = plateAData.direction * (plateAData.velocity * massA * weights[0]) +
@@ -435,16 +444,16 @@ __device__ void applyInelasticCollision(const unsigned int *collisionTypes, Coll
 
     const Vec2 finalVelocity = numerator / denominator;
 
-    applyElasticVelocityChange(w_velocityChanges, plateAData, finalVelocity, massA, weights[0], plateA);
-    applyElasticVelocityChange(w_velocityChanges, plateBData, finalVelocity, massB, weights[1], plateB);
+    applyElasticVelocityChange(w_velocityChanges, plateAData, finalVelocity, massA, weights[0], plateA, continental_packed & 1u, (accretion_packed) & 1u);
+    applyElasticVelocityChange(w_velocityChanges, plateBData, finalVelocity, massB, weights[1], plateB, continental_packed >> 1 & 1u, accretion_packed >> 1 & 1u);
     if (max_index > 2)
-        applyElasticVelocityChange(w_velocityChanges, plateCData, finalVelocity, massC, weights[2], plateC);
+        applyElasticVelocityChange(w_velocityChanges, plateCData, finalVelocity, massC, weights[2], plateC, continental_packed >> 2 & 1u, accretion_packed >> 2 & 1u);
     if (max_index > 3)
-        applyElasticVelocityChange(w_velocityChanges, plateDData, finalVelocity, massD, weights[3], plateD);
+        applyElasticVelocityChange(w_velocityChanges, plateDData, finalVelocity, massD, weights[3], plateD, continental_packed >> 3 & 1u, accretion_packed >> 3 & 1u);
 }
 
 __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTexture<float> *w_convergenceMapPtr,
-                                   CudaTexture<uint8_t> *w_platesHaveCollidedPtr, CudaTexture<uint8_t> *w_accretionTexturePtr, const uint8_t *plateIds,
+                                   CudaTexture<uint8_t> *w_accretionTexturePtr, const uint8_t *plateIds,
                                    const unsigned int *collisionTypes, const float *heights, const PlateData *plateIdsData,
                                    const unsigned int invokeIndex, const Vec2<int> textureIndex)
 {
@@ -468,7 +477,7 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
         const unsigned int collisionType = collisionTypes[accessPos];
 
         // TODO: DEBUG REMOVE
-        if (plateIds[pairLookup[accessPos][0]] == 15 && plateIds[pairLookup[accessPos][1]] == 2)
+        if (plateIds[pairLookup[accessPos][0]] == 0 && plateIds[pairLookup[accessPos][1]] == 6)
             isMatched = true;
         // END
 
@@ -529,16 +538,16 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
             const Vec2<int> originalIndexA = previousTextureIndex(textureIndex, plateIdsData[index_a]);
             if (originalIndexA != textureIndex)
             {
-                printf("Writing accretion\n");
+                printf("Writing accretion %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b]);
                 (*w_accretionTexturePtr)[originalIndexA] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
             }
             else
             {
+                printf("Writing accretion2 %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b]);
                 const Vec2 offset = plateIdsData[index_b].pixelCenter + plateIdsData[index_b].direction * plateIdsData[index_b].velocity;
                 const Vec2 pixelOffset = {static_cast<int>(floor(offset.x)), static_cast<int>(floor(offset.y))};
                 const Vec2 oppositePixelIndex = textureIndex + pixelOffset;
                 (*w_accretionTexturePtr)[oppositePixelIndex] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
-                printf("Writing accretion1\n");
             }
         }
     }
@@ -548,15 +557,6 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
 
     (*w_convergenceMapPtr)[invokeIndex] = 1;
     (*w_plateTextures.plateIdsPtr)[invokeIndex] = newPlateOwner;
-
-    // Reporting the collision to the platesHaveCollided texture
-    for (int accessPos = 0; accessPos != pairLen; ++accessPos)
-    {
-        const auto [index_a, index_b] = pairLookup[accessPos];
-        const Vec2 accessVec = {index_a, index_b};
-
-        (*w_platesHaveCollidedPtr)[accessVec] = 1;
-    }
 }
 
 __device__ void processMovement(const PlateTexturesRead r_plateTextures, PlateTexturesWrite w_plateTextures,
@@ -660,7 +660,6 @@ __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const
                                   const uint32_t *r_divergenceBitmap,
                                   const uint8_t *r_collisionTypeBitmap, PlateTexturesWrite w_plateTextures,
                                   uint32_t *w_hasDivergedBitmap, CudaTexture<float> *w_convergenceMapPtr,
-                                  CudaTexture<uint8_t> *w_platesHaveCollidedPtr,
                                   CudaTexture<uint8_t> *w_accretionTexturePtr,
                                   CollisionVelocityChanges *w_velocityChanges,
                                   const NoiseParameters noiseParameters)
@@ -716,7 +715,7 @@ __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const
             extractCollisionTypes(r_collisionTypeBitmap, collisionTypes, plateIds, previousHeights);
 
             applyInelasticCollision(collisionTypes, w_velocityChanges, plateIds, previousHeights, plateIdsData);
-            processConvergence(w_plateTextures, w_convergenceMapPtr, w_platesHaveCollidedPtr, w_accretionTexturePtr, plateIds,
+            processConvergence(w_plateTextures, w_convergenceMapPtr, w_accretionTexturePtr, plateIds,
                                collisionTypes, previousHeights, plateIdsData, invokeIndex, texCoords);
         }
         // Otherwise, only one plate moves into the pixel, indicating ordinary movement
@@ -741,9 +740,16 @@ __global__ void applyAccretion(const CudaTexture<float> *r_heightMapPtr, const C
     if (accretionId == MAX_PLATE_COUNT)
         return;
 
+    const uint8_t before = (*w_plateIdsPtr)[invokeIndex];
+
+
+
     // Accretion is only applied if the accreted pixel is also continental
     if ((*r_heightMapPtr)[invokeIndex] >= kernelSettings.continentalCrustThreshold)
+    {
+        printf("Writing final accretion %d->%d %d\n", before, accretionId, invokeIndex);
         (*w_plateIdsPtr)[invokeIndex] = accretionId;
+    }
 }
 
 __global__ void flipDivergedBitmap(uint32_t *divergenceBitmap, const uint32_t *hasDivergedBitmap)
@@ -1058,6 +1064,112 @@ __global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint8
     w_plateDataGui[invokeIndex].subduction_len = subduction_idx;
 }
 
+__global__ void getNeighboringPlates(const CudaTexture<uint8_t> *r_plateIdPtr, CudaTexture<bool> *neighborMatrix)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    const Vec2<int> texSize = r_plateIdPtr->size();
+
+    if (!isWithinBounds(invokeIndex, texSize))
+        return;
+
+    const Vec2<int> textureIndex = getTextureIndex(invokeIndex, texSize);
+
+    const uint8_t current = (*r_plateIdPtr)[invokeIndex];
+    const uint8_t right = (*r_plateIdPtr)[Vec2<int>(textureIndex.x + 1, textureIndex.y)];
+    const uint8_t top = (*r_plateIdPtr)[Vec2<int>(textureIndex.x, textureIndex.y + 1)];
+
+    if (current != right)
+    {
+        const uint8_t min = right < current ? right : current;
+        const uint8_t max = right < current ? current : right;
+        (*neighborMatrix)[Vec2<int>(min, max)] = true;
+    }
+
+    if (current != top)
+    {
+        const uint8_t min = top < current ? top : current;
+        const uint8_t max = top < current ? current : top;
+        (*neighborMatrix)[Vec2<int>(min, max)] = true;
+    }
+}
+
+__global__ void getPlateMerges(const CudaTexture<bool> *r_neighborMatrixPtr, const PlateData *r_plateData, int *w_plateMergeIds, CudaTexture<uint8_t> *w_collisionTypesPtr)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    const Vec2<int> texSize = r_neighborMatrixPtr->size();
+
+    if (!isWithinBounds(invokeIndex, texSize))
+        return;
+
+    const Vec2<int> textureIndex = getTextureIndex(invokeIndex, texSize);
+
+    if (textureIndex.x >= textureIndex.y)
+        return;
+
+    if (!(*r_neighborMatrixPtr)[invokeIndex])
+        return;
+
+    const PlateData plateDataX = r_plateData[textureIndex.x];
+    const PlateData plateDataY = r_plateData[textureIndex.y];
+
+    const float dot = plateDataX.direction.dot(plateDataY.direction);
+    const float velocity_diff = abs(plateDataX.velocity - plateDataY.velocity);
+
+    if (!(plateDataX.velocity <= kernelSettings.mergeMinVelocity && plateDataY.velocity <= kernelSettings.mergeMinVelocity) &&
+        !(dot >= kernelSettings.mergeDotDirectionThreshold && velocity_diff <= kernelSettings.mergeVelocityDiffThreshold))
+    {
+        return;
+    }
+
+    const bool xIsParent = plateDataY.mass <= plateDataX.mass;
+
+    printf("Merging %d and %d\n", textureIndex.x, textureIndex.y);
+
+    if (atomicCAS(&w_plateMergeIds[textureIndex.x], 0, xIsParent ? -1 : static_cast<int>(MAX_PLATE_COUNT - textureIndex.y)) != 0)
+        return;
+
+    if (atomicCAS(&w_plateMergeIds[textureIndex.y], 0, xIsParent ? static_cast<int>(MAX_PLATE_COUNT - textureIndex.x) : -1) != 0)
+    {
+        atomicExch(&w_plateMergeIds[textureIndex.x], 0);
+        printf("Reverting merge\n");
+        return;
+    }
+
+    // Call from within the kernel
+    clearCollisionTypes<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(*w_collisionTypesPtr, xIsParent ? static_cast<int>(textureIndex.x) : static_cast<int>(textureIndex.y));
+}
+
+
+
+__global__ void clearCollisionTypes(CudaTexture<uint8_t> w_collisionTypes, const int idToReset)
+{
+    const int invokeIndex = static_cast<int>(getInvokeIndex());
+
+    if (invokeIndex >= MAX_PLATE_COUNT || idToReset == invokeIndex)
+        return;
+
+    const int minVal = idToReset < invokeIndex ? idToReset : invokeIndex;
+    const int maxVal = idToReset < invokeIndex ? invokeIndex : idToReset;
+
+    w_collisionTypes[Vec2(minVal, maxVal)] = 0;
+}
+
+__global__ void createPlateIdLabelMap(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<unsigned int> *r_labels,
+    CudaTexture<uint64_t> *w_labelIdsPacked)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (!isWithinBounds(invokeIndex, r_plateIdsPtr->size()))
+        return;
+
+    const uint8_t plateId = (*r_plateIdsPtr)[invokeIndex];
+    const unsigned int label = (*r_labels)[invokeIndex];
+
+    (*w_labelIdsPacked)[invokeIndex] = static_cast<uint64_t>(plateId) << 56 | static_cast<uint64_t>(label);
+}
+
 __global__ void createUpliftGrid(const CudaTexture<float> *r_upliftMapPtr, CudaTexture<bool> *w_gridMapPtr)
 {
     const unsigned int invokeIndex = getInvokeIndex();
@@ -1103,27 +1215,27 @@ __device__ bool collisionContains(const uint32_t collision, const uint8_t plateI
 
 // Generic vertical distance field function - can be used for any float texture with plate constraints
 template<typename ValidatorFunc>
-__device__ DistanceFieldBuffer verticalDistanceFieldPass(const CudaTexture<float> &sourceTexture, 
-                                      const Vec2<int> &center, 
-                                      int range, 
+__device__ DistanceFieldBuffer verticalDistanceFieldPass(const CudaTexture<float> &sourceTexture,
+                                      const Vec2<int> &center,
+                                      int range,
                                       ValidatorFunc validator)
 {
     const float multiplier = 1.0f / range;
     float bestValue = 0;
     int bestOffset = 0;
-    
+
     for (int i = -range; i <= range; i++)
     {
         Vec2<int> sample = center + Vec2<int>(0, i);
         float sampleValue = sourceTexture[sample] - (abs((float)i) * multiplier);
-        
+
         if (sampleValue > bestValue && validator(sample, i))
         {
             bestValue = sampleValue;
             bestOffset = i;
         }
     }
-    
+
     return DistanceFieldBuffer(bestOffset, bestValue);
 }
 
@@ -1136,36 +1248,36 @@ __device__ float horizontalDistanceFieldPass(const CudaTexture<DistanceFieldBuff
 {
     const float multiplier = 1.0f / range;
     float bestValue = 0;
-    
+
     for (int i = -range; i <= range; i++)
     {
         Vec2<int> sample = center + Vec2<int>(i, 0);
         DistanceFieldBuffer buffer = bufferTexture[sample];
         float adjustedValue = buffer.value - abs((float)i) * multiplier;
-        
+
         if (adjustedValue > bestValue && validator(sample, i))
         {
             bestValue = adjustedValue;
         }
     }
-    
+
     return bestValue;
 }
 
 // Generic vertical blur function - performs gaussian-style smoothing with plate constraints
 template<typename ValidatorFunc>
-__device__ float verticalBlurPass(const CudaTexture<float> &sourceTexture, 
-                                  const Vec2<int> &center, 
-                                  int range, 
+__device__ float verticalBlurPass(const CudaTexture<float> &sourceTexture,
+                                  const Vec2<int> &center,
+                                  int range,
                                   ValidatorFunc validator)
 {
     float sum = 0.0f;
     float weightSum = 0.0f;
-    
+
     for (int i = -range; i <= range; i++)
     {
         Vec2<int> sample = center + Vec2<int>(0, i);
-        
+
         if (validator(sample, i))
         {
             // Use linear weight
@@ -1174,7 +1286,7 @@ __device__ float verticalBlurPass(const CudaTexture<float> &sourceTexture,
             weightSum += weight;
         }
     }
-    
+
     return weightSum > 0.0f ? sum / weightSum : sourceTexture[center];
 }
 
@@ -1187,11 +1299,11 @@ __device__ float horizontalBlurPass(const CudaTexture<float> &sourceTexture,
 {
     float sum = 0.0f;
     float weightSum = 0.0f;
-    
+
     for (int i = -range; i <= range; i++)
     {
         Vec2<int> sample = center + Vec2<int>(i, 0);
-        
+
         if (validator(sample, i))
         {
             // Use linear weight
@@ -1200,7 +1312,7 @@ __device__ float horizontalBlurPass(const CudaTexture<float> &sourceTexture,
             weightSum += weight;
         }
     }
-    
+
     return weightSum > 0.0f ? sum / weightSum : sourceTexture[center];
 }
 
@@ -1336,6 +1448,8 @@ __global__ void updatePlateData(PlateData *plateLookup, const CollisionVelocityC
     plateLookup[threadIdx.x] = current;
 }
 
+
+
 __global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveCollided, const PlateData *r_plateLookup,
                                     uint8_t *w_plateMergeIds)
 {
@@ -1361,9 +1475,6 @@ __global__ void determinePlateMerge(const CudaTexture<uint8_t> *r_platesHaveColl
 
     const float dot = plateDataA.direction.dot(plateDataB.direction);
     const float velocity_diff = abs(plateDataA.velocity - plateDataB.velocity);
-
-    // printf("dot: %.5f plateADir: (%.5f, %.5f) plateBDir: (%.5f, %.5f) plateAVel: %.5f plateBVel: %.5f  %.5f\n", dot, plateDataA.direction.x, plateDataA.direction.y, plateDataB.direction.x, plateDataB.direction.y, plateDataA.velocity, plateDataB.velocity, velocity_diff);
-
 
     if (dot >= kernelSettings.mergeDotDirectionThreshold and velocity_diff <= kernelSettings.mergeVelocityDiffThreshold)
     {
@@ -1988,7 +2099,7 @@ __global__ void pressureAccumulation(CudaTexture<float>* r_pressurePtr, CudaText
 }
 
 // Step 2: Vertical blur pass for pressure propagation
-__global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
+__global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr,
                                      const CudaTexture<float> *r_pressurePtr,
                                      CudaTexture<float> *w_bufferPtr)
 {
@@ -2012,7 +2123,7 @@ __global__ void pressureVerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr,
 }
 
 // Step 3: Horizontal blur pass for pressure propagation
-__global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, 
+__global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr,
                                        const CudaTexture<float> *r_bufferPtr,
                                        CudaTexture<float> *w_pressurePtr)
 {
@@ -2033,7 +2144,7 @@ __global__ void pressureHorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr
     };
 
     float processedPressure = horizontalBlurPass(r_buffer, center, kernelSettings.pressureBlurRange, validator);
-    
+
     // Apply the processed pressure with multiplier
     w_pressure[invokeIndex] = processedPressure * kernelSettings.pressureMultiplier;
 }
@@ -2052,7 +2163,7 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
     const Vec2<int> coord = getTextureIndex(w_stress.size());
     const uint8_t plateId = r_plateIds[invokeIndex];
     const PlateData plateData = r_plateData[plateId];
-    
+
     float baseStress = r_pressure[invokeIndex] / max(min(r_material[invokeIndex], 200.0f), 1.0f);
 
     float distanceToCenter = plateData.geometricCenter.distance(Vec2<float>(coord.x, coord.y));
@@ -2067,18 +2178,18 @@ __global__ void computeBreakScore(PlateData *w_plateData)
     const unsigned int invokeIndex = getInvokeIndex();
     if (invokeIndex >= MAX_PLATE_COUNT)
         return;
-        
+
     PlateData &plateData = w_plateData[invokeIndex];
 
     if (plateData.size > 0) {
         float area = static_cast<float>(plateData.size);
         float perimeter = static_cast<float>(plateData.perimeter);
-        
+
         plateData.circularity = 1.0f - ((2 * CURAND_2PI * area) / (perimeter * perimeter));
 
         float areaIncrease = area * 0;
 
-        plateData.breakScore = plateData.circularity + areaIncrease; // circularity formula? need to include in research. 
+        plateData.breakScore = plateData.circularity + areaIncrease; // circularity formula? need to include in research.
     } else {
         plateData.breakScore = 0.0f;
     }
@@ -2106,7 +2217,7 @@ __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr)
     for (int direction = 0; direction < 8; direction++)
     {
         const Vec2<int> neighborCoord = coord + offsets[direction];
-        
+
         const float neighborHeight = w_material[neighborCoord];
         const float diff = w_material[invokeIndex] - neighborHeight;
 
@@ -2125,7 +2236,7 @@ __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr)
 
     if (totalDiff > 0.0f)
     {
-        for (int direction = 0; direction < 8; direction++) 
+        for (int direction = 0; direction < 8; direction++)
         {
             if (valid[direction]) {
                 float flow = kernelSettings.thermalErosionAmplitude * (diffs[direction] / totalDiff);

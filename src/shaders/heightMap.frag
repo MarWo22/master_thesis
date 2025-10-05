@@ -7,12 +7,15 @@ layout(binding = 2) uniform sampler2D waterTexture;
 layout(binding = 3) uniform sampler2D arrowTexture;
 layout(binding = 4) uniform sampler2D directionTexture;
 layout(binding = 5) uniform usampler2D collisionTexture;
+layout(binding = 6) uniform sampler2D accretionTexture;
 
 uniform int borderRenderType;
 uniform bool showWater;
 uniform bool showDirectionArrows;
 uniform int shadingType;
 uniform float continentalCrustThreshold;
+uniform bool showCollisionBorder;
+uniform bool showAccretion;
 
 in vec2 texCoord;
 in vec4 color;
@@ -99,6 +102,17 @@ void renderCollisionBorder() {
     fragmentColor = vec4(1, 1, 1, 1);
     else if (((value >> 8) & 0xFFu) != 0u)
     fragmentColor = vec4(0, 0, 0, 1);
+}
+
+void renderAccretionPixels() {
+    ivec2 texelCoord = ivec2(texCoord * textureSize(accretionTexture, 0));
+    float normalizedID = texelFetch(accretionTexture, texelCoord, 0).r;
+    int id = int(normalizedID * 255);
+    if (id != 0)
+    {
+        fragmentColor = vec4(1.f, 0.65f, 0, 1);
+    }
+
 }
 
 void drawDirectionArrows()
@@ -256,10 +270,10 @@ void main() {
         break;
     }
 
-    if (mod(height, 10) <= 0.1)
-    {
-        colorNew = mix(colorNew, vec3(0.2, 0.2, 0.2), 0.5);
-    }
+    //    if (mod(height, 10) <= 0.1)
+    //    {
+    //        colorNew = mix(colorNew, vec3(0.2, 0.2, 0.2), 0.5);
+    //    }
 
     if (showWater){
         float hydration = texture(waterTexture, texCoord).r;
@@ -278,17 +292,22 @@ void main() {
 
     switch (borderRenderType)
     {
-        case 0:
-        // No border is rendered
-        break;
         case 1:
         renderRawBorder();
         break;
         case 2:
         renderSmoothBorder();
         break;
-        case 3:
-        renderCollisionBorder();
-        break;
     }
+
+    if (showCollisionBorder)
+    {
+        renderCollisionBorder();
+    }
+
+    if (showAccretion)
+    {
+        renderAccretionPixels();
+    }
+
 }

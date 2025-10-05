@@ -32,8 +32,10 @@ public:
             NO_BORDER,
             RAW_BORDER,
             SMOOTH_BORDER,
-            COLLISIONS
       };
+
+      bool renderCollisionBorders = false;
+      bool renderAccretionPixels = false;
 
       bool renderHeight = true;
       bool renderWater = true;
@@ -46,7 +48,7 @@ public:
       int iterationsPerSecond = 5;
       bool isExecutingRealtime = false;
       int renderMode = NORMAL;
-      int shadingMode = NORMAL_SHADING;
+      int shadingMode = SHOW_CRUST_TYPE;
       int borderRenderMode = NO_BORDER;
 
       bool copyPlateData = false;
