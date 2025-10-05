@@ -7,12 +7,15 @@ layout(binding = 2) uniform sampler2D waterTexture;
 layout(binding = 3) uniform sampler2D arrowTexture;
 layout(binding = 4) uniform sampler2D directionTexture;
 layout(binding = 5) uniform usampler2D collisionTexture;
+layout(binding = 6) uniform sampler2D accretionTexture;
 
 uniform int borderRenderType;
 uniform bool showWater;
 uniform bool showDirectionArrows;
 uniform int shadingType;
 uniform float continentalCrustThreshold;
+uniform bool showCollisionBorder;
+uniform bool showAccretion;
 
 in vec2 texCoord;
 in vec4 color;
@@ -101,6 +104,17 @@ void renderCollisionBorder() {
     fragmentColor = vec4(0, 0, 0, 1);
 }
 
+void renderAccretionPixels() {
+    ivec2 texelCoord = ivec2(texCoord * textureSize(accretionTexture, 0));
+    float normalizedID = texelFetch(accretionTexture, texelCoord, 0).r;
+    int id = int(normalizedID * 255);
+    if (id != 0)
+    {
+        fragmentColor = vec4(1.f, 0.65f, 0, 1);
+    }
+
+}
+
 void drawDirectionArrows()
 {
     vec2 arrowUV = mod(texCoord * textureSize(heightMap, 0) / 16, 1.0);
@@ -131,15 +145,15 @@ void drawDirectionArrows()
 
 vec3 normalShading(float height)
 {
-    if (height < 100) {
-        return mix(vec3(0.612, 0.6, 0.514), vec3(0.878, 0.859, 0.722), height / 100);
-    } else if (height < 200) {
-        return mix(vec3(0.878, 0.859, 0.722), vec3(0.949, 0.933, 0.82), (height - 100) / 100);
-    } else if (height < 300) {
-        return mix(vec3(0.102, 0.541, 0.141), vec3(0.216, 0.478, 0.239), (height - 200) / 100);
+    if (height < 4000) {
+        return mix(vec3(0.612, 0.6, 0.514), vec3(0.878, 0.859, 0.722), height / 4000);
+    } else if (height < 8000) {
+        return mix(vec3(0.878, 0.859, 0.722), vec3(0.949, 0.933, 0.82), (height - 4000) / 4000);
+    } else if (height < 12000) {
+        return mix(vec3(0.102, 0.541, 0.141), vec3(0.216, 0.478, 0.239), (height - 8000) / 4000);
     }
 
-    return mix(vec3(0.451, 0.451, 0.451), vec3(0.71, 0.71, 0.71), (height - 300) / 500);
+    return mix(vec3(0.451, 0.451, 0.451), vec3(0.71, 0.71, 0.71), (height - 12000) / 20000);
 }
 
 vec3 crustTypeShading(float height)
@@ -156,22 +170,25 @@ vec3 crustTypeShading(float height)
     // Land shading
     float landHeight = height - continentalCrustThreshold;
 
-    if (landHeight < 25.0) {
-        // Soil/dirt (brownish)
-        return mix(vec3(0.4, 0.3, 0.2), vec3(0.6, 0.5, 0.3), landHeight / 25.0);
-    } else if (landHeight < 50.0) {
-        // Transition to grass
-        return mix(vec3(0.6, 0.5, 0.3), vec3(0.1, 0.6, 0.1), (landHeight - 25.0) / 25.0);
-    } else if (landHeight < 100.0) {
-        // Vivid green grass to alpine green
-        return mix(vec3(0.1, 0.6, 0.1), vec3(0.2, 0.4, 0.2), (landHeight - 50.0) / 50.0);
-    } else if (landHeight < 150.0) {
-        // Grass to rocky gray
-        return mix(vec3(0.2, 0.4, 0.2), vec3(0.5, 0.5, 0.5), (landHeight - 100.0) / 50.0);
+    if (landHeight < 200.0) {
+        // Coastal soil/dirt (0–200 m)
+        return mix(vec3(0.4, 0.3, 0.2), vec3(0.6, 0.5, 0.3), landHeight / 200.0);
+
+    } else if (landHeight < 1000.0) {
+        // Transition to grass (200–1000 m)
+        return mix(vec3(0.6, 0.5, 0.3), vec3(0.1, 0.6, 0.1), (landHeight - 200.0) / 800.0);
+
+    } else if (landHeight < 2500.0) {
+        // Vivid green grass to alpine green (1000–2500 m)
+        return mix(vec3(0.1, 0.6, 0.1), vec3(0.2, 0.4, 0.2), (landHeight - 1000.0) / 1500.0);
+
+    } else if (landHeight < 4000.0) {
+        // Grass to rocky gray (2500–4000 m)
+        return mix(vec3(0.2, 0.4, 0.2), vec3(0.5, 0.5, 0.5), (landHeight - 2500.0) / 1500.0);
     }
 
-    // Very high elevations - snowy or light rocky
-    return mix(vec3(0.5, 0.5, 0.5), vec3(0.9, 0.9, 0.95), clamp((landHeight - 150.0) / 100.0, 0.0, 1.0));
+    // Very high elevations – rocky → snowy (4000–10000 m)
+    return mix(vec3(0.5, 0.5, 0.5), vec3(0.9, 0.9, 0.95), clamp((landHeight - 4000.0) / 6000.0, 0.0, 1.0));
 }
 
 // Function to convert HSV to RGB
@@ -253,10 +270,10 @@ void main() {
         break;
     }
 
-    if (mod(height, 10) <= 0.1)
-    {
-        colorNew = mix(colorNew, vec3(0.2, 0.2, 0.2), 0.5);
-    }
+    //    if (mod(height, 10) <= 0.1)
+    //    {
+    //        colorNew = mix(colorNew, vec3(0.2, 0.2, 0.2), 0.5);
+    //    }
 
     if (showWater){
         float hydration = texture(waterTexture, texCoord).r;
@@ -275,17 +292,22 @@ void main() {
 
     switch (borderRenderType)
     {
-        case 0:
-        // No border is rendered
-        break;
         case 1:
         renderRawBorder();
         break;
         case 2:
         renderSmoothBorder();
         break;
-        case 3:
-        renderCollisionBorder();
-        break;
     }
+
+    if (showCollisionBorder)
+    {
+        renderCollisionBorder();
+    }
+
+    if (showAccretion)
+    {
+        renderAccretionPixels();
+    }
+
 }

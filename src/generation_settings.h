@@ -32,21 +32,23 @@ public:
             NO_BORDER,
             RAW_BORDER,
             SMOOTH_BORDER,
-            COLLISIONS
       };
+
+      bool renderCollisionBorders = false;
+      bool renderAccretionPixels = false;
 
       bool renderHeight = true;
       bool renderWater = true;
       bool renderDirections = false;
+      float heightMultiplier = 1;
       bool renderStressPeaks = false;
-      float heightMultiplier = 0.2;
 
       // The actual settings. Could make them private with getter/setters, but I think this is sufficient
       int executionIterations = 1;
       int iterationsPerSecond = 5;
       bool isExecutingRealtime = false;
       int renderMode = NORMAL;
-      int shadingMode = NORMAL_SHADING;
+      int shadingMode = SHOW_CRUST_TYPE;
       int borderRenderMode = NO_BORDER;
 
       bool copyPlateData = false;

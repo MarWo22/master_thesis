@@ -32,6 +32,7 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
       , m_stressTexture(nullptr)
       , m_waterTexture(nullptr)
       , m_arrowTexture(nullptr)
+      , m_accretionTexture(nullptr)
       , m_sizeX(sizeX)
       , m_sizeZ(sizeZ)
       , m_vao(0)
@@ -56,6 +57,7 @@ void Terrain::init()
     m_stressTexture = getTexture("stressTexture");
     m_waterTexture = getTexture("waterTexture");
     m_arrowTexture = getTexture("arrowTexture");
+    m_accretionTexture = getTexture("accretionTexture");
     createGlState();
     populateBuffers();
 }
@@ -69,6 +71,8 @@ void Terrain::render(const Camera &camera)
             m_heightmapShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapShader->setUniform("displaceHeight", renderSettings.renderHeight ? 1 : 0);
             m_heightmapShader->setUniform("borderRenderType", renderSettings.borderRenderMode);
+            m_heightmapShader->setUniform("showCollisionBorder", renderSettings.renderCollisionBorders);
+            m_heightmapShader->setUniform("showAccretion", renderSettings.renderAccretionPixels);
             m_heightmapShader->setUniform("showWater", renderSettings.renderWater ? 1 : 0);
             m_heightmapShader->setUniform("heightMultiplier", renderSettings.heightMultiplier);
             m_heightmapShader->setUniform("showDirectionArrows", renderSettings.renderDirections ? 1 : 0);
@@ -80,6 +84,7 @@ void Terrain::render(const Camera &camera)
             m_arrowTexture->bind(GL_TEXTURE3);
             m_directionTexture->bind(GL_TEXTURE4);
             m_collisionTexture->bind(GL_TEXTURE5);
+            m_accretionTexture->bind(GL_TEXTURE6);
             break;
         case RenderSettings::RenderMode::SHOW_COLLISION_AREAS:
             m_regionShader->bind();

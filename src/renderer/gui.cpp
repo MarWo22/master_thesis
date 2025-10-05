@@ -233,8 +233,9 @@ void Gui::renderSettingsSection()
                 if (ImGui::RadioButton("Render Raw Borders", &renderSettings.borderRenderMode,
                                        RenderSettings::BorderRenderMode::RAW_BORDER))
                     renderSettings.callCallback("renderSettingsChanged");
-                if (ImGui::RadioButton("Render Collision Borders", &renderSettings.borderRenderMode,
-                                       RenderSettings::BorderRenderMode::COLLISIONS))
+                if (ImGui::Checkbox("Render Collision Borders", &renderSettings.renderCollisionBorders))
+                    renderSettings.callCallback("renderSettingsChanged");
+                if (ImGui::Checkbox("Render Accretion Pixels", &renderSettings.renderAccretionPixels))
                     renderSettings.callCallback("renderSettingsChanged");
                 ImGui::Unindent(15.0f);
             }
@@ -253,7 +254,7 @@ void Gui::renderSettingsSection()
 
 
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Height Displacement Multiplier", &renderSettings.heightMultiplier, 0.1f, 0.f, 500.f);
+            ImGui::DragFloat("Height Displacement Multiplier", &renderSettings.heightMultiplier, 0.01f, 0.f, 10.f);
 
             ImGui::Unindent(15.0f);
         }
@@ -284,11 +285,19 @@ void Gui::simulationSettingsSection()
                                  &newSettings.inelasticCollisionMultiplierContinental, 0.0005f, 0.f,
                                  1.f);
                 ImGui::SetNextItemWidth(250);
+                ImGui::DragFloat("Inelastic Accretion Collision Multiplier",
+                                 &newSettings.inelasticCollisionMultiplierAccretion, 0.0005f, 0.f,
+                                 1.f);
+                ImGui::SetNextItemWidth(250);
                 ImGui::DragFloat("Subduction Friction Coefficient", &newSettings.frictionCoefficientSubduction, 0.0005f,
                                  0.f,
                                  5.f);
                 ImGui::SetNextItemWidth(250);
                 ImGui::DragFloat("Continental Friction Coefficient", &newSettings.frictionCoefficientContinental,
+                                 0.0005f, 0.f,
+                                 5.f);
+                ImGui::SetNextItemWidth(250);
+                ImGui::DragFloat("Accretion Friction Coefficient", &newSettings.frictionCoefficientAccretion,
                                  0.0005f, 0.f,
                                  5.f);
                 ImGui::SetNextItemWidth(250);
@@ -308,10 +317,16 @@ void Gui::simulationSettingsSection()
             ImGui::DragFloat("Merge Velocity Diff Max Threshold", &newSettings.mergeVelocityDiffThreshold, 0.001f, 0.f,
                              1.f);
             ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Merge Min Velocity", &newSettings.mergeMinVelocity, 0.001f, 0.f,
+                             1.f);
+            ImGui::SetNextItemWidth(250);
             ImGui::DragInt("Min Plate Size", &newSettings.minPlateSize, 1, 1, 100);
 
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Divergence Max Height Target", &newSettings.divergence_height_target, 0.1f, 1, 250);
+            ImGui::DragFloat("Divergence Min Height Target", &newSettings.divergence_height_target_min, 0.5f, 1, 5000);
+
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Divergence Max Height Target", &newSettings.divergence_height_target_max, 0.5f, 1, 5000);
 
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Divergence Interpolation Factor", &newSettings.divergence_interpolation_factor, 0.001f,

@@ -73,8 +73,6 @@ class PlateTectonicSim
     std::unique_ptr<CudaTextureHost<float> > m_heightMapTexture;
     std::unique_ptr<CudaTextureHost<uint8_t> > m_plateIdsTexture;
 
-    std::unique_ptr<CudaTextureHost<uint32_t> > m_plateCollisions; // Temp for debugging
-
     std::unique_ptr<CudaTextureHost<float> > m_hydrationLevel;
     std::unique_ptr<CudaTextureHost<float4> > m_hydrationFlux;
     std::unique_ptr<CudaTextureHost<Vec2<float> > > m_hydrationVelocity;
@@ -83,6 +81,15 @@ class PlateTectonicSim
     std::unique_ptr<CudaTextureHost<float>> m_pressure;
     std::unique_ptr<CudaTextureHost<float>> m_stress;
     std::unique_ptr<CudaTextureHost<Vec2<float>>> m_pressureVelocity;
+
+    /*
+     * Persistent solely for debugging/rendering
+     * Do not need to be persistent for the sim to work properly
+     */
+    std::unique_ptr<CudaTextureHost<uint32_t> > m_plateCollisions;
+    std::unique_ptr<CudaTextureHost<uint8_t>> m_accretionTexture;
+
+
 
     /*
      *  Persistent CUDA data containers
@@ -131,13 +138,14 @@ private:
 
     void processCollisionUplift(CudaTextureHost<float> *heightMapTextureWrite,
                                 CudaTextureHost<uint8_t> *plateIdsTextureWrite,
-                                CudaTextureHost<uint8_t> *platesHaveCollided,
                                 CudaTextureHost<uint32_t> *plateCollisions,
                                 CudaTextureHost<CollisionVelocityChanges> *velocityChanges);
 
     void applyHydraulicErosion(CudaTextureHost<float> *heightMapTextureWrite);
 
     void applyCCL();
+
+    void mergePlates();
 
     void processPlateSplitting();
 
