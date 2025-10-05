@@ -1315,12 +1315,26 @@ __global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const Cu
     const Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
-    // Create validator lambda for uplift distance field
-    auto validator = [&](const Vec2<int> &sample, int offset) -> bool {
-        return collisionContains(r_collisions[sample], plateId);
-    };
+    float bestValue = 0;
+    int bestOffset = 0;
 
-    w_buffer[invokeIndex] = verticalDistanceFieldPass(r_uplift, center, kernelSettings.upliftRange, validator);
+    for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
+    {
+        Vec2<int> sample = center + Vec2<int>(0, i);
+
+        if (!collisionContains(r_collisions[sample], plateId))
+            continue;
+
+        float sampleValue = r_uplift[sample] - (abs((float)i));
+
+        if (sampleValue > bestValue)
+        {
+            bestValue = sampleValue;
+            bestOffset = i;
+        }
+    }
+
+    w_buffer[invokeIndex] = DistanceFieldBuffer(bestOffset, r_uplift[center + Vec2<int>(0, bestOffset)]);
 }
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
@@ -1338,13 +1352,35 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
     const Vec2<int> center = r_buffer.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
-    // Create validator lambda for uplift distance field
-    auto validator = [&](const Vec2<int> &sample, int offset) -> bool {
-        return collisionContains(r_collisions[sample], plateId);
-    };
+    float bestAdjustedValue = 0;
+    int bestDistance = 0;
+    float bestTrueValue = 0;
 
-    float value = horizontalDistanceFieldPass(r_buffer, center, kernelSettings.upliftRange, validator);
-    (*w_heightMapPtr)[invokeIndex] += value * kernelSettings.upliftMultiplier;
+    for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
+    {
+        Vec2<int> sample = center + Vec2<int>(i, 0);
+
+        if (!collisionContains(r_collisions[sample], plateId))
+            continue;
+
+        DistanceFieldBuffer buffer = r_buffer[sample];
+        float adjustedValue = buffer.value - abs((float)i + buffer.offset);
+
+        if (adjustedValue > bestAdjustedValue)
+        {
+            bestAdjustedValue = adjustedValue;
+            bestDistance = i;
+            bestTrueValue = buffer.value;
+        }
+    }
+
+    float I = bestTrueValue;
+    float X = bestDistance;
+    
+    //Replace with uplift functions:
+    if(true) // 
+    
+    (*w_heightMapPtr)[invokeIndex] += bestAdjustedValue * kernelSettings.upliftMultiplier;
 }
 
 __global__ void convertCollisionMapForGL(const CudaTexture<uint32_t> *r_texturePtr, CudaTexture<uint8_t> *w_texturePtr)
@@ -1889,7 +1925,7 @@ __global__ void selectUnusedPlateId(PlateData *plateLookup, uint8_t *plateId)
                 *plateId = i;
                 plateLookup[i].used = true;
                 printf("Selected: %.i \n", i);
-                break;
+                return;
             }
         }
     }
@@ -2171,7 +2207,7 @@ __global__ void computeBreakScore(PlateData *w_plateData)
         float area = static_cast<float>(plateData.size);
         float perimeter = static_cast<float>(plateData.perimeter);
 
-        plateData.circularity = 1.0f - ((2 * CURAND_2PI * area) / (perimeter * perimeter));
+        plateData.circularity = 1.0f - ((2 * CURAND_2PI * area) / max(perimeter * perimeter, 1.0f));
 
         float areaIncrease = inverseClampedLerp(area, kernelSettings.targetMinimumPlateArea, kernelSettings.targetMaximumPlateArea);
 
@@ -2320,7 +2356,7 @@ __global__ void propagateEffortToBoundary(const CudaTexture<float> *r_effortToBo
     }
 }
 
-__global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<uint8_t> *rw_plateIdsPtr, const Vec2<int> point, uint8_t plateId)
+__global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<uint8_t> *rw_plateIdsPtr, const Vec2<int> point, uint8_t plateId, int *deadEnd)
 {
     const CudaTexture<float> &r_effortToBoundary = *r_effortToBoundaryPtr;
     CudaTexture<uint8_t> &rw_plateIds = *rw_plateIdsPtr;
@@ -2329,7 +2365,7 @@ __global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, C
     uint8_t oldPlateId = rw_plateIds[point];
 
     const Vec2<int> offsets[] = {
-        {-1,  0}, {1, 0}, {0, -1}, {0, 1},   
+        {-1,  0}, {1, 0}, {0, -1}, {0, 1},
         {-1, -1}, {-1, 1}, {1, -1}, {1, 1}
     };
 
@@ -2355,7 +2391,7 @@ __global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, C
 
     Vec2<float> firstBoundaryDir = Vec2<float>(current.x - point.x, current.y - point.y);
     Vec2<float> oppositeDir = (firstBoundaryDir * -1.0f).normalizedZeroSafe();
-    
+    Vec2<float> perpendicular = Vec2<float>(-oppositeDir.y, oppositeDir.x);
 
     current = point;
     while (r_effortToBoundary[current] > 0)
@@ -2372,12 +2408,13 @@ __global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, C
             if (rw_plateIds[neighborPos] == MAX_PLATE_COUNT)
                 continue;
 
-            ////back up boundary, prevent the line from looping back.
-            //Vec2<float> perpendicular = Vec2<float>(-oppositeDir.y, oppositeDir.x);
-            //Vec2<float> toNeighbor = Vec2<float>(neighborPos.x - point.x, neighborPos.y - point.y);
-            //float perpendicularDot = toNeighbor.dot(perpendicular);
-            //if (perpendicularDot > 0) // Neighbor is on the wrong side (first loop's side)
-            //    continue;
+            //back up boundary, prevent the line from looping back.
+
+
+            Vec2<float> toNeighbor = Vec2<float>(neighborPos.x - point.x, neighborPos.y - point.y);
+            float perpendicularDot = toNeighbor.dot(oppositeDir);
+            if (perpendicularDot < 0) // Neighbor is on the wrong side (first loop's side)
+                continue;
 
             float distValue = r_effortToBoundary[neighborPos];
 
@@ -2401,11 +2438,11 @@ __global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, C
         else
         {
             printf("dead end \n");
+            atomicOr(deadEnd, 1);
             return;
         }
     }
 
-    Vec2<float> perpendicular = Vec2<float>(-oppositeDir.y, oppositeDir.x);
     Vec2<int> sampleRounded = point;
 
     for (int i = 1; i <= 100 && rw_plateIds[sampleRounded] != oldPlateId; i++)
@@ -2461,7 +2498,7 @@ __global__ void floodFillPlate(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t old
      }
 }
 
-__global__ void resetMaxPlateCountPixels(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t newPlateId)
+__global__ void finalizePlateSplit(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId, PlateData* w_plateLookup)
 {
     CudaTexture<uint8_t> &rw_plateIds = *rw_plateIdsPtr;
 
@@ -2471,4 +2508,11 @@ __global__ void resetMaxPlateCountPixels(CudaTexture<uint8_t> *rw_plateIdsPtr, u
 
     if (rw_plateIds[invokeIndex] == MAX_PLATE_COUNT)
         rw_plateIds[invokeIndex] = newPlateId;
+
+    if (invokeIndex == 0 && newPlateId != oldPlateId)
+    {
+        w_plateLookup[newPlateId].velocity = w_plateLookup[oldPlateId].velocity;
+        w_plateLookup[newPlateId].direction = w_plateLookup[oldPlateId].direction;
+    }
 }
+
