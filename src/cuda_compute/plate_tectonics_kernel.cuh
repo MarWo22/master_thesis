@@ -215,4 +215,14 @@ __global__ void createCollisionTypeMatrix(const CollisionTypeCounts *r_collision
 __global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint8_t *r_collisionTypeBitmap,
                                  GuiPlateData *w_plateDataGui);
 
+__global__ void initEffortToBoundary(const CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float> *w_effortToBoundaryPtr, uint8_t plateId);
+
+__global__ void propagateEffortToBoundary(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<float> *w_effortToBoundaryPtr, const CudaTexture<float> *r_costPtr, int *hasChanged);
+
+__global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<uint8_t> *rw_plateIdsPtr, const Vec2<int> point, uint8_t plateId);
+
+__global__ void floodFillPlate(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId, int *hasChanged);
+
+__global__ void resetMaxPlateCountPixels(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t newPlateId);
+
 #endif //PLATE_TECTONICS_KERNEL_CUH

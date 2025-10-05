@@ -2008,9 +2008,9 @@ __global__ void stress(const CudaTexture<float>* r_pressurePtr, const CudaTextur
     
     float baseStress = r_pressure[invokeIndex] / max(min(r_material[invokeIndex], 200.0f), 1.0f);
 
-    /*float distanceToCenter = plateData.geometricCenter.distance(Vec2<float>(coord.x, coord.y));
-    float distanceScore = 1.0f / (0.01f * distanceToCenter + 1.0f);*/
-    w_stress[invokeIndex] = baseStress * plateData.breakScore;
+    float distanceToCenter = plateData.geometricCenter.distance(Vec2<float>(coord.x, coord.y));
+    float distanceScore = 1.0f / (0.01f * distanceToCenter + 1.0f);
+    w_stress[invokeIndex] = baseStress * plateData.breakScore * distanceScore;
 }
 
 __global__ void computeBreakScore(PlateData *w_plateData)
@@ -2120,4 +2120,213 @@ __global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePt
     velocity.y = -(topPressure - bottomPressure); // Negative for downward slope
 
     w_pressureVelocity[invokeIndex] = velocity;
+}
+
+__global__ void initEffortToBoundary(const CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float> *w_effortToBoundaryPtr, uint8_t plateId)
+{
+    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
+    CudaTexture<float> &w_effortToBoundary = *w_effortToBoundaryPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_plateIds.size()))
+        return;
+
+    if (r_plateIds[invokeIndex] == plateId)
+        w_effortToBoundary[invokeIndex] = INFINITY;
+}
+
+__global__ void propagateEffortToBoundary(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<float> *w_effortToBoundaryPtr, const CudaTexture<float> *r_costPtr, int *hasChanged)
+{
+    const CudaTexture<float> &r_effortToBoundary = *r_effortToBoundaryPtr;
+    CudaTexture<float> &w_effortToBoundary = *w_effortToBoundaryPtr;
+    const CudaTexture<float> &r_cost = *r_costPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, r_effortToBoundary.size()))
+        return;
+
+    const Vec2<int> coord = r_effortToBoundary.indexToCoordinate(invokeIndex);
+    const float oldDist = r_effortToBoundary[invokeIndex];
+    float minDist = oldDist;
+
+    // 8-connected neighbors
+    const Vec2<int> offsets[] = {
+        {-1,  0}, {1, 0}, {0, -1}, {0, 1},   // 4-connected: N, S, W, E
+        {-1, -1}, {-1, 1}, {1, -1}, {1, 1}   // diagonals: NW, NE, SW, SE
+    };
+
+    const float currentCost = r_cost[invokeIndex];
+    constexpr float SQRT2 = 1.41421356237f;
+
+    for (int i = 0; i < 8; i++)
+    {
+        const Vec2<int> neighborCoord = coord + offsets[i];
+
+        // Diagonal neighbors (i >= 4) have longer distance
+        const float distanceMultiplier = (i >= 4) ? SQRT2 : 1.0f;
+        const float tentative = r_effortToBoundary[neighborCoord] + currentCost * distanceMultiplier;
+
+        if (tentative < minDist)
+            minDist = tentative;
+    }
+
+    w_effortToBoundary[invokeIndex] = minDist;
+
+    if (minDist != oldDist)
+    {
+        atomicOr(hasChanged, 1);
+    }
+}
+
+__global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<uint8_t> *rw_plateIdsPtr, const Vec2<int> point, uint8_t plateId)
+{
+    const CudaTexture<float> &r_effortToBoundary = *r_effortToBoundaryPtr;
+    CudaTexture<uint8_t> &rw_plateIds = *rw_plateIdsPtr;
+
+    Vec2<int> current = point;
+    uint8_t oldPlateId = rw_plateIds[point];
+
+    const Vec2<int> offsets[] = {
+        {-1,  0}, {1, 0}, {0, -1}, {0, 1},   
+        {-1, -1}, {-1, 1}, {1, -1}, {1, 1}
+    };
+
+    while (r_effortToBoundary[current] > 0)
+    {
+        rw_plateIds[current] = MAX_PLATE_COUNT;
+
+        float best = INFINITY;
+        Vec2<int> next;
+
+        for (int i = 0; i < 8; i++)
+        {
+            float x = r_effortToBoundary[current + offsets[i]];
+            if (x < best)
+            {
+                best = x;
+                next = current + offsets[i];
+            }
+        }
+
+        current = next;
+    }
+
+    Vec2<float> firstBoundaryDir = Vec2<float>(current.x - point.x, current.y - point.y);
+    Vec2<float> oppositeDir = (firstBoundaryDir * -1.0f).normalizedZeroSafe();
+    
+
+    current = point;
+    while (r_effortToBoundary[current] > 0)
+    {
+        rw_plateIds[current] = MAX_PLATE_COUNT;
+
+        float best = INFINITY;
+        Vec2<int> next;
+
+        for (int i = 0; i < 8; i++)
+        {
+            Vec2<int> neighborPos = current + offsets[i];
+
+            if (rw_plateIds[neighborPos] == MAX_PLATE_COUNT)
+                continue;
+
+            ////back up boundary, prevent the line from looping back.
+            //Vec2<float> perpendicular = Vec2<float>(-oppositeDir.y, oppositeDir.x);
+            //Vec2<float> toNeighbor = Vec2<float>(neighborPos.x - point.x, neighborPos.y - point.y);
+            //float perpendicularDot = toNeighbor.dot(perpendicular);
+            //if (perpendicularDot > 0) // Neighbor is on the wrong side (first loop's side)
+            //    continue;
+
+            float distValue = r_effortToBoundary[neighborPos];
+
+            //Replace this with better solution. this kinda sucks
+            Vec2<float> toNeighborDir = Vec2<float>(offsets[i].x, offsets[i].y).normalized();
+            float dot = toNeighborDir.dot(oppositeDir);
+            float bias = -dot * 50; // Strong negative bias encourages movement in opposite direction
+            float score = distValue + bias;
+
+            if (score < best)
+            {
+                best = score;
+                next = neighborPos;
+            }
+        }
+
+        if (best != INFINITY)
+        {
+            current = next;
+        }
+        else
+        {
+            printf("dead end \n");
+            return;
+        }
+    }
+
+    Vec2<float> perpendicular = Vec2<float>(-oppositeDir.y, oppositeDir.x);
+    Vec2<int> sampleRounded = point;
+
+    for (int i = 1; i <= 100 && rw_plateIds[sampleRounded] != oldPlateId; i++)
+    {
+        int x = (i % 2 == 1) ? (i + 1) / 2 : -(i / 2);
+        Vec2<float> sample = Vec2<float>(point.x, point.y) + (perpendicular * float(x));
+        sampleRounded = Vec2<int>(static_cast<int>(sample.x + 0.5f), static_cast<int>(sample.y + 0.5f));
+    }
+
+    if (rw_plateIds[sampleRounded] == oldPlateId)
+        rw_plateIds[sampleRounded] = plateId;
+    else
+        printf("Warning: Could not find seed point for flood fill\n");
+}
+
+__global__ void floodFillPlate(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId, int *hasChanged)
+{
+    CudaTexture<uint8_t> &rw_plateIds = *rw_plateIdsPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, rw_plateIds.size()))
+        return;
+
+    const uint8_t currentPlateId = rw_plateIds[invokeIndex];
+
+    if (currentPlateId != oldPlateId)
+        return;
+
+    const Vec2<int> coord = rw_plateIds.indexToCoordinate(invokeIndex);
+
+    const Vec2<int> offsets[] = {
+        {-1, 0}, {1, 0}, {0, -1}, {0, 1}
+    };
+
+    bool hasNewNeighbor = false;
+    for (int i = 0; i < 4; i++)
+    {
+        const Vec2<int> neighborCoord = coord + offsets[i];
+        if (isWithinBounds(rw_plateIds.coordinateToIndex(neighborCoord), rw_plateIds.size()))
+        {
+            if (rw_plateIds[neighborCoord] == newPlateId)
+            {
+                hasNewNeighbor = true;
+                break;
+            }
+        }
+    }
+
+    if (hasNewNeighbor)
+    {
+        rw_plateIds[invokeIndex] = newPlateId;
+        atomicOr(hasChanged, 1);
+     }
+}
+
+__global__ void resetMaxPlateCountPixels(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t newPlateId)
+{
+    CudaTexture<uint8_t> &rw_plateIds = *rw_plateIdsPtr;
+
+    const unsigned int invokeIndex = getInvokeIndex();
+    if (!isWithinBounds(invokeIndex, rw_plateIds.size()))
+        return;
+
+    if (rw_plateIds[invokeIndex] == MAX_PLATE_COUNT)
+        rw_plateIds[invokeIndex] = newPlateId;
 }

@@ -141,6 +141,8 @@ private:
 
     void processPlateSplitting();
 
+    void SplitPlateV2(Vec2<int> point, uint8_t oldPlateId);
+
     Vec2<float> getPlateCenter();
 
     void setupGUICallbacks();

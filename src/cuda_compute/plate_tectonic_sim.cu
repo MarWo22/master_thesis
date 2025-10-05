@@ -476,8 +476,21 @@ void PlateTectonicSim::processPlateSplitting()
 
     printf("max stress: %.4f", h_highest_stress);
 
-    if (h_highest_stress > kernelSettingsHost.stressSplitThreshold && false)
+    if (h_highest_stress > kernelSettingsHost.stressSplitThreshold)
     {
+        SplitPlateV2(Vec2<int>(static_cast<int>(h_stress_location.x + 0.5), static_cast<int>(h_stress_location.y + 0.5)), h_highest_stress_plate_id);
+
+
+
+
+
+
+
+
+
+
+        return;
+
         auto d_dir = m_textureManager.generateTexture<Vec2<float> >(1, 1);
 
         findPlausibleSplitLine<<<1, 10, 10 * sizeof(float)>>>(h_highest_stress_plate_id, h_stress_location,
@@ -872,3 +885,80 @@ std::vector<VoronoiSeed> PlateTectonicSim::generateVoronoiSeeds(std::default_ran
 
 void PlateTectonicSim::HydrationSubSim() const
 {}
+
+void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
+{
+    auto l_effortToBoundaryMap = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
+    auto l_effortToBoundaryMapNext = m_textureManager.generateTexture<float>(m_width, m_height);
+    auto hasChangedDevice = m_textureManager.generateTextureAndReset<int>(1, 1, 0);
+
+    initEffortToBoundary<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), l_effortToBoundaryMap->deviceTexture(), oldPlateId);
+
+    // Ping-pong buffer iterations with early exit
+    constexpr int maxIterations = 10000;
+    int hasChangedHost = 1;
+    int iteration = 0;
+
+    while (hasChangedHost && iteration < maxIterations)
+    {
+        // Reset flag
+        cudaMemset(hasChangedDevice->getPointer(), 0, sizeof(int));
+
+        propagateEffortToBoundary<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(
+            l_effortToBoundaryMap->deviceTexture(),
+            l_effortToBoundaryMapNext->deviceTexture(),
+            m_heightMapTexture->deviceTexture(),
+            hasChangedDevice->getPointer()
+        );
+
+        // Check if any pixel changed
+        cudaMemcpy(&hasChangedHost, hasChangedDevice->getPointer(), sizeof(int), cudaMemcpyDeviceToHost);
+
+        l_effortToBoundaryMap.swap(l_effortToBoundaryMapNext);
+
+        iteration++;
+    }
+
+    std::cout << "Converged after " << iteration << " iterations" << std::endl;
+
+    auto newPlateId = m_textureManager.generateTexture<uint8_t>(1, 1);
+
+    selectUnusedPlateId << <1, 1 >> > (m_plateDataLookup->getPointer(), newPlateId->getPointer());
+
+    uint8_t newPlateIdHost;
+    cudaMemcpy(&newPlateIdHost, newPlateId->getPointer(), sizeof(uint8_t), cudaMemcpyDeviceToHost);
+
+
+    BacktrackPath<<<1, 1>>>(l_effortToBoundaryMap->deviceTexture(), m_plateIdsTexture->deviceTexture(), point, newPlateIdHost);
+
+    // Flood fill one side of the split with the new plate ID
+   
+    int floodFillIterations = 0;
+    hasChangedHost = 1;
+    constexpr int maxFloodFillIterations = 10000;
+
+    while (hasChangedHost && floodFillIterations < maxFloodFillIterations)
+    {
+        cudaMemset(hasChangedDevice->getPointer(), 0, sizeof(int));
+
+        floodFillPlate<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(
+            m_plateIdsTexture->deviceTexture(),
+            oldPlateId,
+            newPlateIdHost,
+            hasChangedDevice->getPointer()
+        );
+
+        cudaMemcpy(&hasChangedHost, hasChangedDevice->getPointer(), sizeof(int), cudaMemcpyDeviceToHost);
+        floodFillIterations++;
+    }
+
+    std::cout << "Flood fill completed after " << floodFillIterations << " iterations" << std::endl;
+
+    // Reset the dividing line (marked with MAX_PLATE_COUNT) to the new plate ID
+    resetMaxPlateCountPixels<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(
+        m_plateIdsTexture->deviceTexture(),
+        newPlateIdHost
+    );
+
+    std::cout << "Split plate!" << std::endl;
+}
