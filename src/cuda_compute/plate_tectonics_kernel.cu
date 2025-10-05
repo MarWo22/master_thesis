@@ -1396,7 +1396,7 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
 
     current.direction = norm;
     const float postCollisionVelocity = max(mag - frictionLoss, 0.f);
-    current.velocity = clamp01(postCollisionVelocity * (1 - kernelSettings.environmentalDragCoefficient));
+    current.velocity = postCollisionVelocity * (1 - kernelSettings.environmentalDragCoefficient);
 
     current.mass = 0;
     current.size = 0;

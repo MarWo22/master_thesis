@@ -500,8 +500,6 @@ void PlateTectonicSim::processPlateSplitting()
     uint8_t h_highest_stress_plate_id = keys_ptr[max_pixel_index];
     Vec2<float> h_stress_location = Vec2<float>(max_pixel_index % m_width, max_pixel_index / m_width);
 
-    printf("max stress: %.4f", h_highest_stress);
-
     if (h_highest_stress > kernelSettingsHost.stressSplitThreshold)
     {
         SplitPlateV2(Vec2<int>(static_cast<int>(h_stress_location.x + 0.5), static_cast<int>(h_stress_location.y + 0.5)), h_highest_stress_plate_id);
