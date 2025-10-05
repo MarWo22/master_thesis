@@ -952,8 +952,29 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
     cudaMemcpy(&newPlateIdHost, newPlateId->getPointer(), sizeof(uint8_t), cudaMemcpyDeviceToHost);
 
 
-    BacktrackPath<<<1, 1>>>(l_effortToBoundaryMap->deviceTexture(), m_plateIdsTexture->deviceTexture(), point,
-                            newPlateIdHost);
+    int *deadEndDevice;
+    cudaMalloc(&deadEndDevice, sizeof(int));
+    int deadEndHost = 0;
+    cudaMemcpy(deadEndDevice, &deadEndHost, sizeof(int), cudaMemcpyHostToDevice);
+
+    BacktrackPath<<<1, 1>>>(l_effortToBoundaryMap->deviceTexture(), m_plateIdsTexture->deviceTexture(), point, newPlateIdHost, deadEndDevice);
+
+    cudaMemcpy(&deadEndHost, deadEndDevice, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaFree(deadEndDevice);
+
+    if (deadEndHost)
+    {
+        std::cout << "Backtrack path led to a dead end, aborting split" << std::endl;
+        
+        finalizePlateSplit << <m_numBlocksPixels, THREADS_PER_BLOCK >> > (
+            m_plateIdsTexture->deviceTexture(),
+            oldPlateId,
+            oldPlateId,
+            m_plateDataLookup->getPointer()
+            );
+        
+        return;
+    }
 
     // Flood fill one side of the split with the new plate ID
 
@@ -979,9 +1000,11 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
     std::cout << "Flood fill completed after " << floodFillIterations << " iterations" << std::endl;
 
     // Reset the dividing line (marked with MAX_PLATE_COUNT) to the new plate ID
-    resetMaxPlateCountPixels<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(
+    finalizePlateSplit <<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(
         m_plateIdsTexture->deviceTexture(),
-        newPlateIdHost
+        oldPlateId,
+        newPlateIdHost,
+        m_plateDataLookup->getPointer()
     );
 
     countSizePostSplit<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),

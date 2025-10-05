@@ -235,11 +235,11 @@ __global__ void initEffortToBoundary(const CudaTexture<uint8_t> *r_plateIdsPtr, 
 
 __global__ void propagateEffortToBoundary(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<float> *w_effortToBoundaryPtr, const CudaTexture<float> *r_costPtr, int *hasChanged);
 
-__global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<uint8_t> *rw_plateIdsPtr, const Vec2<int> point, uint8_t plateId);
+__global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<uint8_t> *rw_plateIdsPtr, const Vec2<int> point, uint8_t plateId, int *deadEnd);
 
 __global__ void floodFillPlate(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId, int *hasChanged);
 
-__global__ void resetMaxPlateCountPixels(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t newPlateId);
+__global__ void finalizePlateSplit(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId, PlateData* w_plateLookup);
 
 __global__ void countSizePostSplit(CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float> *r_heightPtr, PlateData *w_plateData);
 
