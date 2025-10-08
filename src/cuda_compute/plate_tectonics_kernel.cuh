@@ -163,7 +163,7 @@ __global__ void assignNewPlateIds(CudaTexture<unsigned int> *r_labelsPtr, const 
                                   int *unassignedIndicesCount, int numUniqueLabels);
 
 __global__ void assignUnassignedIdsToNeighbor(CudaTexture<uint8_t> *plateIdsPtr, const unsigned int *unassignedIndices,
-                                              unsigned int unassignedIndicesLen, int *hasRemainingWorkFlag);
+                                              unsigned int unassignedIndicesLen, bool *hasRemainingWorkFlag);
 
 __global__ void copyNewPlateIdLookup(const PlateData *r_plateData, const uint8_t *r_originalPlateIds,
                                      PlateData *w_plateData);
@@ -205,12 +205,12 @@ __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
 
 __global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePtr,
                                           const CudaTexture<uint8_t> *r_plateIdsPtr,
-                                          CudaTexture<Vec2<float>> *w_velocityPtr);
+                                          CudaTexture<Vec2<float> > *w_velocityPtr);
 
 __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
-                                      const CudaTexture<float> *r_heightTexturePtr, const int*r_plateMergeIds,
+                                      const CudaTexture<float> *r_heightTexturePtr, const int *r_plateMergeIds,
                                       PlateData *w_plateLookup,
-                                      const CudaTexture<Vec2<float>> *r_pressureVelocityPtr);
+                                      const CudaTexture<Vec2<float> > *r_pressureVelocityPtr);
 
 __global__ void determineCollisionType(PlateTexturesRead r_plateTextures,
                                        const CudaTexture<uint32_t> *r_collisionsPtr,
@@ -225,22 +225,47 @@ __global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint8
 
 __global__ void getNeighboringPlates(const CudaTexture<uint8_t> *r_plateIdPtr, CudaTexture<bool> *neighborMatrix);
 
-__global__ void getPlateMerges(const CudaTexture<bool> *r_neighborMatrixPtr, const PlateData *r_plateData, int *w_plateMergeIds, CudaTexture<uint8_t> *w_collisionTypesPtr);
+__global__ void getPlateMerges(const CudaTexture<bool> *r_neighborMatrixPtr, const PlateData *r_plateData,
+                               int *w_plateMergeIds, CudaTexture<uint8_t> *w_collisionTypesPtr);
 
 __global__ void clearCollisionTypes(CudaTexture<uint8_t> w_collisionTypes, int idToReset);
 
-__global__ void createPlateIdLabelMap(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<unsigned int> *r_labels, CudaTexture<uint64_t> *w_labelIdsPacked);
+__global__ void createPlateIdLabelMap(const CudaTexture<uint8_t> *r_plateIdsPtr,
+                                      const CudaTexture<unsigned int> *r_labels,
+                                      CudaTexture<uint64_t> *w_labelIdsPacked);
 
-__global__ void initEffortToBoundary(const CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float> *w_effortToBoundaryPtr, uint8_t plateId);
+__global__ void initEffortToBoundary(const CudaTexture<uint8_t> *r_plateIdsPtr,
+                                     CudaTexture<float> *w_effortToBoundaryPtr, uint8_t plateId);
 
-__global__ void propagateEffortToBoundary(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<float> *w_effortToBoundaryPtr, const CudaTexture<float> *r_costPtr, int *hasChanged);
+__global__ void propagateEffortToBoundary(const CudaTexture<float> *r_effortToBoundaryPtr,
+                                          CudaTexture<float> *w_effortToBoundaryPtr,
+                                          const CudaTexture<float> *r_costPtr, int *hasChanged);
 
-__global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<uint8_t> *rw_plateIdsPtr, const Vec2<int> point, uint8_t plateId, int *deadEnd);
+__global__ void BacktrackPath(const CudaTexture<float> *r_effortToBoundaryPtr, CudaTexture<uint8_t> *rw_plateIdsPtr,
+                              const Vec2<int> point, uint8_t plateId, int *deadEnd);
 
-__global__ void floodFillPlate(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId, int *hasChanged);
+__global__ void floodFillPlate(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId,
+                               int *hasChanged);
 
-__global__ void finalizePlateSplit(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId, PlateData* w_plateLookup);
+__global__ void finalizePlateSplit(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t oldPlateId, uint8_t newPlateId,
+                                   PlateData *w_plateLookup);
 
-__global__ void countSizePostSplit(CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float> *r_heightPtr, PlateData *w_plateData);
+__global__ void countSizePostSplit(CudaTexture<uint8_t> *r_plateIdsPtr, CudaTexture<float> *r_heightPtr,
+                                   PlateData *w_plateData);
+
+__global__ void getMaxSizeLabels(const CudaTexture<uint64_t> *r_idLabelPackedPtr,
+                                 const CudaTexture<unsigned int> *r_countsPtr, CudaTexture<int> *w_idsMaxCountsPtr,
+                                 int numLabels);
+
+__global__ void createLabelIdLookup(const CudaTexture<uint64_t> *r_idLabelPacketPtr,
+                                    const CudaTexture<unsigned int> *r_countsPtr,
+                                    const CudaTexture<int> *r_idsMaxCountsPtr, PlateData *rw_plateDataLookup,
+                                    CudaTexture<uint8_t> *w_labelIdLookupPtr, int numLabels);
+
+__global__ void postCClIdReassign(const CudaTexture<uint8_t> *r_labelIdLookupPtr,
+                                  const CudaTexture<unsigned int> *r_labelsPtr, CudaTexture<uint8_t> *w_plateIds,
+                                  CudaTexture<unsigned int> *w_unassignedIndicesPtr, int *unassignedIndicesCount);
+
+__global__ void resetPlateDataPreCount(PlateData *rw_plateData);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH

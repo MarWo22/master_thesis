@@ -91,7 +91,8 @@ void PlateTectonicSim::executeIteration()
                                                              m_accretionTexture->deviceTexture(),
                                                              m_plateIdsTexture->deviceTexture());
 
-    // applyCCL();
+    if (m_iterations % simulationSettings.iterationsForCCL == 0)
+        applyCCL();
 
     mergePlates();
 
@@ -335,100 +336,95 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
 
 void PlateTectonicSim::applyCCL()
 {
-    // const auto labels = m_textureManager.generateTexture<unsigned int>(m_width, m_height);
-    //
-    //
-    // // First, apply 8-way CCL to generate a texture of labels
-    // init<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), labels->deviceTexture());
-    // CUDA_ERROR_CHECK();
-    // analyzeClamped<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(labels->deviceTexture());
-    // CUDA_ERROR_CHECK();
-    // reduce<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), labels->deviceTexture());
-    // CUDA_ERROR_CHECK();
-    // analyzeUnclamped<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(labels->deviceTexture());
-    // CUDA_ERROR_CHECK();
-    //
-    // const auto labelIdsPacked = m_textureManager.generateTexture<uint64_t>(m_width, m_height);
-    // createPlateIdLabelMap<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), labels->deviceTexture(), labelIdsPacked->deviceTexture());
-    //
-    // const int labelCountSize = static_cast<int>(m_width * m_height * 0.01);
-    // auto labelCounts = m_textureManager.generateTexture<unsigned int>(labelCountSize, 1);
-    // auto uniqueLabels = m_textureManager.generateTexture<unsigned int>(labelCountSize, 1);
-    // // Create thrust device ptr wrappers
-    // const thrust::device_ptr<unsigned int> labelsIdsPackedThrust(labelIdsPacked->getPointer());
-    // const thrust::device_ptr<unsigned int> labelCountsThrust(labelCounts->getPointer());
-    // const thrust::device_ptr<unsigned int> uniqueLabelsThrust(uniqueLabels->getPointer());
-    //
-    // // First, sort the labels
-    // sort(labelsIdsPackedThrust, labelsIdsPackedThrust + m_height * m_width,
-    //      thrust::greater<unsigned int>());
-    //
-    // // Second, apply a reduce by key to create an array of key:count pairs. Capture the end iterator such that we are
-    // // aware of the size of the final array.
-    //
-    // const auto resultEnd = reduce_by_key(labelsIdsPackedThrust, labelsIdsPackedThrust + m_height * m_width,
-    //                                      thrust::make_constant_iterator<int>(1), uniqueLabelsThrust,
-    //                                      labelCountsThrust);
-    // labelsCopy.reset(); // Explicitly return the texture back to the manager
-    //
-    // // We can use the iterator to calculate the number of unique labels. This is clamped to max_plate_count, as we cannot
-    // // allocate more plates than the max count anyway.
-    // const int numUniqueLabels = min(static_cast<int>(resultEnd.first - uniqueLabelsThrust), MAX_PLATE_COUNT);
-    //
-    // // Third, sort the section of the labels:count pairs that has been initialized in the previous step. This gives us
-    // // the pairs sorted by counts, in descending order
-    // sort_by_key(labelCountsThrust, labelCountsThrust + numUniqueLabels, uniqueLabelsThrust,
-    //             thrust::greater<unsigned int>());
-    //
-    // auto originalPlateIds = m_textureManager.generateTextureAndReset<uint8_t>(MAX_PLATE_COUNT, 1, MAX_PLATE_COUNT);
-    // auto unassignedIndices = m_textureManager.generateTexture<unsigned int>(labelCountSize, 1);
-    // auto unassignedIndicesCount = m_textureManager.generateTextureAndReset<int>(1, 1, 0);
-    //
-    // assignNewPlateIds<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(labels->deviceTexture(), uniqueLabels->getPointer(),
-    //                                                             labelCounts->getPointer(),
-    //                                                             originalPlateIds->getPointer(),
-    //                                                             m_plateIdsTexture->deviceTexture(),
-    //                                                             unassignedIndices->getPointer(),
-    //                                                             unassignedIndicesCount->getPointer(),
-    //                                                             numUniqueLabels);
-    // CUDA_ERROR_CHECK();
-    // labelCounts.reset();
-    // uniqueLabels.reset();
-    //
-    // int unassignedIndicesCountHost;
-    //
-    // if (const cudaError_t err = cudaMemcpy(&unassignedIndicesCountHost, unassignedIndicesCount->getPointer(),
-    //                                        sizeof(int),
-    //                                        cudaMemcpyDeviceToHost); err != cudaSuccess)
-    //     std::cerr << "Error memcpy unassignedIndicesCountHost: " << cudaGetErrorString(err) << "\n";
-    // unassignedIndicesCount.reset();
-    // if (unassignedIndicesCountHost != 0)
-    // {
-    //     // Using int instead of boolean since cuda uses ints
-    //     int hasWork = 1;
-    //     const int gridSize = (unassignedIndicesCountHost + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    //
-    //     while (hasWork)
-    //     {
-    //         const auto hasRemainingWork = m_textureManager.generateTextureAndReset<int>(1, 1, 0);
-    //
-    //         assignUnassignedIdsToNeighbor<<<gridSize, THREADS_PER_BLOCK>>>(
-    //             m_plateIdsTexture->deviceTexture(), unassignedIndices->getPointer(), unassignedIndicesCountHost,
-    //             hasRemainingWork->getPointer());
-    //         CUDA_ERROR_CHECK();
-    //         if (const cudaError_t err = cudaMemcpy(&hasWork, hasRemainingWork->getPointer(), sizeof(int),
-    //                                                cudaMemcpyDeviceToHost);
-    //             err != cudaSuccess)
-    //             std::cerr << "Error memcpy hasWork: " << cudaGetErrorString(err) << "\n";
-    //     }
-    // }
-    // auto plateDataWrite = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);
-    //
-    // copyNewPlateIdLookup<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer(),
-    //                                                                originalPlateIds->getPointer(),
-    //                                                                plateDataWrite->getPointer());
-    // CUDA_ERROR_CHECK();
-    // copyAndReleaseTexture(*m_plateDataLookup, std::move(plateDataWrite), MAX_PLATE_COUNT, 1);
+    std::cout << "Executing CCL\n";
+    const auto labels = m_textureManager.generateTexture<unsigned int>(m_width, m_height);
+
+
+    // First, apply 8-way CCL to generate a texture of labels
+    init<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), labels->deviceTexture());
+    CUDA_ERROR_CHECK();
+    analyzeClamped<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(labels->deviceTexture());
+    CUDA_ERROR_CHECK();
+    reduce<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(), labels->deviceTexture());
+    CUDA_ERROR_CHECK();
+    analyzeUnclamped<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(labels->deviceTexture());
+    CUDA_ERROR_CHECK();
+
+    const auto labelIdsPacked = m_textureManager.generateTexture<uint64_t>(m_width, m_height);
+    createPlateIdLabelMap<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+                                                                    labels->deviceTexture(),
+                                                                    labelIdsPacked->deviceTexture());
+
+    const int labelCountSize = static_cast<int>(m_width * m_height * 0.01);
+    auto labelCounts = m_textureManager.generateTexture<unsigned int>(labelCountSize, 1);
+    auto uniqueLabels = m_textureManager.generateTexture<uint64_t>(labelCountSize, 1);
+    // Create thrust device ptr wrappers
+    const thrust::device_ptr<uint64_t> labelsIdsPackedThrust(labelIdsPacked->getPointer());
+    const thrust::device_ptr<unsigned int> labelCountsThrust(labelCounts->getPointer());
+    const thrust::device_ptr<uint64_t> uniqueLabelsThrust(uniqueLabels->getPointer());
+
+    // First, sort the labels
+    sort(labelsIdsPackedThrust, labelsIdsPackedThrust + m_height * m_width,
+         thrust::greater<unsigned int>());
+
+    // Second, apply a reduce by key to create an array of key:count pairs. Capture the end iterator such that we are
+    // aware of the size of the final array.
+
+    const auto resultEnd = reduce_by_key(labelsIdsPackedThrust, labelsIdsPackedThrust + m_height * m_width,
+                                         thrust::make_constant_iterator<int>(1), uniqueLabelsThrust,
+                                         labelCountsThrust);
+
+    const int size = static_cast<int>(resultEnd.first - uniqueLabelsThrust);
+
+    int gridSize = (size + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+
+    sort_by_key(labelCountsThrust, labelCountsThrust + size, uniqueLabelsThrust,
+                thrust::greater<unsigned int>());
+
+    const auto idsMaxCounts = m_textureManager.generateTextureAndReset<int>(MAX_PLATE_COUNT, 1, 0);
+    getMaxSizeLabels<<<gridSize, THREADS_PER_BLOCK>>>(uniqueLabels->deviceTexture(), labelCounts->deviceTexture(),
+                                                      idsMaxCounts->deviceTexture(), size);
+
+    const auto labelIdLookup = m_textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, MAX_PLATE_COUNT);
+    createLabelIdLookup<<<gridSize, THREADS_PER_BLOCK>>>(uniqueLabels->deviceTexture(), labelCounts->deviceTexture(),
+                                                         idsMaxCounts->deviceTexture(), m_plateDataLookup->getPointer(),
+                                                         labelIdLookup->deviceTexture(), size);
+
+    const auto unassignedIndicesCount = m_textureManager.generateTextureAndReset<int>(1, 1, 0);
+    const auto unassignedIndices = m_textureManager.generateTexture<unsigned int>(m_width, m_height);
+    postCClIdReassign<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(labelIdLookup->deviceTexture(), labels->deviceTexture(),
+                                                                m_plateIdsTexture->deviceTexture(),
+                                                                unassignedIndices->deviceTexture(), unassignedIndicesCount->getPointer());
+
+    int remainingIndices;
+    if (const cudaError_t err = cudaMemcpy(&remainingIndices, unassignedIndicesCount->getPointer(),
+                                           sizeof(int), cudaMemcpyDeviceToHost); err != cudaSuccess)
+        std::cerr << "Error memcpy remainingIndices: " << cudaGetErrorString(err) << "\n";
+
+
+
+    CUDA_ERROR_CHECK();
+    labelCounts.reset();
+    uniqueLabels.reset();
+    if (remainingIndices)
+    {
+        // Using int instead of boolean since cuda uses ints
+        gridSize = (remainingIndices + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+        bool hasWork = true;
+        while (hasWork)
+        {
+            const auto hasRemainingWork = m_textureManager.generateTextureAndReset<bool>(1, 1, 0);
+
+            assignUnassignedIdsToNeighbor<<<gridSize, THREADS_PER_BLOCK>>>(
+                m_plateIdsTexture->deviceTexture(), unassignedIndices->getPointer(), remainingIndices,
+                hasRemainingWork->getPointer());
+            CUDA_ERROR_CHECK();
+            if (const cudaError_t err = cudaMemcpy(&hasWork, hasRemainingWork->getPointer(), sizeof(bool),
+                                                   cudaMemcpyDeviceToHost);
+                err != cudaSuccess)
+                std::cerr << "Error memcpy hasWork: " << cudaGetErrorString(err) << "\n";
+        }
+    }
 }
 
 void PlateTectonicSim::mergePlates()
@@ -446,6 +442,9 @@ void PlateTectonicSim::mergePlates()
                                                                     m_collisionTypeBitmap->deviceTexture());
     CUDA_ERROR_CHECK();
 
+
+
+    resetPlateDataPreCount<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer());
 
     mergeAndCountSizeMass<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                                     m_heightMapTexture->deviceTexture(),
@@ -750,7 +749,11 @@ void PlateTectonicSim::initializeTectonics(const int numStartingPlates, const st
                                                                           m_heightMapTexture->deviceTexture(),
                                                                           m_plateDataLookup->getPointer());
     CUDA_ERROR_CHECK();
+
+    applyCCL();
+
     std::cout << "Initialized pixel data\n";
+
 
     cudaDeviceSynchronize();
 }
@@ -957,7 +960,8 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
     int deadEndHost = 0;
     cudaMemcpy(deadEndDevice, &deadEndHost, sizeof(int), cudaMemcpyHostToDevice);
 
-    BacktrackPath<<<1, 1>>>(l_effortToBoundaryMap->deviceTexture(), m_plateIdsTexture->deviceTexture(), point, newPlateIdHost, deadEndDevice);
+    BacktrackPath<<<1, 1>>>(l_effortToBoundaryMap->deviceTexture(), m_plateIdsTexture->deviceTexture(), point,
+                            newPlateIdHost, deadEndDevice);
 
     cudaMemcpy(&deadEndHost, deadEndDevice, sizeof(int), cudaMemcpyDeviceToHost);
     cudaFree(deadEndDevice);
@@ -965,14 +969,14 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
     if (deadEndHost)
     {
         std::cout << "Backtrack path led to a dead end, aborting split" << std::endl;
-        
-        finalizePlateSplit << <m_numBlocksPixels, THREADS_PER_BLOCK >> > (
+
+        finalizePlateSplit << <m_numBlocksPixels, THREADS_PER_BLOCK >> >(
             m_plateIdsTexture->deviceTexture(),
             oldPlateId,
             oldPlateId,
             m_plateDataLookup->getPointer()
-            );
-        
+        );
+
         return;
     }
 
@@ -1007,6 +1011,7 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
         m_plateDataLookup->getPointer()
     );
 
+    resetPlateDataPreCount<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer());
     countSizePostSplit<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                                  m_heightMapTexture->deviceTexture(),
                                                                  m_plateDataLookup->getPointer());

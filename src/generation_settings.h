@@ -64,6 +64,7 @@ struct SimulationSettings
       int numStartingPlates = 16;
       unsigned int seed = 1000;
       std::vector<int> numVoronoiSeeds = {200, 500};
+      int iterationsForCCL = 10;
 
 
       std::function<void(unsigned int, int, const std::vector<int> &)> resetCallback;

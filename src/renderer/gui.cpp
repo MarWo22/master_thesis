@@ -323,6 +323,9 @@ void Gui::simulationSettingsSection()
             ImGui::DragInt("Min Plate Size", &newSettings.minPlateSize, 1, 1, 100);
 
             ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Iterations Per CCL Pass", &simulationSettings.iterationsForCCL, 1, 1, 100);
+
+            ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Divergence Min Height Target", &newSettings.divergence_height_target_min, 0.5f, 1, 5000);
 
             ImGui::SetNextItemWidth(250);
