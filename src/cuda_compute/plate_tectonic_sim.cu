@@ -284,13 +284,13 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
      * Perform uplift
      */
 
-    VerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+    VerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsTextureWrite->deviceTexture(),
                                                            plateCollisions->deviceTexture(),
                                                            upliftBufferA->deviceTexture(),
                                                            blurBuffer->deviceTexture());
     CUDA_ERROR_CHECK();
 
-    HorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
+    HorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsTextureWrite->deviceTexture(),
                                                              plateCollisions->deviceTexture(),
                                                              blurBuffer->deviceTexture(),
                                                              heightMapTextureWrite->deviceTexture());

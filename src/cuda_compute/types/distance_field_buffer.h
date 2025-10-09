@@ -4,17 +4,17 @@
 
 struct DistanceFieldBuffer
 {
-    int offset;
-    float value;
+    int dist;
+    unsigned int origIndex;
 
     __host__ __device__ DistanceFieldBuffer()
-        : offset(0)
-        , value(0)
+        : dist(0)
+        , origIndex(0)
     { }
 
-    __host__ __device__ DistanceFieldBuffer(int offset, float value)
-        : offset(offset)
-        , value(value)
+    __host__ __device__ DistanceFieldBuffer(int distance, unsigned int originalIndex)
+        : dist(distance)
+        , origIndex(originalIndex)
     { }
 };
 

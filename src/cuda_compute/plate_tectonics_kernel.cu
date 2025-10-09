@@ -1174,31 +1174,6 @@ __device__ DistanceFieldBuffer verticalDistanceFieldPass(const CudaTexture<float
     return DistanceFieldBuffer(bestOffset, bestValue);
 }
 
-// Generic horizontal distance field function - can be used for any blur buffer with plate constraints
-template<typename ValidatorFunc>
-__device__ float horizontalDistanceFieldPass(const CudaTexture<DistanceFieldBuffer> &bufferTexture,
-                                             const Vec2<int> &center,
-                                             int range,
-                                             ValidatorFunc validator)
-{
-    const float multiplier = 1.0f / range;
-    float bestValue = 0;
-
-    for (int i = -range; i <= range; i++)
-    {
-        Vec2<int> sample = center + Vec2<int>(i, 0);
-        DistanceFieldBuffer buffer = bufferTexture[sample];
-        float adjustedValue = buffer.value - abs((float) i) * multiplier;
-
-        if (adjustedValue > bestValue && validator(sample, i))
-        {
-            bestValue = adjustedValue;
-        }
-    }
-
-    return bestValue;
-}
-
 // Generic vertical blur function - performs gaussian-style smoothing with plate constraints
 template<typename ValidatorFunc>
 __device__ float verticalBlurPass(const CudaTexture<float> &sourceTexture,
@@ -1264,29 +1239,32 @@ __global__ void VerticalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const Cu
     if (!isWithinBounds(invokeIndex, r_uplift.size()))
         return;
 
-    const Vec2<int> center = r_uplift.indexToCoordinate(invokeIndex);
+    const Vec2<int> center = r_plateIds.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
-    float bestValue = 0;
-    int bestOffset = 0;
+    int bestDist = -1;
+    Vec2<int> bestSample;
 
     for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
     {
+
         Vec2<int> sample = center + Vec2<int>(0, i);
 
-        if (!collisionContains(r_collisions[sample], plateId))
-            continue;
-
-        float sampleValue = r_uplift[sample] - (abs((float) i));
-
-        if (sampleValue > bestValue)
+        const uint32_t collisionPlates = r_collisions[sample];
+        if ((collisionPlates & 0xFF00) != 0)
         {
-            bestValue = sampleValue;
-            bestOffset = i;
+            const int stepDist = abs(i);
+            if (bestDist == -1 || stepDist < bestDist)
+            {
+                bestDist = stepDist;
+                bestSample = sample;
+            }
         }
     }
 
-    w_buffer[invokeIndex] = DistanceFieldBuffer(bestOffset, r_uplift[center + Vec2<int>(0, bestOffset)]);
+    const unsigned int originalIndex = bestDist != -1 ? r_plateIdsPtr->coordinateToIndex(bestSample) : 0;
+
+    w_buffer[invokeIndex] = DistanceFieldBuffer(bestDist, originalIndex);
 }
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
@@ -1304,36 +1282,35 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
     const Vec2<int> center = r_buffer.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
-    float bestAdjustedValue = 0;
-    int bestDistance = 0;
-    float bestTrueValue = 0;
+    DistanceFieldBuffer closestBuffer(-1, 0);
 
     for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
     {
         Vec2<int> sample = center + Vec2<int>(i, 0);
 
-        if (!collisionContains(r_collisions[sample], plateId))
+        DistanceFieldBuffer buffer = r_buffer[sample];
+
+        if (buffer.dist == -1)
             continue;
 
-        DistanceFieldBuffer buffer = r_buffer[sample];
-        float adjustedValue = buffer.value - abs((float) i + buffer.offset);
+        if (!collisionContains(r_collisions[buffer.origIndex], plateId))
+            continue;
 
-        if (adjustedValue > bestAdjustedValue)
-        {
-            bestAdjustedValue = adjustedValue;
-            bestDistance = i;
-            bestTrueValue = buffer.value;
-        }
+        buffer.dist += abs(i);
+        if (closestBuffer.dist == -1 || buffer.dist < closestBuffer.dist)
+            closestBuffer = buffer;
     }
 
-    float I = bestTrueValue;
-    float X = bestDistance;
+    float I = 1; // TODO: intensity
 
-    //Replace with uplift functions:
-    if (true) //
+    // Function for subducting plate: log(1 + 8(x-1)) / log(1 + 8 * 10) - 1
 
-
-        (*w_heightMapPtr)[invokeIndex] += bestAdjustedValue * kernelSettings.upliftMultiplier;
+    // TODO: Replace with uplift functions:
+    if (closestBuffer.dist > -1) //
+    {
+        // printf("%d is in range of %d with distance %d, id: %d\n", invokeIndex, closestBuffer.origIndex, closestBuffer.dist, plateId );
+        (*w_heightMapPtr)[invokeIndex] += 0 * kernelSettings.upliftMultiplier;
+    }
 }
 
 __global__ void convertCollisionMapForGL(const CudaTexture<uint32_t> *r_texturePtr, CudaTexture<uint8_t> *w_texturePtr)
