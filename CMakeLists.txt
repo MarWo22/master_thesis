@@ -75,6 +75,7 @@ add_executable(PlateTectonics
         src/cuda_compute/debug_logging/debug_logging.cu
         src/cuda_compute/debug_logging/debug_logging.cuh
         src/cuda_compute/texture_manager.cuh
+        src/cuda_compute/types/upliftData.cuh
 )
 
 set_target_properties(PlateTectonics PROPERTIES

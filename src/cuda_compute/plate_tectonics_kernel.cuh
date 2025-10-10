@@ -7,6 +7,7 @@
 #include "types/plate_data.h"
 #include "types/iteration_statistics.h"
 #include "types/distance_field_buffer.h"
+#include "types/upliftData.cuh"
 #include "types/voronoi_seed.h"
 
 #define MAX_PLATE_COUNT 255u
@@ -117,7 +118,7 @@ __global__ void selectUnusedPlateId(PlateData *plateLookup, uint8_t *plateId);
 __global__ void processCollisions(PlateTexturesRead r_plateTextures, const CudaTexture<uint32_t> *r_collisionsPtr,
                                   const uint32_t *r_divergenceBitmap, const uint8_t *r_collisionTypeBitmap,
                                   PlateTexturesWrite w_plateTextures, uint32_t *w_hasDivergedBitmap,
-                                  CudaTexture<float> *w_collisionMassesPtr,
+                                  CudaTexture<UpliftData> *w_upliftDataPtr,
                                   CudaTexture<uint8_t> *w_accretionTexturePtr,
                                   CollisionVelocityChanges *w_velocityChanges,
                                   NoiseParameters noiseParameters);
@@ -132,9 +133,9 @@ __global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr,
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
                                const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
-                               const CudaTexture<float> *r_collisionMassesPtr, CudaTexture<float> *w_heightMapPtr);
+                               const CudaTexture<UpliftData> *r_upliftDataPtr, CudaTexture<float> *w_heightMapPtr);
 
-__device__ bool collisionContains(uint32_t collision, uint8_t plateId);
+__device__ int collisionIndex(uint32_t collision, uint8_t plateId);
 
 __device__ void processDivergence(PlateTexturesRead r_plateTextures, PlateTexturesWrite w_plateTextures,
                                   const CudaTexture<uint32_t> *r_collisionsPtr,
@@ -142,7 +143,7 @@ __device__ void processDivergence(PlateTexturesRead r_plateTextures, PlateTextur
                                   uint32_t *w_hasDivergedBitmap,
                                   unsigned int invokeIndex, NoiseParameters noiseParameters);
 
-__device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTexture<float> *w_collisionMasses,
+__device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTexture<UpliftData> *w_upliftData,
                                    const uint8_t *plateIds, const unsigned int *collisionTypes, const float *heights,
                                    unsigned int invokeIndex);
 

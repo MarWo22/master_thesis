@@ -221,7 +221,7 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
                                               CudaTextureHost<uint32_t> *plateCollisions,
                                               CudaTextureHost<CollisionVelocityChanges> *velocityChanges)
 {
-    const auto collisionMasses = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
+    const auto upliftData = m_textureManager.generateTexture<UpliftData>(m_width, m_height);
     const auto blurBuffer = m_textureManager.generateTexture<DistanceFieldBuffer>(m_width, m_height);
 
     /*
@@ -266,7 +266,7 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
                                                                 m_collisionTypeBitmap->getPointer(),
                                                                 writeTextures,
                                                                 hasDivergedBitmap->getPointer(),
-                                                                collisionMasses->deviceTexture(),
+                                                                upliftData->deviceTexture(),
                                                                 m_accretionTexture->deviceTexture(),
                                                                 velocityChanges->getPointer(),
                                                                 {static_cast<int>(m_seed), m_iterations});
@@ -287,7 +287,7 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
 
     HorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsTextureWrite->deviceTexture(),
                                                              plateCollisions->deviceTexture(),
-                                                             blurBuffer->deviceTexture(), collisionMasses->deviceTexture(),
+                                                             blurBuffer->deviceTexture(), upliftData->deviceTexture(),
                                                              heightMapTextureWrite->deviceTexture());
     CUDA_ERROR_CHECK();
 }

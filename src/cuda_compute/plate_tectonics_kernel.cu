@@ -13,6 +13,7 @@
 #include "kernel_settings.cuh"
 #include "types/distance_field_buffer.h"
 #include "plate_tectonic_sim.h"
+#include "types/upliftData.cuh"
 
 
 // Helper function to get linear weight for given offset
@@ -476,7 +477,7 @@ __device__ void applyInelasticCollision(const unsigned int *collisionTypes, Coll
                                    continental_packed >> 3 & 1u, accretion_packed >> 3 & 1u);
 }
 
-__device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTexture<float> *w_collisionMasses,
+__device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTexture<UpliftData> *w_upliftData,
                                    CudaTexture<uint8_t> *w_accretionTexturePtr, const uint8_t *plateIds,
                                    const unsigned int *collisionTypes, const float *heights,
                                    const PlateData *plateIdsData,
@@ -513,6 +514,7 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
     uint8_t newPlateOwner = plateIds[newPlateOwnerIndex];
     float writeHeight = heights[newPlateOwnerIndex];
     float heightAddition = 0;
+    uint8_t typeByte = 0;
 
     for (int accessPos = 0; accessPos != pairLen; ++accessPos)
     {
@@ -520,9 +522,13 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
 
         float height;
         if (index_a == newPlateOwnerIndex)
+        {
             height = heights[index_b];
+        }
         else if (index_b == newPlateOwnerIndex)
+        {
             height = heights[index_a];
+        }
         else
             continue;
 
@@ -557,12 +563,25 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
                 (*w_accretionTexturePtr)[oppositePixelIndex] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
             }
         }
+
+        if (index_a == newPlateOwnerIndex)
+        {
+            const int writeValue = collisionType == 1 ? 1 : collisionType == 2 ? 0 : 2;
+            typeByte |= (writeValue & 0b11) << index_b;
+        }
+        else if (index_b == newPlateOwnerIndex)
+        {
+            const int writeValue = collisionType == 1 ? 0 : collisionType == 2 ? 1 : 2;
+            typeByte |= (writeValue & 0b11) << index_a;
+        }
+
+
     }
 
 
     (*w_plateTextures.heightMapPtr)[invokeIndex] = writeHeight;
 
-    (*w_collisionMasses)[invokeIndex] = heightAddition;
+    (*w_upliftData)[invokeIndex] = UpliftData(heightAddition, typeByte);
     (*w_plateTextures.plateIdsPtr)[invokeIndex] = newPlateOwner;
 }
 
@@ -608,7 +627,6 @@ __device__ unsigned int determineCollisionType(const uint8_t *r_collisionTypeBit
     const bool type = collisionTypePacked >> 1 & 1;
     const bool polarity = collisionTypePacked >> 3 & 1;
 
-    // 0: Continental, 1: A under B, 2: B under A, 3: A under B Accretion, 4: B under A accretion
     unsigned int output = 0;
     if (hasType && type == 0)
     {
@@ -661,7 +679,7 @@ __device__ void extractCollisionTypes(const uint8_t *r_collisionTypeBitmap, unsi
 __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const CudaTexture<uint32_t> *r_collisionsPtr,
                                   const uint32_t *r_divergenceBitmap,
                                   const uint8_t *r_collisionTypeBitmap, PlateTexturesWrite w_plateTextures,
-                                  uint32_t *w_hasDivergedBitmap, CudaTexture<float> *w_collisionMassesPtr,
+                                  uint32_t *w_hasDivergedBitmap, CudaTexture<UpliftData> *w_upliftDataPtr,
                                   CudaTexture<uint8_t> *w_accretionTexturePtr,
                                   CollisionVelocityChanges *w_velocityChanges,
                                   const NoiseParameters noiseParameters)
@@ -717,7 +735,7 @@ __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const
             extractCollisionTypes(r_collisionTypeBitmap, collisionTypes, plateIds, previousHeights);
 
             applyInelasticCollision(collisionTypes, w_velocityChanges, plateIds, previousHeights, plateIdsData);
-            processConvergence(w_plateTextures, w_collisionMassesPtr, w_accretionTexturePtr, plateIds,
+            processConvergence(w_plateTextures, w_upliftDataPtr, w_accretionTexturePtr, plateIds,
                                collisionTypes, previousHeights, plateIdsData, invokeIndex, texCoords);
         }
         // Otherwise, only one plate moves into the pixel, indicating ordinary movement
@@ -1131,18 +1149,18 @@ __global__ void createPlateIdLabelMap(const CudaTexture<uint8_t> *r_plateIdsPtr,
     (*w_labelIdsPacked)[invokeIndex] = static_cast<uint64_t>(plateId) << 56 | static_cast<uint64_t>(label);
 }
 
-__device__ bool collisionContains(const uint32_t collision, const uint8_t plateId)
+__device__ int collisionIndex(const uint32_t collision, const uint8_t plateId)
 {
     uint8_t plateA = MAX_PLATE_COUNT - collision & 0xFF;
-    if (plateA == plateId) return true;
+    if (plateA == plateId) return 0;
     uint8_t plateB = MAX_PLATE_COUNT - (collision >> 8) & 0xFF;
-    if (plateB == plateId) return true;
+    if (plateB == plateId) return 1;
     uint8_t plateC = MAX_PLATE_COUNT - (collision >> 16) & 0xFF;
-    if (plateC == plateId) return true;
+    if (plateC == plateId) return 2;
     uint8_t plateD = MAX_PLATE_COUNT - (collision >> 24) & 0xFF;
-    if (plateD == plateId) return true;
+    if (plateD == plateId) return 3;
 
-    return false;
+    return -1;
 }
 
 
@@ -1224,7 +1242,8 @@ __device__ float horizontalBlurPass(const CudaTexture<float> &sourceTexture,
     return weightSum > 0.0f ? sum / weightSum : sourceTexture[center];
 }
 
-__global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr, CudaTexture<DistanceFieldBuffer> *w_bufferPtr)
+__global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr,
+                             CudaTexture<DistanceFieldBuffer> *w_bufferPtr)
 {
     const CudaTexture<uint32_t> &r_collisions = *r_collisionsPtr;
     CudaTexture<DistanceFieldBuffer> &w_buffer = *w_bufferPtr;
@@ -1240,13 +1259,12 @@ __global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr, CudaT
 
     for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
     {
-
         Vec2<int> sample = center + Vec2<int>(0, i);
 
         if ((r_collisions[sample] & 0xFF00) != 0)
         {
             const int stepDist = abs(i);
-            if( bestDist == -1 || stepDist < bestDist)
+            if (bestDist == -1 || stepDist < bestDist)
             {
                 bestDist = stepDist;
                 bestSample = sample;
@@ -1259,8 +1277,19 @@ __global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr, CudaT
     w_buffer[invokeIndex] = DistanceFieldBuffer(bestDist, originalIndex);
 }
 
+
+__device__ float subductionUnderFormula(const double x)
+{
+    const double numerator = log(1 + 8(x - 1));
+    constexpr double denominator = log(1 + 8 * 10);
+
+
+    return numerator / denominator - 1;
+}
+
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
-                               const CudaTexture<DistanceFieldBuffer> *r_bufferPtr, const CudaTexture<float> *r_collisionMassesPtr,
+                               const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
+                               const CudaTexture<UpliftData> *r_upliftDataPtr,
                                CudaTexture<float> *w_heightMapPtr)
 {
     const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
@@ -1275,6 +1304,7 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
     const uint8_t plateId = r_plateIds[invokeIndex];
 
     DistanceFieldBuffer closestBuffer(-1, 0);
+    int closestCollisionIdx = 0;
 
     for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
     {
@@ -1285,12 +1315,16 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
         if (buffer.dist == -1)
             continue;
 
-        if (!collisionContains(r_collisions[buffer.origIndex], plateId))
+        const int collisionIdx = collisionIndex(r_collisions[buffer.origIndex], plateId);
+        if (collisionIdx == -1)
             continue;
 
         buffer.dist += abs(i);
         if (closestBuffer.dist == -1 || buffer.dist < closestBuffer.dist)
+        {
             closestBuffer = buffer;
+            closestCollisionIdx = collisionIdx;
+        }
     }
 
     // Function for subducting plate: log(1 + 8(x-1)) / log(1 + 8 * 10) - 1
@@ -1299,9 +1333,26 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
     if (closestBuffer.dist > -1) //
     {
         float I = 1; // TODO: intensity
-        const float collisionMass = (*r_collisionMassesPtr)[closestBuffer.origIndex];
+        const UpliftData upliftData = (*r_upliftDataPtr)[closestBuffer.origIndex];
+        // 0: plateId going under collisionPlateId, 1: reversed polarity, 2: continental
+        const int collisionType = (upliftData.collisionTypes >> 2 * closestCollisionIdx) & 0b11;
+        const uint8_t collisionPlateId = r_plateIds[closestBuffer.origIndex];
+        // I think this should be enough info for the uplift section
 
-        printf("%d is in range of %d with distance %d, id: %d\n, mass: %.4f\n", invokeIndex, closestBuffer.origIndex, closestBuffer.dist, plateId, collisionMass);
+        if (collisionType == 0)
+        {
+            const double value = subductionUnderFormula(closestBuffer.dist);
+            printf("%d is subducting: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
+        }
+        else if (collisionType == 1)
+        {
+            printf("%d is being subducted: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
+        }
+        else if (collisionType == 2)
+        {
+            printf("%d is continental: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
+        }
+
         (*w_heightMapPtr)[invokeIndex] += 0 * kernelSettings.upliftMultiplier;
     }
 }
@@ -2580,8 +2631,7 @@ __global__ void createLabelIdLookup(const CudaTexture<uint64_t> *r_idLabelPacket
     if (maxCount == currentCount)
     {
         (*w_labelIdLookupPtr)[label] = plateId;
-    }
-    else if (invokeIndex < MAX_PLATE_COUNT && currentCount >= kernelSettings.minPlateSize)
+    } else if (invokeIndex < MAX_PLATE_COUNT && currentCount >= kernelSettings.minPlateSize)
     {
         if (const unsigned int index = atomicAdd(&availablePlatesIndex, 1); index < availablePlatesSize)
         {
@@ -2589,12 +2639,10 @@ __global__ void createLabelIdLookup(const CudaTexture<uint64_t> *r_idLabelPacket
             rw_plateDataLookup[newPlateId] = rw_plateDataLookup[plateId];
             (*w_labelIdLookupPtr)[label] = newPlateId;
         }
-    }
-    else
+    } else
     {
         printf("Failed matching %d %d\n", label, plateId);
     }
-
 }
 
 __global__ void postCClIdReassign(const CudaTexture<uint8_t> *r_labelIdLookupPtr,
