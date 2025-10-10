@@ -356,7 +356,6 @@ __device__ void processDivergence(const PlateTexturesRead r_plateTextures, Plate
         newPlateId = previousPlateId;
     }
     // Lerp height to a fixed value
-    // TODO: Add some noise to the divergence_height_target, to avoid fully flat crust
     const auto noisePos = float3(static_cast<float>(textureIndex.x), static_cast<float>(textureIndex.y),
                                  static_cast<float>(noiseParameters.simIndex));
     const float noise = cudaNoise::simplexNoise(noisePos, 0.01f, noiseParameters.seed);
@@ -545,9 +544,18 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
 
         if (index_a == newPlateOwnerIndex && collisionType == 4)
         {
-            //TODO: Mark the adjacent pixel as accreted
-            printf("Accretion1 TODO: %d %d %d %d\n", plateIds[newPlateOwnerIndex], plateIds[index_a], plateIds[index_b],
-                   collisionType);
+            const Vec2<int> originalIndexB = previousTextureIndex(textureIndex, plateIdsData[index_b]);
+            if (originalIndexB != textureIndex)
+            {
+                (*w_accretionTexturePtr)[originalIndexB] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
+            } else
+            {
+                const Vec2 offset = plateIdsData[index_a].pixelCenter + plateIdsData[index_a].direction * plateIdsData[
+                                        index_a].velocity;
+                const Vec2 pixelOffset = {static_cast<int>(floor(offset.x)), static_cast<int>(floor(offset.y))};
+                const Vec2 oppositePixelIndex = textureIndex + pixelOffset;
+                (*w_accretionTexturePtr)[oppositePixelIndex] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
+            }
         } else if (index_b == newPlateOwnerIndex && collisionType == 3)
         {
             const Vec2<int> originalIndexA = previousTextureIndex(textureIndex, plateIdsData[index_a]);
@@ -812,7 +820,7 @@ __device__ void writeCollision(const float heightA, const float heightB, const u
     const uint8_t collisionTypePacked = r_collisionTypeBitmap[wordIndex];
 
     // Exit if a type already exists and is not to be updated yet
-    if (collisionTypePacked >> 0 & 1 && collisionTypePacked >> 4 & 0x0F) // TODO: add settingKernel
+    if (collisionTypePacked >> 0 & 1 && collisionTypePacked >> 4 & 0x0F < kernelSettings.collisionTypeUpdateCooldown)
         return;
 
     const bool minCont = minPlateHeight >= kernelSettings.continentalCrustThreshold;
@@ -923,7 +931,7 @@ __global__ void createCollisionTypeMatrix(const CollisionTypeCounts *r_collision
                                         collisionTypeCounts.subductionsBOceanic + collisionTypeCounts.continental;
 
     // Exit if there is already a registered collision type
-    if (hasType and collisionCount < 4) // TODO: Change to kernelSetting
+    if (hasType and collisionCount < kernelSettings.collisionTypeUpdateCooldown)
     {
         // Increment the collisionCount if a type has been assigned already
         if (totalCollisionSize > 0)
@@ -932,7 +940,7 @@ __global__ void createCollisionTypeMatrix(const CollisionTypeCounts *r_collision
     }
 
     // No type is assigned if a collision is not large enough
-    if (totalCollisionSize < 50) // TODO: Change to kernelSetting
+    if (totalCollisionSize < kernelSettings.minCollisionSize)
     {
         return;
     }
@@ -1280,8 +1288,8 @@ __global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr,
 
 __device__ float subductionUnderFormula(const double x)
 {
-    const double numerator = log(1 + 8(x - 1));
-    constexpr double denominator = log(1 + 8 * 10);
+    const double numerator = log(1 + 8 * (x - 1));
+    constexpr double denominator = 1.908485019; // log(1 + 8 * 10)
 
 
     return numerator / denominator - 1;

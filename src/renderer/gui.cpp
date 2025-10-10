@@ -271,42 +271,6 @@ void Gui::simulationSettingsSection()
         ImGui::Indent(15);
         if (ImGui::CollapsingHeader("Plate Properties"))
         {
-            if (ImGui::CollapsingHeader("Collision Momentum Properties"))
-            {
-                ImGui::Indent(15);
-
-                // e.g. ImGui Slider to update newSettings
-                ImGui::SetNextItemWidth(250);
-                ImGui::DragFloat("Inelastic Subduction Collision Multiplier",
-                                 &newSettings.inelasticCollisionMultiplierSubduction, 0.0005f, 0.f,
-                                 1.f);
-                ImGui::SetNextItemWidth(250);
-                ImGui::DragFloat("Inelastic Continental Collision Multiplier",
-                                 &newSettings.inelasticCollisionMultiplierContinental, 0.0005f, 0.f,
-                                 1.f);
-                ImGui::SetNextItemWidth(250);
-                ImGui::DragFloat("Inelastic Accretion Collision Multiplier",
-                                 &newSettings.inelasticCollisionMultiplierAccretion, 0.0005f, 0.f,
-                                 1.f);
-                ImGui::SetNextItemWidth(250);
-                ImGui::DragFloat("Subduction Friction Coefficient", &newSettings.frictionCoefficientSubduction, 0.0005f,
-                                 0.f,
-                                 5.f);
-                ImGui::SetNextItemWidth(250);
-                ImGui::DragFloat("Continental Friction Coefficient", &newSettings.frictionCoefficientContinental,
-                                 0.0005f, 0.f,
-                                 5.f);
-                ImGui::SetNextItemWidth(250);
-                ImGui::DragFloat("Accretion Friction Coefficient", &newSettings.frictionCoefficientAccretion,
-                                 0.0005f, 0.f,
-                                 5.f);
-                ImGui::SetNextItemWidth(250);
-                ImGui::DragFloat("Environmental Drag Coefficient", &newSettings.environmentalDragCoefficient, 0.0001,
-                                 0.f, 1.f, "%.4f");
-
-                ImGui::Unindent(15.0f);
-            }
-
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Continental Crust Threshold", &newSettings.continentalCrustThreshold, 0.05f, 1.f, 250.f);
 
@@ -334,9 +298,49 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Divergence Interpolation Factor", &newSettings.divergence_interpolation_factor, 0.001f,
                              0.f, 1.f);
+
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Collision Type Update Cooldown", &newSettings.collisionTypeUpdateCooldown, 1,
+                             0, 14);
+
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Min Collision Size For Type", &newSettings.minCollisionSize, 1,
+                             0, 1000);
             // direction_threshold_merge
             // velocity_threshold_merge
             // min_size
+        }
+        if (ImGui::CollapsingHeader("Collision Momentum Properties"))
+        {
+            // e.g. ImGui Slider to update newSettings
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Inelastic Subduction Collision Multiplier",
+                             &newSettings.inelasticCollisionMultiplierSubduction, 0.0005f, 0.f,
+                             1.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Inelastic Continental Collision Multiplier",
+                             &newSettings.inelasticCollisionMultiplierContinental, 0.0005f, 0.f,
+                             1.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Inelastic Accretion Collision Multiplier",
+                             &newSettings.inelasticCollisionMultiplierAccretion, 0.0005f, 0.f,
+                             1.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Subduction Friction Coefficient", &newSettings.frictionCoefficientSubduction, 0.0005f,
+                             0.f,
+                             5.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Continental Friction Coefficient", &newSettings.frictionCoefficientContinental,
+                             0.0005f, 0.f,
+                             5.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Accretion Friction Coefficient", &newSettings.frictionCoefficientAccretion,
+                             0.0005f, 0.f,
+                             5.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Environmental Drag Coefficient", &newSettings.environmentalDragCoefficient, 0.0001,
+                             0.f, 1.f, "%.4f");
+
         }
 
         if (ImGui::CollapsingHeader("Uplift Properties"))

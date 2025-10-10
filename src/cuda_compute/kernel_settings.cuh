@@ -27,6 +27,8 @@ struct KernelSettings
     float divergence_height_target_max = 2000.f;
 
     float divergence_interpolation_factor = 0.025f;
+    int collisionTypeUpdateCooldown = 4;
+    int minCollisionSize = 50;
 
     float upliftMultiplier = 1.f;
     int upliftRange = 50;
