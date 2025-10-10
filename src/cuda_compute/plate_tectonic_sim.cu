@@ -221,10 +221,7 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
                                               CudaTextureHost<uint32_t> *plateCollisions,
                                               CudaTextureHost<CollisionVelocityChanges> *velocityChanges)
 {
-    constexpr int de = 6;
-
-    const auto upliftBufferA = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
-    const auto upliftBufferB = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
+    const auto collisionMasses = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
     const auto blurBuffer = m_textureManager.generateTexture<DistanceFieldBuffer>(m_width, m_height);
 
     /*
@@ -269,7 +266,7 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
                                                                 m_collisionTypeBitmap->getPointer(),
                                                                 writeTextures,
                                                                 hasDivergedBitmap->getPointer(),
-                                                                upliftBufferA->deviceTexture(),
+                                                                collisionMasses->deviceTexture(),
                                                                 m_accretionTexture->deviceTexture(),
                                                                 velocityChanges->getPointer(),
                                                                 {static_cast<int>(m_seed), m_iterations});
@@ -284,15 +281,13 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
      * Perform uplift
      */
 
-    VerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsTextureWrite->deviceTexture(),
-                                                           plateCollisions->deviceTexture(),
-                                                           upliftBufferA->deviceTexture(),
+    VerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateCollisions->deviceTexture(),
                                                            blurBuffer->deviceTexture());
     CUDA_ERROR_CHECK();
 
     HorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsTextureWrite->deviceTexture(),
                                                              plateCollisions->deviceTexture(),
-                                                             blurBuffer->deviceTexture(),
+                                                             blurBuffer->deviceTexture(), collisionMasses->deviceTexture(),
                                                              heightMapTextureWrite->deviceTexture());
     CUDA_ERROR_CHECK();
 }
@@ -394,13 +389,13 @@ void PlateTectonicSim::applyCCL()
     const auto unassignedIndices = m_textureManager.generateTexture<unsigned int>(m_width, m_height);
     postCClIdReassign<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(labelIdLookup->deviceTexture(), labels->deviceTexture(),
                                                                 m_plateIdsTexture->deviceTexture(),
-                                                                unassignedIndices->deviceTexture(), unassignedIndicesCount->getPointer());
+                                                                unassignedIndices->deviceTexture(),
+                                                                unassignedIndicesCount->getPointer());
 
     int remainingIndices;
     if (const cudaError_t err = cudaMemcpy(&remainingIndices, unassignedIndicesCount->getPointer(),
                                            sizeof(int), cudaMemcpyDeviceToHost); err != cudaSuccess)
         std::cerr << "Error memcpy remainingIndices: " << cudaGetErrorString(err) << "\n";
-
 
 
     CUDA_ERROR_CHECK();
@@ -441,7 +436,6 @@ void PlateTectonicSim::mergePlates()
                                                                     plateMergeIds->getPointer(),
                                                                     m_collisionTypeBitmap->deviceTexture());
     CUDA_ERROR_CHECK();
-
 
 
     resetPlateDataPreCount<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer());
