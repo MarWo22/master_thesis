@@ -11,7 +11,7 @@ struct KernelSettings
     float frictionCoefficientSubduction = 0.2f;
     float frictionCoefficientAccretion = 0.5f;
 
-    float environmentalDragCoefficient = 0.005f;
+    float environmentalDragCoefficient = 0.25f;
 
 
     float mergeDotDirectionThreshold = .995f;

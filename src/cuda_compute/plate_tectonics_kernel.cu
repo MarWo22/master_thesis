@@ -1286,13 +1286,18 @@ __global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr,
 }
 
 
-__device__ float subductionUnderFormula(const double x)
+__device__ double subductionUnderFormula(const double x)
 {
-    const double numerator = log(1 + 8 * (x - 1));
+    const double numerator = log(1.0 + 8.0 * x);
     constexpr double denominator = 1.908485019; // log(1 + 8 * 10)
 
 
-    return numerator / denominator - 1;
+    return numerator / denominator - 1.0;
+}
+
+__device__ double continentalFormula(const double x)
+{
+    return exp(-0.02 * x * x) + exp(-0.2 * x * x) * (0.5 - abs(fmod(abs(x), 1.0) - 0.5));
 }
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
@@ -1347,21 +1352,25 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
         const uint8_t collisionPlateId = r_plateIds[closestBuffer.origIndex];
         // I think this should be enough info for the uplift section
 
+        double value = 0;
+
         if (collisionType == 0)
         {
-            const double value = subductionUnderFormula(closestBuffer.dist);
-            printf("%d is subducting: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
+            value = subductionUnderFormula(closestBuffer.dist);
+            //printf("%d is subducting: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
         }
         else if (collisionType == 1)
         {
-            printf("%d is being subducted: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
+            //printf("%d is being subducted: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
         }
         else if (collisionType == 2)
         {
-            printf("%d is continental: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
+            value = continentalFormula(closestBuffer.dist);
+            //printf("%d is continental: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
         }
-
-        (*w_heightMapPtr)[invokeIndex] += 0 * kernelSettings.upliftMultiplier;
+        //printf("%d %d %d %d %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
+        //printf("%d %.4f", closestBuffer.dist, upliftData.cumulativeHeight);
+        (*w_heightMapPtr)[invokeIndex] += value * kernelSettings.upliftMultiplier;
     }
 }
 
@@ -1415,7 +1424,8 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
 
     current.direction = norm;
     const float postCollisionVelocity = max(mag - frictionLoss, 0.f);
-    current.velocity = postCollisionVelocity * (1 - kernelSettings.environmentalDragCoefficient);
+    const float drag = kernelSettings.environmentalDragCoefficient * postCollisionVelocity * -1;
+    current.velocity = postCollisionVelocity + drag;
 
     rw_plateLookup[threadIdx.x] = current;
 }
@@ -2098,7 +2108,7 @@ __global__ void pressureAccumulation(CudaTexture<float> *r_pressurePtr, CudaText
     } else
     {
         // Accumulate pressure like rain accumulates hydration
-        w_pressure[idx] = r_pressure[idx] + kernelSettings.pressureAccumulation * r_material[idx];
+        w_pressure[idx] = r_pressure[idx] + kernelSettings.pressureAccumulation;// *r_material[idx];
     }
 }
 
