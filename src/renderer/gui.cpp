@@ -346,9 +346,13 @@ void Gui::simulationSettingsSection()
         if (ImGui::CollapsingHeader("Uplift Properties"))
         {
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Uplift multiplier", &newSettings.upliftMultiplier, 0.01f, 0.01f, 50.f);
-            ImGui::SetNextItemWidth(250);
             ImGui::DragInt("Uplift range", &newSettings.upliftRange, 1, 0, 100);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Subduction Over Uplift Multiplier", &newSettings.subductionOverUpliftMultiplier, 0.001f, 0.0f, 1.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Subduction Under Uplift Multiplier", &newSettings.subductionUnderUpliftMultiplier, 0.001f, 0.0f, 1.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Continental Collision Uplift Multiplier", &newSettings.continentalUpliftMultiplier, 0.001f, 0.0f, 1.f);
         }
 
         if (ImGui::CollapsingHeader("Erosion Properties"))

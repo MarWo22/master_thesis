@@ -523,12 +523,10 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
         if (index_a == newPlateOwnerIndex)
         {
             height = heights[index_b];
-        }
-        else if (index_b == newPlateOwnerIndex)
+        } else if (index_b == newPlateOwnerIndex)
         {
             height = heights[index_a];
-        }
-        else
+        } else
             continue;
 
         const unsigned int collisionType = collisionTypes[accessPos];
@@ -571,19 +569,19 @@ __device__ void processConvergence(PlateTexturesWrite w_plateTextures, CudaTextu
                 (*w_accretionTexturePtr)[oppositePixelIndex] = MAX_PLATE_COUNT - plateIds[newPlateOwnerIndex];
             }
         }
-
         if (index_a == newPlateOwnerIndex)
         {
-            const int writeValue = collisionType == 1 ? 1 : collisionType == 2 ? 0 : 2;
-            typeByte |= (writeValue & 0b11) << index_b;
-        }
-        else if (index_b == newPlateOwnerIndex)
+            const int writeValue = collisionType == 2 ? 0 : 1;
+            typeByte |= writeValue & 0b1;
+            typeByte |= (index_a & 0b11) << 1;
+            typeByte |= (index_b & 0b11) << 3;
+        } else if (index_b == newPlateOwnerIndex)
         {
-            const int writeValue = collisionType == 1 ? 0 : collisionType == 2 ? 1 : 2;
-            typeByte |= (writeValue & 0b11) << index_a;
+            const int writeValue = collisionType == 1 ? 0 : 1;
+            typeByte |= writeValue & 0b1;
+            typeByte |= (index_b & 0b11) << 1;
+            typeByte |= (index_a & 0b11) << 3;
         }
-
-
     }
 
 
@@ -699,6 +697,9 @@ __global__ void processCollisions(const PlateTexturesRead r_plateTextures, const
 
     if (!isWithinBounds(invokeIndex, r_collisions.size()))
         return;
+
+    if (isPartOfCollision(r_collisions[invokeIndex], 13) && isPartOfCollision(r_collisions[invokeIndex], 12))
+        printf("HAS BOTH PLATES FUCKKKKK\n");
 
     if (const uint32_t collisionValue = r_collisions[invokeIndex]; collisionValue == 0)
     {
@@ -1157,18 +1158,13 @@ __global__ void createPlateIdLabelMap(const CudaTexture<uint8_t> *r_plateIdsPtr,
     (*w_labelIdsPacked)[invokeIndex] = static_cast<uint64_t>(plateId) << 56 | static_cast<uint64_t>(label);
 }
 
-__device__ int collisionIndex(const uint32_t collision, const uint8_t plateId)
+__device__ bool isPartOfCollision(const uint32_t collision, const uint8_t plateId)
 {
-    uint8_t plateA = MAX_PLATE_COUNT - collision & 0xFF;
-    if (plateA == plateId) return 0;
-    uint8_t plateB = MAX_PLATE_COUNT - (collision >> 8) & 0xFF;
-    if (plateB == plateId) return 1;
-    uint8_t plateC = MAX_PLATE_COUNT - (collision >> 16) & 0xFF;
-    if (plateC == plateId) return 2;
-    uint8_t plateD = MAX_PLATE_COUNT - (collision >> 24) & 0xFF;
-    if (plateD == plateId) return 3;
+    for (int i = 0; i != 4; ++i)
+        if ((MAX_PLATE_COUNT - (collision >> 8 * i) & 0xFF) == plateId)
+            return true;
 
-    return -1;
+    return false;
 }
 
 
@@ -1286,38 +1282,37 @@ __global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr,
 }
 
 
-__device__ double subductionUnderFormula(const double x)
+__inline__ __device__ float subductionUnderFormula(const float x)
 {
-    const double numerator = log(1.0 + 8.0 * x);
-    constexpr double denominator = 1.908485019; // log(1 + 8 * 10)
-
-
-    return numerator / denominator - 1.0;
+    // 1.908485019f = log10(1 + 8 * 10)
+    return min(log10(1.0f + 8.0f * (x - 1)) / 1.908485019f - 1.0f, 0.f);
 }
 
-__device__ double continentalFormula(const double x)
+__inline__ __device__ float continentalFormula(const float x)
 {
-    return exp(-0.02 * x * x) + exp(-0.2 * x * x) * (0.5 - abs(fmod(abs(x), 1.0) - 0.5));
+    return expf(-0.02f * x * x) + expf(-0.2f * x * x) * (0.5f - fabs(fmod(fabs(x), 1.0f) - 0.5f));
 }
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
                                const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
                                const CudaTexture<UpliftData> *r_upliftDataPtr,
+                               const PlateData *r_plateDataLookup,
                                CudaTexture<float> *w_heightMapPtr)
 {
     const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
     const CudaTexture<uint32_t> &r_collisions = *r_collisionsPtr;
     const CudaTexture<DistanceFieldBuffer> &r_buffer = *r_bufferPtr;
 
+    const Vec2<int> size = r_buffer.size();
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, r_buffer.size()))
+    if (!isWithinBounds(invokeIndex, size))
         return;
 
     const Vec2<int> center = r_buffer.indexToCoordinate(invokeIndex);
     const uint8_t plateId = r_plateIds[invokeIndex];
 
     DistanceFieldBuffer closestBuffer(-1, 0);
-    int closestCollisionIdx = 0;
+    uint32_t closestPackedCollisionValue = 0;
 
     for (int i = -kernelSettings.upliftRange; i <= kernelSettings.upliftRange; i++)
     {
@@ -1328,15 +1323,15 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
         if (buffer.dist == -1)
             continue;
 
-        const int collisionIdx = collisionIndex(r_collisions[buffer.origIndex], plateId);
-        if (collisionIdx == -1)
+        const uint32_t packedCollisionValue = r_collisions[buffer.origIndex];
+        if (!isPartOfCollision(packedCollisionValue, plateId))
             continue;
 
         buffer.dist += abs(i);
         if (closestBuffer.dist == -1 || buffer.dist < closestBuffer.dist)
         {
             closestBuffer = buffer;
-            closestCollisionIdx = collisionIdx;
+            closestPackedCollisionValue = packedCollisionValue;
         }
     }
 
@@ -1348,29 +1343,55 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
         float I = 1; // TODO: intensity
         const UpliftData upliftData = (*r_upliftDataPtr)[closestBuffer.origIndex];
         // 0: plateId going under collisionPlateId, 1: reversed polarity, 2: continental
-        const int collisionType = (upliftData.collisionTypes >> 2 * closestCollisionIdx) & 0b11;
-        const uint8_t collisionPlateId = r_plateIds[closestBuffer.origIndex];
-        // I think this should be enough info for the uplift section
+        const int collisionType = upliftData.collisionTypes & 0b1;
+        const int collisionPrimaryPlateIndex = (upliftData.collisionTypes >> 1) & 0b11;
+        const int collisionSecondaryPlateIndex = (upliftData.collisionTypes >> 3) & 0b11;
 
-        double value = 0;
+        const uint8_t collisionPrimaryPlate =
+                MAX_PLATE_COUNT - ((closestPackedCollisionValue >> 8 * collisionPrimaryPlateIndex) & 0xFF);
+        const uint8_t collisionSecondaryPlate =
+                MAX_PLATE_COUNT - ((closestPackedCollisionValue >> 8 * collisionSecondaryPlateIndex) & 0xFF);
 
-        if (collisionType == 0)
+        if (collisionType == 0 && collisionSecondaryPlate == plateId)
         {
-            value = subductionUnderFormula(closestBuffer.dist);
-            //printf("%d is subducting: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
-        }
-        else if (collisionType == 1)
+            // A little unsure on what to use for an intensity value when the current plate is subducting
+            // This forms trenches and pushes the plate down, but I'm unsure if it should be affected by mass, direction,
+            // or other properties
+            const float value = subductionUnderFormula(static_cast<float>(closestBuffer.dist));
+            const float multiplier = 1.f + value * kernelSettings.subductionUnderUpliftMultiplier;
+            // printf("%d is subducting, orig index: %d, value: %f, height: %f, multiplier: %f, dist: %d\n", invokeIndex, closestBuffer.origIndex, value, (*w_heightMapPtr)[invokeIndex], multiplier, closestBuffer.dist);
+
+            (*w_heightMapPtr)[invokeIndex] *= multiplier;
+
+
+        } else if (collisionType == 0 && collisionPrimaryPlate == plateId)
         {
+            // When the this plate is going over, the volcanism should appear based on the direction of the plate going under
+            // The more the direction of that pixel is going towards this pixel, should determine the strength of the volcano areas
+            // printf("Going over %d : %d\n", plateId, collisionSecondaryPlate);
+            const Vec2<int> otherTexIndex = r_buffer.indexToCoordinate(closestBuffer.origIndex);
+            const Vec2<int> delta = center - otherTexIndex;
+            const Vec2<float> sizeF = Vec2<float>(static_cast<float>(size.x), static_cast<float>(size.y));
+
+            const float dx = fmod(static_cast<float>(delta.x) + sizeF.x * 0.5f, sizeF.x) - sizeF.x * 0.5f;
+            const float dy = fmod(static_cast<float>(delta.y) + sizeF.y * 0.5f, sizeF.y) - sizeF.y * 0.5f;
+            const Vec2<float> dir = Vec2(dx, dy).normalizedZeroSafe();
+            const PlateData otherPlateData = r_plateDataLookup[collisionSecondaryPlate];
+            const float dot = dir.dot(otherPlateData.direction);
+
+
             //printf("%d is being subducted: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
-        }
-        else if (collisionType == 2)
+        } else if (collisionType == 1)
         {
-            value = continentalFormula(closestBuffer.dist);
-            //printf("%d is continental: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
+            const float height = upliftData.cumulativeHeight;
+            const float value = continentalFormula(static_cast<float>(closestBuffer.dist));
+            const float heightChange = value * height * kernelSettings.continentalUpliftMultiplier;
+            (*w_heightMapPtr)[invokeIndex] += heightChange;
+            // if (value > 0.00001f)
+            //     printf("%d is continental, orig index: %d, value: %f, height: %f, heightChange: %f\n", invokeIndex, closestBuffer.origIndex, value, height, heightChange);
         }
         //printf("%d %d %d %d %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
         //printf("%d %.4f", closestBuffer.dist, upliftData.cumulativeHeight);
-        (*w_heightMapPtr)[invokeIndex] += value * kernelSettings.upliftMultiplier;
     }
 }
 
@@ -2108,7 +2129,7 @@ __global__ void pressureAccumulation(CudaTexture<float> *r_pressurePtr, CudaText
     } else
     {
         // Accumulate pressure like rain accumulates hydration
-        w_pressure[idx] = r_pressure[idx] + kernelSettings.pressureAccumulation;// *r_material[idx];
+        w_pressure[idx] = r_pressure[idx] + kernelSettings.pressureAccumulation; // *r_material[idx];
     }
 }
 

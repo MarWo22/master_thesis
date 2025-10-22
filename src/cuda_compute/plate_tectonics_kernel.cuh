@@ -133,9 +133,10 @@ __global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr,
 
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
                                const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
-                               const CudaTexture<UpliftData> *r_upliftDataPtr, CudaTexture<float> *w_heightMapPtr);
+                               const CudaTexture<UpliftData> *r_upliftDataPtr, const PlateData *r_plateDataLookup,
+                               CudaTexture<float> *w_heightMapPtr);
 
-__device__ int collisionIndex(uint32_t collision, uint8_t plateId);
+__device__ bool isPartOfCollision(uint32_t collision, uint8_t plateId);
 
 __device__ void processDivergence(PlateTexturesRead r_plateTextures, PlateTexturesWrite w_plateTextures,
                                   const CudaTexture<uint32_t> *r_collisionsPtr,

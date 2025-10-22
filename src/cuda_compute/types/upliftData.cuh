@@ -12,7 +12,7 @@ struct UpliftData
         , collisionTypes(0)
     { }
 
-    __host__ __device__ UpliftData(const int cumulativeHeight, const uint8_t collisionTypes)
+    __host__ __device__ UpliftData(const float cumulativeHeight, const uint8_t collisionTypes)
         : cumulativeHeight(cumulativeHeight)
         , collisionTypes(collisionTypes)
     { }

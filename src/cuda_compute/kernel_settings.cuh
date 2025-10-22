@@ -30,7 +30,9 @@ struct KernelSettings
     int collisionTypeUpdateCooldown = 4;
     int minCollisionSize = 50;
 
-    float upliftMultiplier = 1.f;
+    float subductionOverUpliftMultiplier = 0.01f;
+    float subductionUnderUpliftMultiplier = 0.01f;
+    float continentalUpliftMultiplier = 0.01f;
     int upliftRange = 50;
 
     float hydrationPipeCrossSection = 1000; // 1M m² cross-section for 1km² cell
