@@ -1368,7 +1368,7 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
             const float multiplier = 1.f + value * kernelSettings.subductionUnderUpliftMultiplier;
             // printf("%d is subducting, orig index: %d, value: %f, height: %f, multiplier: %f, dist: %d\n", invokeIndex, closestBuffer.origIndex, value, (*w_heightMapPtr)[invokeIndex], multiplier, closestBuffer.dist);
 
-            (*w_heightMapPtr)[invokeIndex] *= multiplier;
+            (*w_heightMapPtr)[invokeIndex] = min((*w_heightMapPtr)[invokeIndex] * multiplier, kernelSettings.minUpliftClamp);
 
 
         } else if (collisionType == 0 && collisionPrimaryPlate == plateId)
@@ -1393,7 +1393,7 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
             const float height = upliftData.cumulativeHeight;
             const float value = continentalFormula(static_cast<float>(closestBuffer.dist));
             const float heightChange = value * height * kernelSettings.continentalUpliftMultiplier;
-            (*w_heightMapPtr)[invokeIndex] += heightChange;
+            (*w_heightMapPtr)[invokeIndex] = max((*w_heightMapPtr)[invokeIndex] + heightChange, kernelSettings.maxUpliftClamp);
             // if (value > 0.00001f)
             //     printf("%d is continental, orig index: %d, value: %f, height: %f, heightChange: %f\n", invokeIndex, closestBuffer.origIndex, value, height, heightChange);
         }

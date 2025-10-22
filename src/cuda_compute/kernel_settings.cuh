@@ -36,6 +36,8 @@ struct KernelSettings
     float subductionOverUpliftMultiplier = 0.01f;
     float subductionUnderUpliftMultiplier = 0.01f;
     float continentalUpliftMultiplier = 0.01f;
+    float minUpliftClamp = 0.f;
+    float maxUpliftClamp = 20000.f;
     int upliftRange = 50;
 
     float hydrationPipeCrossSection = 1000; // 1M m² cross-section for 1km² cell

@@ -364,6 +364,10 @@ void Gui::simulationSettingsSection()
             ImGui::DragFloat("Subduction Under Uplift Multiplier", &newSettings.subductionUnderUpliftMultiplier, 0.001f, 0.0f, 1.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Continental Collision Uplift Multiplier", &newSettings.continentalUpliftMultiplier, 0.001f, 0.0f, 1.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Uplift Height Min Clamp", &newSettings.minUpliftClamp, 1.f, 0.0f, 40000.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Uplift Height Max Clamp", &newSettings.maxUpliftClamp, 1.f, 0.0f, 40000.f);
         }
 
         if (ImGui::CollapsingHeader("Erosion Properties"))
