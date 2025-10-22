@@ -13,9 +13,12 @@ struct KernelSettings
 
     float environmentalDragCoefficient = 0.25f;
 
+    float velocitySmoothingFactor = 0.9f;
+    float directionSmoothingFactor = 0.9f;
+    float breakScoreSmoothingFactor = 0.9f;
 
-    float mergeDotDirectionThreshold = .995f;
-    float mergeVelocityDiffThreshold = 0.025f;
+    float mergeDotDirectionThreshold = .998f;
+    float mergeVelocityDiffThreshold = 0.01f;
 
     float mergeMinVelocity = 0.05f;
 
@@ -48,6 +51,7 @@ struct KernelSettings
     float pressureDecayRate = 0.8f;          // How fast pressure decays at fault lines
     int pressureBlurRange = 25;              // Range for pressure distance field propagation
     float pressureMultiplier = 1.0f;         // Final pressure application multiplier
+    float curlNoiseMultiplier = 0.01f;       // Multiplier for curl noise force on plate velocity
     float stressSplitThreshold = 30.0f;      // Stress threshold for plate splitting
     int targetMinimumPlateArea = 100;
     int targetMaximumPlateArea = 100000;

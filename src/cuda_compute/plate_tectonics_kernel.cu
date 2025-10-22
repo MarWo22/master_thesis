@@ -190,8 +190,8 @@ __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
             atomicAdd(&w_plateLookup[threadIdx.x].perimeter, localPerimeter[threadIdx.x]);
         if (localPressureSlope[threadIdx.x].x != 0.0f || localPressureSlope[threadIdx.x].y != 0.0f)
         {
-            atomicAdd(&w_plateLookup[threadIdx.x].forceFromPressure.x, localPressureSlope[threadIdx.x].x);
-            atomicAdd(&w_plateLookup[threadIdx.x].forceFromPressure.y, localPressureSlope[threadIdx.x].y);
+            atomicAdd(&w_plateLookup[threadIdx.x].asthenosphereVelocity.x, localPressureSlope[threadIdx.x].x);
+            atomicAdd(&w_plateLookup[threadIdx.x].asthenosphereVelocity.y, localPressureSlope[threadIdx.x].y);
         }
     }
 }
@@ -994,7 +994,9 @@ __global__ void copyPlateDataGuiKernel(const PlateData *r_plateData, const uint8
     w_plateDataGui[invokeIndex].size = plateData.size;
     w_plateDataGui[invokeIndex].hasMoved = plateData.hasMoved;
     w_plateDataGui[invokeIndex].velocity = plateData.velocity;
+    w_plateDataGui[invokeIndex].velocitySmoothed = plateData.velocitySmoothed;
     w_plateDataGui[invokeIndex].direction = plateData.direction;
+    w_plateDataGui[invokeIndex].directionSmoothed = plateData.directionSmoothed;
     w_plateDataGui[invokeIndex].break_score = plateData.breakScore;
     w_plateDataGui[invokeIndex].perimeter = plateData.perimeter;
     w_plateDataGui[invokeIndex].circularity = plateData.circularity;
@@ -1093,13 +1095,18 @@ __global__ void getPlateMerges(const CudaTexture<bool> *r_neighborMatrixPtr, con
     const PlateData plateDataX = r_plateData[textureIndex.x];
     const PlateData plateDataY = r_plateData[textureIndex.y];
 
-    const float dot = plateDataX.direction.dot(plateDataY.direction);
-    const float velocity_diff = abs(plateDataX.velocity - plateDataY.velocity);
+    const float dot = plateDataX.directionSmoothed.dot(plateDataY.directionSmoothed);
+    const float velocity_diff = abs(plateDataX.velocitySmoothed - plateDataY.velocitySmoothed);
 
-    if (!(plateDataX.velocity <= kernelSettings.mergeMinVelocity && plateDataY.velocity <= kernelSettings.
-          mergeMinVelocity) &&
-        !(dot >= kernelSettings.mergeDotDirectionThreshold && velocity_diff <= kernelSettings.
-          mergeVelocityDiffThreshold))
+    if (!(plateDataX.velocity <= kernelSettings.mergeMinVelocity && plateDataY.velocity <= kernelSettings.mergeMinVelocity) &&
+        !(dot >= kernelSettings.mergeDotDirectionThreshold && velocity_diff <= kernelSettings.mergeVelocityDiffThreshold))
+    {
+        return;
+    }
+
+    // Check if combined size would exceed maximum plate area
+    const int combinedSize = plateDataX.size + plateDataY.size;
+    if (combinedSize > kernelSettings.targetMaximumPlateArea)
     {
         return;
     }
@@ -1433,20 +1440,26 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
     const auto [inelasticDirectionalChange, frictionLoss] = r_velocityChanges[threadIdx.x];
 
     const Vec2<float> originalVelocityVector = current.direction * current.velocity;
-    const Vec2<float> newVelocityVector = originalVelocityVector + (
-                                              current.forceFromPressure / max(current.mass, 1.0f) * 0.01f);
+    const Vec2<float> asthenosphereVel = current.asthenosphereVelocity * kernelSettings.curlNoiseMultiplier;
+    const Vec2<float> newVelocityVector = originalVelocityVector + asthenosphereVel;
 
-    float x = (current.forceFromPressure / max(current.mass, 1.0f)).magnitude();
-
-    if (x > 0.00001f)
-        printf("speed increase: %.4f \n", (current.forceFromPressure / max(current.mass, 1.0f)).magnitude());
+    printf("asthenosphere velocity: (%.6f, %.6f), magnitude: %.6f \n", asthenosphereVel.x, asthenosphereVel.y, asthenosphereVel.magnitude());
 
     const auto [norm, mag] = newVelocityVector.normalizedAndMagnitudeZeroSafe();
 
     current.direction = norm;
     const float postCollisionVelocity = max(mag - frictionLoss, 0.f);
-    const float drag = kernelSettings.environmentalDragCoefficient * postCollisionVelocity * -1;
-    current.velocity = postCollisionVelocity + drag;
+
+    // Drag relative to the difference between plate velocity and asthenosphere velocity
+    const Vec2<float> relativeVelocity = (current.direction * postCollisionVelocity) - asthenosphereVel;
+    const float relativeMagnitude = relativeVelocity.magnitude();
+    const float drag = kernelSettings.environmentalDragCoefficient * relativeMagnitude * relativeMagnitude;
+    current.velocity = max(postCollisionVelocity - drag, 0.f);
+
+    // Apply smoothing
+    current.velocitySmoothed = current.velocitySmoothed * kernelSettings.velocitySmoothingFactor + current.velocity * (1.0f - kernelSettings.velocitySmoothingFactor);
+    Vec2<float> smoothedDir = current.directionSmoothed * kernelSettings.directionSmoothingFactor + current.direction * (1.0f - kernelSettings.directionSmoothingFactor);
+    current.directionSmoothed = smoothedDir.normalizedZeroSafe();
 
     rw_plateLookup[threadIdx.x] = current;
 }
@@ -1470,8 +1483,13 @@ __global__ void updatePlateData(PlateData *plateLookup, const CollisionVelocityC
 
     const auto [norm, mag] = newVelocityVector.normalizedAndMagnitudeZeroSafe();
 
-    current.velocity = mag * (1 - kernelSettings.environmentalDragCoefficient);
+    auto vel = mag * (1 - kernelSettings.environmentalDragCoefficient);
+    current.velocity = vel;
+    current.velocitySmoothed = current.velocitySmoothed * kernelSettings.velocitySmoothingFactor + current.velocity * (1.0f - kernelSettings.velocitySmoothingFactor);
     current.direction = norm;
+
+    Vec2<float> smoothedDir = current.directionSmoothed * kernelSettings.directionSmoothingFactor + current.direction * (1.0f - kernelSettings.directionSmoothingFactor);
+    current.directionSmoothed = smoothedDir.normalizedZeroSafe();
 
     current.mass = r_plateMass[threadIdx.x];
     current.size = r_plateSize[threadIdx.x]; // Will be updated in the next pixel kernel.
@@ -2195,15 +2213,17 @@ __global__ void stress(const CudaTexture<float> *r_pressurePtr, const CudaTextur
     CudaTexture<float> &w_stress = *w_stressPtr;
     const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
 
+
+
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, r_pressure.size()))
+    if (!isWithinBounds(invokeIndex, w_stress.size()))
         return;
 
     const Vec2<int> coord = getTextureIndex(w_stress.size());
     const uint8_t plateId = r_plateIds[invokeIndex];
     const PlateData plateData = r_plateData[plateId];
 
-    float baseStress = r_pressure[invokeIndex] / max(min(r_material[invokeIndex], 200.0f), 1.0f);
+    float baseStress = (r_pressure[coord] * 100) / max(min(r_material[invokeIndex], 200.0f), 1.0f);
 
     float distanceToCenter = plateData.geometricCenter.distance(Vec2<float>(coord.x, coord.y));
     float distanceScore = 1.0f / (0.01f * distanceToCenter + 1.0f);
@@ -2225,12 +2245,14 @@ __global__ void computeBreakScore(PlateData *w_plateData)
 
         plateData.circularity = 1.0f - ((2 * CURAND_2PI * area) / max(perimeter * perimeter, 1.0f));
 
-        float areaIncrease = inverseClampedLerp(area, kernelSettings.targetMinimumPlateArea,
+        float areaScore = inverseClampedLerp(area, kernelSettings.targetMinimumPlateArea,
                                                 kernelSettings.targetMaximumPlateArea);
 
-        plateData.breakScore = plateData.circularity + areaIncrease;
+        plateData.breakScore = plateData.breakScore * kernelSettings.breakScoreSmoothingFactor + (areaScore + plateData.circularity) * (1.0f - kernelSettings.breakScoreSmoothingFactor);
         // circularity formula? need to include in research.
-    } else
+        plateData.breakScore = (areaScore + plateData.circularity);
+    } 
+    else
     {
         plateData.breakScore = 0.0f;
     }
@@ -2289,34 +2311,38 @@ __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr)
     }
 }
 
-__global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePtr,
-                                          const CudaTexture<uint8_t> *r_plateIdsPtr,
-                                          CudaTexture<Vec2<float> > *w_pressureVelocityPtr)
+__global__ void computeCurl(const CudaTexture<float> *r_gradientPtr, CudaTexture<Vec2<float> > *w_curlPtr)
 {
-    const CudaTexture<float> &r_pressure = *r_pressurePtr;
-    const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
-    CudaTexture<Vec2<float> > &w_pressureVelocity = *w_pressureVelocityPtr;
+    const CudaTexture<float> &r_gradient = *r_gradientPtr;
+    CudaTexture<Vec2<float> > &w_curl = *w_curlPtr;
 
     const unsigned int invokeIndex = getInvokeIndex();
-    if (!isWithinBounds(invokeIndex, r_pressure.size()))
+    if (!isWithinBounds(invokeIndex, r_gradient.size()))
         return;
 
-    const Vec2<int> coord = r_pressure.indexToCoordinate(invokeIndex);
+    const Vec2<int> coord = w_curl.indexToCoordinate(invokeIndex);
 
-    // Calculate gradient using central differences
-    Vec2<float> velocity = {0.0f, 0.0f};
+    const Vec2<int> sizeIn = r_gradient.size();
+    const Vec2<int> sizeOut = w_curl.size();
 
-    // X-direction gradient
-    float leftPressure = r_pressure[r_pressure.coordinateToIndex({coord.x - 1, coord.y})];
-    float rightPressure = r_pressure[r_pressure.coordinateToIndex({coord.x + 1, coord.y})];
-    velocity.x = -(rightPressure - leftPressure); // Negative for downward slope
+    double xs = (double)sizeIn.x / (double)sizeOut.x;
+    double ys = (double)sizeIn.y / (double)sizeOut.y;
 
-    // Y-direction gradient
-    float bottomPressure = r_pressure[r_pressure.coordinateToIndex({coord.x, coord.y - 1})];
-    float topPressure = r_pressure[r_pressure.coordinateToIndex({coord.x, coord.y + 1})];
-    velocity.y = -(topPressure - bottomPressure); // Negative for downward slope
+    const Vec2<int> scaledCoord = Vec2<int>(coord.x * xs, coord.y * ys);
 
-    w_pressureVelocity[invokeIndex] = velocity;
+    Vec2<float> dir = {0.0f, 0.0f};
+
+    float leftPressure = r_gradient[Vec2<int>(scaledCoord.x - 1, scaledCoord.y)];
+    float rightPressure = r_gradient[Vec2<int>(scaledCoord.x + 1, scaledCoord.y)];
+    dir.y = (rightPressure - leftPressure) * 0.5;
+
+    float bottomPressure = r_gradient[Vec2<int>(scaledCoord.x, scaledCoord.y - 1)];
+    float topPressure = r_gradient[Vec2<int>(scaledCoord.x, scaledCoord.y + 1)];
+    dir.x = -((topPressure - bottomPressure) * 0.5);
+
+    printf("curl vector at (%d, %d): (%.6f, %.6f), magnitude: %.6f\n", coord.x, coord.y, dir.x, dir.y, sqrtf(dir.x * dir.x + dir.y * dir.y));
+
+    w_curl[invokeIndex] = dir;
 }
 
 __global__ void initEffortToBoundary(const CudaTexture<uint8_t> *r_plateIdsPtr,
@@ -2536,7 +2562,9 @@ __global__ void finalizePlateSplit(CudaTexture<uint8_t> *rw_plateIdsPtr, uint8_t
     if (invokeIndex == 0 && newPlateId != oldPlateId)
     {
         w_plateLookup[newPlateId].velocity = w_plateLookup[oldPlateId].velocity;
+        w_plateLookup[newPlateId].velocitySmoothed = w_plateLookup[oldPlateId].velocitySmoothed;
         w_plateLookup[newPlateId].direction = w_plateLookup[oldPlateId].direction;
+        w_plateLookup[newPlateId].directionSmoothed = w_plateLookup[oldPlateId].directionSmoothed;
     }
 }
 
@@ -2713,6 +2741,12 @@ __global__ void resetPlateDataPreCount(PlateData *rw_plateData)
         return;
 
     PlateData current = rw_plateData[invokeIndex];
+
+    // Normalize asthenosphere velocity by plate size to get average
+    if (current.size > 0)
+    {
+        current.asthenosphereVelocity = current.asthenosphereVelocity / current.size;
+    }
 
     current.mass = 0;
     current.size = 0;

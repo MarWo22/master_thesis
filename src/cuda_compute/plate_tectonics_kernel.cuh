@@ -204,8 +204,7 @@ __global__ void computeBreakScore(PlateData *w_plateData);
 
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
 
-__global__ void calculatePressureVelocity(const CudaTexture<float> *r_pressurePtr,
-                                          const CudaTexture<uint8_t> *r_plateIdsPtr,
+__global__ void computeCurl(const CudaTexture<float> *r_pressurePtr,
                                           CudaTexture<Vec2<float> > *w_velocityPtr);
 
 __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
