@@ -6,6 +6,12 @@
 #define TEXTUREMANAGER_CUH
 #include <memory>
 #include <unordered_map>
+#include <vector>
+#include <cstdio>
+#include <csetjmp>
+#include "stb_image.h"
+#include <cuda_runtime.h>
+#include <iostream>
 
 #include "types/cuda_texture.cuh"
 #include <ranges>
@@ -116,6 +122,9 @@ public:
 
     static size_t getAllocatedMemory() { return s_allocatedMemory; }
 
+    template<typename T = float>
+    std::unique_ptr<CudaTextureHost<T>> loadTextureFromPNG(const char* filename);
+
 private:
     template<typename T>
     void releaseTexture(CudaTexture<T> *texture, T *rawCudaPtr, int width, int height)
@@ -147,6 +156,32 @@ void copyTexture(CudaTextureHost<T> &dst, const CudaTextureHost<T> &src, const i
                                            sizeof(T) * height * width,
                                            cudaMemcpyDeviceToDevice); err != cudaSuccess)
         std::cerr << "Error memcpy texture: " << cudaGetErrorString(err) << std::endl;
+}
+
+template<typename T>
+std::unique_ptr<CudaTextureHost<T>> TextureManager::loadTextureFromPNG(const char* filename)
+{
+    int width, height, channels;
+    unsigned char* hostData = stbi_load(filename, &width, &height, &channels, 1);
+    if (!hostData) {
+        std::cerr << "Failed to load image.png\n";
+        return nullptr;
+    }
+
+    size_t numPixels = width * height;
+    float* hostFloatData = new float[numPixels];
+
+    for (size_t i = 0; i < numPixels; ++i)
+        hostFloatData[i] = hostData[i] / 255.0f;
+
+    auto l_Texture = generateTexture<float>(width, height);
+
+    cudaMemcpy(l_Texture->getPointer(), hostFloatData, numPixels * sizeof(float), cudaMemcpyHostToDevice);
+
+    stbi_image_free(hostData);
+    delete[] hostFloatData;
+
+    return l_Texture;
 }
 
 

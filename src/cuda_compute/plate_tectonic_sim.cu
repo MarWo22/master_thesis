@@ -450,71 +450,33 @@ void PlateTectonicSim::mergePlates()
 
 void PlateTectonicSim::processPlateSplitting()
 {
-    auto buffer = m_textureManager.generateTexture<float>(m_width, m_height);
-
-    // Step 1: Accumulate pressure and reset at fault lines
-    pressureAccumulation<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
-                                                                   m_pressure->deviceTexture(),
-                                                                   m_plateIdsTexture->deviceTexture(),
-                                                                   m_heightMapTexture->deviceTexture());
-
-    // Step 2-3: Apply pressure blur simulation
-    pressureVerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
-                                                                   m_pressure->deviceTexture(),
-                                                                   buffer->deviceTexture());
-
-    pressureHorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
-                                                                     buffer->deviceTexture(),
-                                                                     m_pressure->deviceTexture());
-
-    // Calculate pressure velocity from pressure gradients
-    calculatePressureVelocity<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
-                                                                        m_plateIdsTexture->deviceTexture(),
-                                                                        m_pressureVelocity->deviceTexture());
-
-    // Step 4: Calculate stress from pressure and terrain height
-    stress<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(),
-                                                     m_heightMapTexture->deviceTexture(),
-                                                     m_stress->deviceTexture(),
-                                                     m_plateIdsTexture->deviceTexture(),
-                                                     m_plateDataLookup->getPointer());
-
-    const size_t numPixels = m_width * m_height;
-
-    thrust::device_ptr<uint8_t> keys_ptr(m_plateIdsTexture->getPointer());
-    thrust::device_ptr<float> values_ptr(m_stress->getPointer());
-
-    // Find the pixel with maximum stress across all plates
-    auto max_pixel_iter = thrust::max_element(values_ptr, values_ptr + numPixels);
-    size_t max_pixel_index = max_pixel_iter - values_ptr;
-
-    float h_highest_stress = *max_pixel_iter;
-    uint8_t h_highest_stress_plate_id = keys_ptr[max_pixel_index];
-    Vec2<float> h_stress_location = Vec2<float>(max_pixel_index % m_width, max_pixel_index / m_width);
-
-    if (h_highest_stress > kernelSettingsHost.stressSplitThreshold)
+    // Copy plate data to host to check break scores
+    PlateData h_plateData[MAX_PLATE_COUNT];
+    if (const cudaError_t err = cudaMemcpy(h_plateData, m_plateDataLookup->getPointer(),
+                                           sizeof(PlateData) * MAX_PLATE_COUNT,
+                                           cudaMemcpyDeviceToHost); err != cudaSuccess)
     {
-        SplitPlateV2(
-            Vec2<int>(static_cast<int>(h_stress_location.x + 0.5), static_cast<int>(h_stress_location.y + 0.5)),
-            h_highest_stress_plate_id);
-
+        std::cerr << "Error copying plate data to host: " << cudaGetErrorString(err) << std::endl;
         return;
+    }
 
-        auto d_dir = m_textureManager.generateTexture<Vec2<float> >(1, 1);
+    // Find the first plate with breakScore >= 1.0
+    for (int i = 0; i < MAX_PLATE_COUNT; ++i)
+    {
+        if (h_plateData[i].used && h_plateData[i].breakScore >= 1.2f)
+        {
+            // Split this plate at its geometric center
+            Vec2<int> splitPoint(
+                static_cast<int>(h_plateData[i].geometricCenter.x + 0.5f),
+                static_cast<int>(h_plateData[i].geometricCenter.y + 0.5f)
+            );
 
-        findPlausibleSplitLine<<<1, 10, 10 * sizeof(float)>>>(h_highest_stress_plate_id, h_stress_location,
-                                                              m_plateIdsTexture->deviceTexture(), d_dir->getPointer());
-        CUDA_ERROR_CHECK();
-        auto newPlateId = m_textureManager.generateTexture<uint8_t>(1, 1);
+            std::cout << "Plate " << i << " has break score " << h_plateData[i].breakScore
+                      << ", splitting at center (" << splitPoint.x << ", " << splitPoint.y << ")\n";
 
-        selectUnusedPlateId<<<1, 1>>>(m_plateDataLookup->getPointer(), newPlateId->getPointer());
-
-        splitPlate << <m_numBlocksPixels, THREADS_PER_BLOCK >> >(h_highest_stress_plate_id,
-                                                                 newPlateId->getPointer(), h_stress_location,
-                                                                 d_dir->getPointer(),
-                                                                 m_plateIdsTexture->deviceTexture(),
-                                                                 m_plateDataLookup->getPointer());
-        CUDA_ERROR_CHECK();
+            //SplitPlateV2(splitPoint, static_cast<uint8_t>(i));
+            return; // Only split one plate per iteration
+        }
     }
 }
 
@@ -808,12 +770,14 @@ std::vector<PlateData> PlateTectonicSim::generatePlateData(std::default_random_e
             plateCenters[i].position.y - floor(plateCenters[i].position.y)
         };
         plateData[i].velocity = (dist(generator) + 1) / 2;
+        plateData[i].velocitySmoothed = plateData[i].velocity;
         const float x_dir = dist(generator);
         const float y_dir = dist(generator);
         const float magnitude = sqrt(x_dir * x_dir + y_dir * y_dir);
 
 
         plateData[i].direction = Vec2(x_dir / magnitude, y_dir / magnitude);
+        plateData[i].directionSmoothed = plateData[i].direction;
     }
 
     return plateData;
@@ -829,9 +793,7 @@ void PlateTectonicSim::initializeTextures()
     m_hydrationVelocity = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
     m_sedimentLevel = m_textureManager.generateTexture<float>(m_width, m_height);
 
-    m_pressure = m_textureManager.generateTexture<float>(m_width, m_height);
     m_stress = m_textureManager.generateTexture<float>(m_width, m_height);
-    m_pressureVelocity = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
 
     m_plateDataLookup = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);
     m_randStatesPlates = m_textureManager.generateTexture<curandState>(MAX_PLATE_COUNT, 1);
@@ -841,6 +803,12 @@ void PlateTectonicSim::initializeTextures()
     m_collisionTypeBitmap = m_textureManager.generateTextureAndReset<uint8_t>(NUM_TRIANGLE_ENTRIES, 1, 0);
 
     m_accretionTexture = m_textureManager.generateTexture<uint8_t>(m_width, m_height);
+
+    // Load noise texture from file
+    m_pressure = m_textureManager.loadTextureFromPNG<float>("../../../assets/textures/noise.png");
+    m_pressureVelocity = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
+
+    computeCurl<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(), m_pressureVelocity->deviceTexture());
 
     cudaDeviceSynchronize();
 }

@@ -90,8 +90,10 @@ struct GuiPlateData
       int size{};
       int perimeter{};
       float velocity{};
+      float velocitySmoothed{};
       bool hasMoved{};
       Vec2<float> direction;
+      Vec2<float> directionSmoothed;
       int subductions[256]{};   // fixed-size array
       int continental[256]{};   // fixed-size array
       int subduction_len{};

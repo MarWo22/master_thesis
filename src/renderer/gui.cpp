@@ -116,7 +116,9 @@ void Gui::gui()
             ImGui::Text("Size: %d", guiPlateData[id].size);
             ImGui::Text("Has moved: %s", guiPlateData[id].hasMoved ? "true" : "false");
             ImGui::Text("Velocity: %.3f", guiPlateData[id].velocity);
+            ImGui::Text("Velocity Smoothed: %.3f", guiPlateData[id].velocitySmoothed);
             ImGui::Text("Direction: (%.3f, %.3f)", guiPlateData[id].direction.x, guiPlateData[id].direction.y);
+            ImGui::Text("Direction Smoothed: (%.3f, %.3f)", guiPlateData[id].directionSmoothed.x, guiPlateData[id].directionSmoothed.y);
 
             std::ostringstream continental_ss;
             for (int i = 0; i < guiPlateData[id].continental_len; ++i)
@@ -340,6 +342,15 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Environmental Drag Coefficient", &newSettings.environmentalDragCoefficient, 0.0001,
                              0.f, 1.f, "%.4f");
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Velocity Smoothing Factor", &newSettings.velocitySmoothingFactor, 0.001f,
+                             0.f, 1.f, "%.3f");
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Direction Smoothing Factor", &newSettings.directionSmoothingFactor, 0.001f,
+                             0.f, 1.f, "%.3f");
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Break Score Smoothing Factor", &newSettings.breakScoreSmoothingFactor, 0.001f,
+                             0.f, 1.f, "%.3f");
 
         }
 
@@ -387,6 +398,8 @@ void Gui::simulationSettingsSection()
             ImGui::DragInt("Pressure Blur Range", &newSettings.pressureBlurRange, 1, 1, 100);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Pressure Multiplier", &newSettings.pressureMultiplier, 0.01f, 0.f, 10.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Curl Noise Multiplier", &newSettings.curlNoiseMultiplier, 0.001f, 0.f, 50.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Stress Split Threshold", &newSettings.stressSplitThreshold, 1.0f, 1.0f, 200.0f);
             ImGui::SetNextItemWidth(250);
