@@ -45,9 +45,9 @@ struct KernelSettings
     float hydrationRainfall = 0.101; // ~2mm per iteration (realistic for geological time)
     float hydrationEvaporation = 0.303; // ~1mm per iteration
     float gravity = 9.81;
-    float sedimentCapacity = 0.1; // Reduced for 1km scale - less sediment per unit
+    float sedimentCapacity = 0.9; // Reduced for 1km scale - less sediment per unit
     float sedimentErosionRate = 0.5; // Rate at which terrain erodes into sediment
-    float sedimentDepositionRate = 0.1; // Rate at which sediment deposits onto terrain
+    float sedimentDepositionRate = 0.01; // Rate at which sediment deposits onto terrain
 
     float pressureAccumulation = 0.02f;      // Rate of pressure buildup per iteration
     float pressureDecayRate = 0.8f;          // How fast pressure decays at fault lines
