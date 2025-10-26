@@ -78,9 +78,7 @@ class PlateTectonicSim
     std::unique_ptr<CudaTextureHost<Vec2<float> > > m_hydrationVelocity;
     std::unique_ptr<CudaTextureHost<float> > m_sedimentLevel;
 
-    std::unique_ptr<CudaTextureHost<float>> m_pressure;
-    std::unique_ptr<CudaTextureHost<float>> m_stress;
-    std::unique_ptr<CudaTextureHost<Vec2<float>>> m_pressureVelocity;
+    std::unique_ptr<CudaTextureHost<Vec2<float>>> m_asthenosphere;
 
     /*
      * Persistent solely for debugging/rendering
@@ -160,6 +158,8 @@ private:
     void copyDirectionGL() const;
 
     void copyVelocitiesGL() const;
+
+    void copyAsthenosphereGL() const;
 
     void HydrationSubSim() const;
 

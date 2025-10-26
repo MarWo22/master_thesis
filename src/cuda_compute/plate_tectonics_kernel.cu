@@ -1368,7 +1368,7 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
             const float multiplier = 1.f + value * kernelSettings.subductionUnderUpliftMultiplier;
             // printf("%d is subducting, orig index: %d, value: %f, height: %f, multiplier: %f, dist: %d\n", invokeIndex, closestBuffer.origIndex, value, (*w_heightMapPtr)[invokeIndex], multiplier, closestBuffer.dist);
 
-            (*w_heightMapPtr)[invokeIndex] = min((*w_heightMapPtr)[invokeIndex] * multiplier, kernelSettings.minUpliftClamp);
+            (*w_heightMapPtr)[invokeIndex] = max((*w_heightMapPtr)[invokeIndex] * multiplier, kernelSettings.minUpliftClamp);
 
 
         } else if (collisionType == 0 && collisionPrimaryPlate == plateId)
@@ -1393,7 +1393,7 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
             const float height = upliftData.cumulativeHeight;
             const float value = continentalFormula(static_cast<float>(closestBuffer.dist));
             const float heightChange = value * height * kernelSettings.continentalUpliftMultiplier;
-            (*w_heightMapPtr)[invokeIndex] = max((*w_heightMapPtr)[invokeIndex] + heightChange, kernelSettings.maxUpliftClamp);
+            (*w_heightMapPtr)[invokeIndex] = min((*w_heightMapPtr)[invokeIndex] + heightChange, kernelSettings.maxUpliftClamp);
             // if (value > 0.00001f)
             //     printf("%d is continental, orig index: %d, value: %f, height: %f, heightChange: %f\n", invokeIndex, closestBuffer.origIndex, value, height, heightChange);
         }
@@ -2046,7 +2046,7 @@ __global__ void flow(CudaTexture<float> *w_hydrationPtr, const CudaTexture<float
 
     float deltaVolume = deltatime * (flowIn - flowOut);
 
-    hydration[idx] = fmaxf(0.0f, hydration[idx] + deltaVolume / kernelSettings.hydrationPipeLength);
+    hydration[idx] = fmaxf(0.0f, hydration[idx] + deltaVolume);
 
     Vec2<float> netFlow;
 
@@ -2213,8 +2213,6 @@ __global__ void stress(const CudaTexture<float> *r_pressurePtr, const CudaTextur
     CudaTexture<float> &w_stress = *w_stressPtr;
     const CudaTexture<uint8_t> &r_plateIds = *r_plateIdsPtr;
 
-
-
     const unsigned int invokeIndex = getInvokeIndex();
     if (!isWithinBounds(invokeIndex, w_stress.size()))
         return;
@@ -2339,8 +2337,6 @@ __global__ void computeCurl(const CudaTexture<float> *r_gradientPtr, CudaTexture
     float bottomPressure = r_gradient[Vec2<int>(scaledCoord.x, scaledCoord.y - 1)];
     float topPressure = r_gradient[Vec2<int>(scaledCoord.x, scaledCoord.y + 1)];
     dir.x = -((topPressure - bottomPressure) * 0.5);
-
-    printf("curl vector at (%d, %d): (%.6f, %.6f), magnitude: %.6f\n", coord.x, coord.y, dir.x, dir.y, sqrtf(dir.x * dir.x + dir.y * dir.y));
 
     w_curl[invokeIndex] = dir;
 }

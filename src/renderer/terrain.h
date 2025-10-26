@@ -18,16 +18,16 @@ class Terrain final : public RenderComponent
     Shader *m_regionShader;
     Shader *m_velocityShader;
     Shader *m_directionShader;
+    Shader *m_asthenosphereShader;
     Texture *m_heightmapTexture;
     Texture *m_platesTexture;
     Texture *m_collisionTexture;
     Texture *m_velocityTexture;
     Texture *m_directionTexture;
-    Texture* m_pressureTexture;
-    Texture* m_stressTexture;
     Texture* m_waterTexture;
     Texture* m_arrowTexture;
     Texture *m_accretionTexture;
+    Texture *m_asthenosphereTexture;
 
     int m_sizeX;
     int m_sizeZ;

@@ -72,7 +72,7 @@ void PlateTectonicSim::executeIteration()
 
     thermalErosionKernel << <m_numBlocksPixels, THREADS_PER_BLOCK >> >(heightMapTextureWrite->deviceTexture());
 
-    //applyHydraulicErosion(heightMapTextureWrite.get());
+    applyHydraulicErosion(heightMapTextureWrite.get());
 
     copyAndReleaseTexture(*m_heightMapTexture, std::move(heightMapTextureWrite), m_height, m_width);
     copyAndReleaseTexture(*m_plateIdsTexture, std::move(plateIdsTextureWrite), m_height, m_width);
@@ -164,11 +164,8 @@ void PlateTectonicSim::copyConstantTexturesInterop() const
     if (renderSettings.renderWater)
         m_interopManager->copyConnection("waterTexture", m_hydrationLevel->getPointer());
 
-    if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_PRESSURE_AREAS)
-        m_interopManager->copyConnection("pressureTexture", m_pressure->getPointer());
-
-    if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_STRESS_AREAS)
-        m_interopManager->copyConnection("stressTexture", m_stress->getPointer());
+    if (renderSettings.renderMode == RenderSettings::RenderMode::SHOW_ASTHENOSPHERE)
+        copyAsthenosphereGL();
 }
 
 void PlateTectonicSim::getPlateCollisions(CudaTextureHost<uint32_t> *plateCollisions)
@@ -444,7 +441,7 @@ void PlateTectonicSim::mergePlates()
                                                                     m_heightMapTexture->deviceTexture(),
                                                                     plateMergeIds->getPointer(),
                                                                     m_plateDataLookup->getPointer(),
-                                                                    m_pressureVelocity->deviceTexture());
+                                                                    m_asthenosphere->deviceTexture());
     CUDA_ERROR_CHECK();
 }
 
@@ -539,6 +536,11 @@ void PlateTectonicSim::copyVelocitiesGL() const
     m_interopManager->copyConnection("velocityTexture", glTexture.getPointer());
 }
 
+void PlateTectonicSim::copyAsthenosphereGL() const
+{
+    m_interopManager->copyConnection("asthenosphereTexture", m_asthenosphere->getPointer());
+}
+
 void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPlates,
                                 const std::vector<int> &numVoronoiSeeds)
 {
@@ -552,8 +554,6 @@ void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPl
     m_hydrationLevel.reset();
     m_hydrationVelocity.reset();
     m_sedimentLevel.reset();
-    m_pressure.reset();
-    m_stress.reset();
     m_plateDataLookup.reset();
     m_randStatesPlates.reset();
     m_iterationStats.reset();
@@ -590,14 +590,11 @@ void PlateTectonicSim::onRenderSettingChange()
         case RenderSettings::RenderMode::NORMAL:
             activeTextures = {"heightMap"};
             break;
-        case RenderSettings::RenderMode::SHOW_PRESSURE_AREAS:
-            activeTextures = {"heightMap", "pressureTexture"};
-            break;
-        case RenderSettings::RenderMode::SHOW_STRESS_AREAS:
-            activeTextures = {"heightMap", "stressTexture"};
-            break;
         case RenderSettings::RenderMode::SHOW_PLATE_VELOCITIES:
             activeTextures = {"heightMap", "velocityTexture"};
+            break;
+        case RenderSettings::RenderMode::SHOW_ASTHENOSPHERE:
+            activeTextures = {"heightMap", "asthenosphereTexture"};
             break;
         default:
             activeTextures = {"heightMap"};
@@ -793,8 +790,6 @@ void PlateTectonicSim::initializeTextures()
     m_hydrationVelocity = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
     m_sedimentLevel = m_textureManager.generateTexture<float>(m_width, m_height);
 
-    m_stress = m_textureManager.generateTexture<float>(m_width, m_height);
-
     m_plateDataLookup = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);
     m_randStatesPlates = m_textureManager.generateTexture<curandState>(MAX_PLATE_COUNT, 1);
     m_iterationStats = m_textureManager.generateTexture<IterationStatistics>(1, 1);
@@ -805,10 +800,12 @@ void PlateTectonicSim::initializeTextures()
     m_accretionTexture = m_textureManager.generateTexture<uint8_t>(m_width, m_height);
 
     // Load noise texture from file
-    m_pressure = m_textureManager.loadTextureFromPNG<float>("../../../assets/textures/noise.png");
-    m_pressureVelocity = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
+    auto temp = m_textureManager.loadTextureFromPNG<float>("../../../assets/textures/noiseTexture.png");
+    m_asthenosphere = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
+    
+    computeCurl<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(temp->deviceTexture(), m_asthenosphere->deviceTexture());
 
-    computeCurl<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_pressure->deviceTexture(), m_pressureVelocity->deviceTexture());
+    temp.release();
 
     cudaDeviceSynchronize();
 }

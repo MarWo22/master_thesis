@@ -188,13 +188,8 @@ void Gui::renderSettingsSection()
             {
                 renderSettings.callCallback("renderSettingsChanged");
             }
-            if (ImGui::RadioButton("Show Pressure Areas", &renderSettings.renderMode,
-                                   RenderSettings::RenderMode::SHOW_PRESSURE_AREAS))
-            {
-                renderSettings.callCallback("renderSettingsChanged");
-            }
-            if (ImGui::RadioButton("Show Stress Areas", &renderSettings.renderMode,
-                                   RenderSettings::RenderMode::SHOW_STRESS_AREAS))
+            if (ImGui::RadioButton("Show Asthenosphere", &renderSettings.renderMode,
+                                   RenderSettings::RenderMode::SHOW_ASTHENOSPHERE))
             {
                 renderSettings.callCallback("renderSettingsChanged");
             }
@@ -380,8 +375,6 @@ void Gui::simulationSettingsSection()
             ImGui::DragFloat("Rainfall", &newSettings.hydrationRainfall, 0.005f, 0.f, 500.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Evaporation", &newSettings.hydrationEvaporation, 0.005f, 0.f, 500.f);
-            ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Minimum Water Level", &newSettings.minimumWaterLevel, 1.0f, 0.f, 500.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Capacity", &newSettings.sedimentCapacity, 0.05f, 0.f, 10.f);
             ImGui::SetNextItemWidth(250);

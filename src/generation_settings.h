@@ -16,8 +16,7 @@ public:
             SHOW_COLLISION_AREAS,
             SHOW_PLATE_DIRECTIONS,
             SHOW_PLATE_VELOCITIES,
-            SHOW_PRESSURE_AREAS,
-            SHOW_STRESS_AREAS,
+            SHOW_ASTHENOSPHERE,
       };
 
       enum ShadingMode

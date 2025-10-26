@@ -40,11 +40,10 @@ struct KernelSettings
     float maxUpliftClamp = 20000.f;
     int upliftRange = 50;
 
-    float hydrationPipeCrossSection = 1000; // 1M m² cross-section for 1km² cell
-    float hydrationPipeLength = 10; // 1km pipe length matching cell size
+    float hydrationPipeCrossSection = 1000; // 1000 m² cross-section for 1km² cell
+    float hydrationPipeLength = 1000; // 1km pipe length matching cell size
     float hydrationRainfall = 0.002; // ~2mm per iteration (realistic for geological time)
     float hydrationEvaporation = 0.001; // ~1mm per iteration
-    float minimumWaterLevel = 10.0f; // 10m minimum water level (more realistic)
     float gravity = 9.81;
     float sedimentCapacity = 0.01; // Reduced for 1km scale - less sediment per unit
     float sedimentDissolving = 0.001; // Reduced dissolution rate for larger scale

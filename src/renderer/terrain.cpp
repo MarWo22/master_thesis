@@ -23,16 +23,16 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
       , m_regionShader(nullptr)
       , m_velocityShader(nullptr)
       , m_directionShader(nullptr)
+      , m_asthenosphereShader(nullptr)
       , m_heightmapTexture(nullptr)
       , m_platesTexture(nullptr)
       , m_collisionTexture(nullptr)
       , m_velocityTexture(nullptr)
       , m_directionTexture(nullptr)
-      , m_pressureTexture(nullptr)
-      , m_stressTexture(nullptr)
       , m_waterTexture(nullptr)
       , m_arrowTexture(nullptr)
       , m_accretionTexture(nullptr)
+      , m_asthenosphereTexture(nullptr)
       , m_sizeX(sizeX)
       , m_sizeZ(sizeZ)
       , m_vao(0)
@@ -48,16 +48,16 @@ void Terrain::init()
     m_regionShader = getShader("region");
     m_velocityShader = getShader("velocity");
     m_directionShader = getShader("direction");
+    m_asthenosphereShader = getShader("asthenosphere");
     m_heightmapTexture = getTexture("heightMap");
     m_platesTexture = getTexture("cudaPlateTexture");
     m_collisionTexture = getTexture("collisionMap");
     m_velocityTexture = getTexture("velocityTexture");
     m_directionTexture = getTexture("directionTexture");
-    m_pressureTexture = getTexture("pressureTexture");
-    m_stressTexture = getTexture("stressTexture");
     m_waterTexture = getTexture("waterTexture");
     m_arrowTexture = getTexture("arrowTexture");
     m_accretionTexture = getTexture("accretionTexture");
+    m_asthenosphereTexture = getTexture("asthenosphereTexture");
     createGlState();
     populateBuffers();
 }
@@ -104,17 +104,11 @@ void Terrain::render(const Camera &camera)
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_velocityTexture->bind(GL_TEXTURE1);
             break;
-        case RenderSettings::RenderMode::SHOW_PRESSURE_AREAS:
-            m_velocityShader->bind();
-            m_velocityShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
+        case RenderSettings::RenderMode::SHOW_ASTHENOSPHERE:
+            m_asthenosphereShader->bind();
+            m_asthenosphereShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
-            m_pressureTexture->bind(GL_TEXTURE1);
-            break;
-        case RenderSettings::RenderMode::SHOW_STRESS_AREAS:
-            m_velocityShader->bind();
-            m_velocityShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
-            m_heightmapTexture->bind(GL_TEXTURE0);
-            m_stressTexture->bind(GL_TEXTURE1);
+            m_asthenosphereTexture->bind(GL_TEXTURE1);
             break;
         default:
             std::cerr << "Undefined render mode" << std::endl;

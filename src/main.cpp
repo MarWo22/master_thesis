@@ -22,6 +22,7 @@ void loadShaders()
     Renderer::addShader("region", new Shader("./shaders/heightMap.vert", "./shaders/region.frag"));
     Renderer::addShader("velocity", new Shader("./shaders/heightMap.vert", "./shaders/velocity.frag"));
     Renderer::addShader("direction", new Shader("./shaders/heightMap.vert", "./shaders/direction.frag"));
+    Renderer::addShader("asthenosphere", new Shader("./shaders/heightMap.vert", "./shaders/asthenosphere.frag"));
 }
 
 void loadTextures(CudaGlInteropManager &interopManager)
@@ -79,17 +80,12 @@ void loadTextures(CudaGlInteropManager &interopManager)
                                  heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
     Renderer::addTexture("velocityTexture", velocityTexture);
 
-    auto *pressureTexture = new Texture();
-    pressureTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
-    interopManager.addConnection("pressureTexture", pressureTexture->id(), sizeof(float), heightmapDimensions.x,
-                                 heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
-    Renderer::addTexture("pressureTexture", pressureTexture);
-
-    auto *stressTexture = new Texture();
-    stressTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
-    interopManager.addConnection("stressTexture", stressTexture->id(), sizeof(float), heightmapDimensions.x,
-                                 heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
-    Renderer::addTexture("stressTexture", stressTexture);
+    auto *asthenosphereTexture = new Texture();
+    asthenosphereTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    Renderer::addTexture("asthenosphereTexture", asthenosphereTexture);
+    interopManager.addConnection("asthenosphereTexture", asthenosphereTexture->id(), sizeof(float2), heightmapDimensions.x,
+                                 heightmapDimensions.y, GL_RG32F, GL_RG, GL_FLOAT);
+    Renderer::addTexture("asthenosphereTexture", asthenosphereTexture);
 
     auto *waterTexture = new Texture();
     waterTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
