@@ -75,7 +75,7 @@ public:
         return {x, y};
     }
 
-    __device__ __inline__ float Slope(const Vec2<int> &textureIndex)
+    __device__ __inline__ float Slope(const Vec2<int> &textureIndex) const
     {
         int a = coordinateToIndex(textureIndex + Vec2(1, 0));
         int b = coordinateToIndex(textureIndex + Vec2(-1, 0));

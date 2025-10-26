@@ -2056,41 +2056,52 @@ __global__ void flow(CudaTexture<float> *w_hydrationPtr, const CudaTexture<float
     netFlow.y = (r_flux[coords + Vec2<int>(0, 1)].w - r_flux[idx].y + r_flux[idx].y - r_flux[coords + Vec2<int>(0, -1)].
                  w) * 0.5f;
 
-    float h = fmaxf(hydration[idx], 1e-6f);
-    velocity[idx] = netFlow / h;
+    float h = fmaxf(hydration[idx], 0.01f);  // Min 1cm water depth for stability
+    Vec2<float> vel = netFlow / h;
+    // Clamp velocity to realistic values (prevent explosion from near-zero water)
+    float velMag = vel.magnitude();
+    if (velMag > 50.0f) {  // Max 50 m/s flow velocity
+        vel = vel * (50.0f / velMag);
+    }
+    velocity[idx] = vel;
 
     //hydration[idx] = max(max(r_flux[idx].x, r_flux[idx].y), max(r_flux[idx].z, r_flux[idx].w));
     w_flux[idx] = r_flux[idx];
 }
 
-__global__ void sediment(CudaTexture<float> *w_materialPtr, CudaTexture<float> *w_sedimentPtr,
-                         CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime)
+__global__ void sediment(const CudaTexture<float> *r_materialPtr, CudaTexture<float> *w_materialPtr,
+                         CudaTexture<float> *w_sedimentPtr, CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime)
 {
-    CudaTexture<float> materialTexture = *w_materialPtr;
-    CudaTexture<float> sedimentTexture = *w_sedimentPtr;
-    CudaTexture<Vec2<float> > velocityTexture = *r_velocityPtr;
+    const CudaTexture<float> &r_materialTexture = *r_materialPtr;  // Read-only for slope calculation
+    CudaTexture<float> &w_materialTexture = *w_materialPtr;        // Write for erosion/deposition
+    CudaTexture<float> &sedimentTexture = *w_sedimentPtr;
+    CudaTexture<Vec2<float> > &velocityTexture = *r_velocityPtr;
 
     unsigned int idx = getInvokeIndex();
-    Vec2<int> coord = getTextureIndex(w_materialPtr->size());
+    Vec2<int> coord = getTextureIndex(r_materialPtr->size());
 
     float threshold = 0.03;
-    float C = kernelSettings.sedimentCapacity * sinf(fmaxf(materialTexture.Slope(coord), threshold)) * velocityTexture[
-                  idx].magnitude();
+    float C = kernelSettings.sedimentCapacity * sinf(fmaxf(r_materialTexture.Slope(coord), threshold)) * velocityTexture[idx].magnitude();
+
+    // Clamp capacity to prevent explosive erosion/deposition
+    C = fminf(C, 5.0f);  // Max 5m sediment capacity per sub-iteration
 
     if (C > sedimentTexture[idx])
     {
-        float s = kernelSettings.sedimentDissolving * (C - sedimentTexture[idx]);
-        float temp = fmaxf(materialTexture[idx] - s, 0.0);
-        float delta = sedimentTexture[idx] - temp;
-        materialTexture[idx] = fmaxf(materialTexture[idx] - s, 0.0);
-        sedimentTexture[idx] = fmaxf(sedimentTexture[idx] + delta, 0.0);
+        // Erosion: water capacity exceeds current sediment, pick up more
+        float s = kernelSettings.sedimentDissolving * (C - sedimentTexture[idx]) * deltatime;
+        // Clamp to available material (can't erode more than exists)
+        s = fminf(s, r_materialTexture[idx]);
+        w_materialTexture[idx] = r_materialTexture[idx] - s;
+        sedimentTexture[idx] += s;
     } else
     {
-        float s = kernelSettings.sedimentDissolving * (sedimentTexture[idx] - C);
-        float temp = fmaxf(sedimentTexture[idx] - s, 0.0);
-        float delta = sedimentTexture[idx] - temp;
-        sedimentTexture[idx] = temp;
-        materialTexture[idx] = fmaxf(materialTexture[idx] + delta, 0.0);
+        // Deposition: sediment exceeds capacity, drop some
+        float s = kernelSettings.sedimentDissolving * (sedimentTexture[idx] - C) * deltatime;
+        // Clamp to available sediment (can't deposit more than we're carrying)
+        s = fminf(s, sedimentTexture[idx]);
+        sedimentTexture[idx] -= s;
+        w_materialTexture[idx] = r_materialTexture[idx] + s;
     }
 }
 

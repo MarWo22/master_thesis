@@ -293,6 +293,7 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
 {
     const auto fluxBuffer = m_textureManager.generateTexture<float4>(m_width, m_height);
     const auto sedimentBuffer = m_textureManager.generateTexture<float>(m_width, m_height);
+    const auto materialBuffer = m_textureManager.generateTexture<float>(m_width, m_height);
 
     for (size_t i = 0; i < 10; i++)
     {
@@ -308,7 +309,12 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
                                                        m_hydrationFlux->deviceTexture(),
                                                        m_hydrationVelocity->deviceTexture(), 1.0);
         CUDA_ERROR_CHECK();
-        sediment<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(heightMapTextureWrite->deviceTexture(),
+        // Copy current heightmap for race-free slope calculation
+        cudaMemcpyAsync(materialBuffer->getPointer(), heightMapTextureWrite->getPointer(),
+                       sizeof(float) * m_width * m_height, cudaMemcpyDeviceToDevice);
+        CUDA_ERROR_CHECK();
+        sediment<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(materialBuffer->deviceTexture(),
+                                                           heightMapTextureWrite->deviceTexture(),
                                                            m_sedimentLevel->deviceTexture(),
                                                            m_hydrationVelocity->deviceTexture(), 1.0);
         CUDA_ERROR_CHECK();

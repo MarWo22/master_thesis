@@ -177,8 +177,8 @@ __global__ void flux(const CudaTexture<float> *r_materialPtr, const CudaTexture<
 __global__ void flow(CudaTexture<float> *w_hydrationPtr, const CudaTexture<float4> *r_fluxPtr,
                      CudaTexture<float4> *w_fluxPtr, CudaTexture<Vec2<float> > *w_velocityPtr, float deltatime);
 
-__global__ void sediment(CudaTexture<float> *w_materialPtr, CudaTexture<float> *w_sedimentPtr,
-                         CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime);
+__global__ void sediment(const CudaTexture<float> *r_materialPtr, CudaTexture<float> *w_materialPtr,
+                         CudaTexture<float> *w_sedimentPtr, CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime);
 
 __global__ void transport(CudaTexture<float> *r_sedimentPtr, CudaTexture<float> *w_sedimentPtr,
                           CudaTexture<Vec2<float> > *r_velocityPtr, float deltatime);
