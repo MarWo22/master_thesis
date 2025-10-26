@@ -2089,7 +2089,7 @@ __global__ void sediment(const CudaTexture<float> *r_materialPtr, CudaTexture<fl
     if (C > sedimentTexture[idx])
     {
         // Erosion: water capacity exceeds current sediment, pick up more
-        float s = kernelSettings.sedimentDissolving * (C - sedimentTexture[idx]) * deltatime;
+        float s = kernelSettings.sedimentErosionRate * (C - sedimentTexture[idx]) * deltatime;
         // Clamp to available material (can't erode more than exists)
         s = fminf(s, r_materialTexture[idx]);
         w_materialTexture[idx] = r_materialTexture[idx] - s;
@@ -2097,7 +2097,7 @@ __global__ void sediment(const CudaTexture<float> *r_materialPtr, CudaTexture<fl
     } else
     {
         // Deposition: sediment exceeds capacity, drop some
-        float s = kernelSettings.sedimentDissolving * (sedimentTexture[idx] - C) * deltatime;
+        float s = kernelSettings.sedimentDepositionRate * (sedimentTexture[idx] - C) * deltatime;
         // Clamp to available sediment (can't deposit more than we're carrying)
         s = fminf(s, sedimentTexture[idx]);
         sedimentTexture[idx] -= s;

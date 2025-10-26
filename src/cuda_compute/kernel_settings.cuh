@@ -42,11 +42,12 @@ struct KernelSettings
 
     float hydrationPipeCrossSection = 1000; // 1000 m² cross-section for 1km² cell
     float hydrationPipeLength = 1000; // 1km pipe length matching cell size
-    float hydrationRainfall = 0.002; // ~2mm per iteration (realistic for geological time)
-    float hydrationEvaporation = 0.001; // ~1mm per iteration
+    float hydrationRainfall = 0.101; // ~2mm per iteration (realistic for geological time)
+    float hydrationEvaporation = 0.303; // ~1mm per iteration
     float gravity = 9.81;
-    float sedimentCapacity = 0.01; // Reduced for 1km scale - less sediment per unit
-    float sedimentDissolving = 0.001; // Reduced dissolution rate for larger scale
+    float sedimentCapacity = 0.1; // Reduced for 1km scale - less sediment per unit
+    float sedimentErosionRate = 0.5; // Rate at which terrain erodes into sediment
+    float sedimentDepositionRate = 0.1; // Rate at which sediment deposits onto terrain
 
     float pressureAccumulation = 0.02f;      // Rate of pressure buildup per iteration
     float pressureDecayRate = 0.8f;          // How fast pressure decays at fault lines

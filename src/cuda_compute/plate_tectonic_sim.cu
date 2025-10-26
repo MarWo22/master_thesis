@@ -295,7 +295,7 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
     const auto sedimentBuffer = m_textureManager.generateTexture<float>(m_width, m_height);
     const auto materialBuffer = m_textureManager.generateTexture<float>(m_width, m_height);
 
-    for (size_t i = 0; i < 10; i++)
+    for (size_t i = 0; i < 100; i++)
     {
         rain<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_hydrationLevel->deviceTexture(), 1.0, m_seed + m_iterations);
         CUDA_ERROR_CHECK();
@@ -329,6 +329,8 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
         cudaMemcpyAsync(m_sedimentLevel->getPointer(), sedimentBuffer->getPointer(), sizeof(float) * m_width * m_height,
                         cudaMemcpyDeviceToDevice);
         CUDA_ERROR_CHECK();
+
+        std::cout << "Erosion sub-iteration: " << i << "\n";
     }
 }
 

@@ -378,7 +378,9 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Capacity", &newSettings.sedimentCapacity, 0.05f, 0.f, 10.f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Dissolving constant", &newSettings.sedimentDissolving, 0.0001f, 0.f, 10.f);
+            ImGui::DragFloat("Erosion Rate", &newSettings.sedimentErosionRate, 0.01f, 0.f, 10.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Deposition Rate", &newSettings.sedimentDepositionRate, 0.01f, 0.f, 10.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Thermal Erosion Strength", &newSettings.thermalErosionStrength, 0.001f, 0.f, 2.0f);
             ImGui::SetNextItemWidth(250);
