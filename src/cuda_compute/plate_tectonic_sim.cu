@@ -386,7 +386,7 @@ void PlateTectonicSim::applyCCL()
                                                       idsMaxCounts->deviceTexture(), size);
 
     const auto labelIdLookup = m_textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, MAX_PLATE_COUNT);
-    createLabelIdLookup<<<gridSize, THREADS_PER_BLOCK>>>(uniqueLabels->deviceTexture(), labelCounts->deviceTexture(),
+    createLabelIdLookup<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(uniqueLabels->deviceTexture(), labelCounts->deviceTexture(),
                                                          idsMaxCounts->deviceTexture(), m_plateDataLookup->getPointer(),
                                                          labelIdLookup->deviceTexture(), size);
 

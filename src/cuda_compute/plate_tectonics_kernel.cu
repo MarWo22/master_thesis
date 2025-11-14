@@ -1300,6 +1300,11 @@ __inline__ __device__ float continentalFormula(const float x)
     return expf(-0.02f * x * x) + expf(-0.2f * x * x) * (0.5f - fabs(fmod(fabs(x), 1.0f) - 0.5f));
 }
 
+__inline__ __device__ float subductionOverFormula(const float x)
+{
+    return continentalFormula(x - 10);
+}
+
 __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
                                const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
                                const CudaTexture<UpliftData> *r_upliftDataPtr,
@@ -1384,8 +1389,11 @@ __global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const 
             const float dy = fmod(static_cast<float>(delta.y) + sizeF.y * 0.5f, sizeF.y) - sizeF.y * 0.5f;
             const Vec2<float> dir = Vec2(dx, dy).normalizedZeroSafe();
             const PlateData otherPlateData = r_plateDataLookup[collisionSecondaryPlate];
-            const float dot = dir.dot(otherPlateData.direction);
+            const float dot = max(dir.dot(otherPlateData.direction), 0.f);
+            const float value = subductionOverFormula(static_cast<float>(closestBuffer.dist));
+            const float multiplier = 1.f + value * dot * kernelSettings.subductionOverUpliftMultiplier;
 
+            (*w_heightMapPtr)[invokeIndex] = max((*w_heightMapPtr)[invokeIndex] * multiplier, kernelSettings.minUpliftClamp);
 
             //printf("%d is being subducted: id %d with %d, distance: %d, mass: %.4f\n", invokeIndex, plateId, collisionPlateId, closestBuffer.dist, upliftData.cumulativeHeight);
         } else if (collisionType == 1)
@@ -2669,26 +2677,22 @@ __global__ void createLabelIdLookup(const CudaTexture<uint64_t> *r_idLabelPacket
     __shared__ unsigned int availablePlatesSize;
     __shared__ unsigned int availablePlatesIndex;
 
-    // The first block creates a shared array with available  plates
-    if (invokeIndex < MAX_PLATE_COUNT)
-    {
-        if (invokeIndex == 0)
-        {
-            availablePlatesSize = 0;
-            availablePlatesIndex = 0;
-        }
-        __syncthreads();
-        if (!rw_plateDataLookup[invokeIndex].size > 0)
-        {
-            const unsigned int index = atomicAdd(&availablePlatesSize, 1);
-            availablePlates[index] = invokeIndex;
-        }
-        __syncthreads();
-    }
-
-    // Bounds check for the number of labels
-    if (invokeIndex >= numLabels)
+    if (invokeIndex >= MAX_PLATE_COUNT || invokeIndex >= numLabels)
         return;
+
+    if (invokeIndex == 0)
+    {
+        availablePlatesSize = 0;
+        availablePlatesIndex = 0;
+    }
+    __syncthreads();
+
+    if (!rw_plateDataLookup[invokeIndex].size > 0)
+    {
+        const unsigned int index = atomicAdd(&availablePlatesSize, 1);
+        availablePlates[index] = invokeIndex;
+    }
+    __syncthreads();
 
     // Get plate and packedLabel at index
     const uint64_t packedLabel = (*r_idLabelPacketPtr)[invokeIndex];
