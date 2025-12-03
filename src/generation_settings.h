@@ -33,9 +33,15 @@ public:
             SMOOTH_BORDER,
       };
 
-      bool renderCollisionBorders = false;
-      bool renderAccretionPixels = false;
+      enum CollisionRenderMode
+      {
+            NO_COLLISION_BORDERS,
+            COLLISION_BORDERS,
+            PROPAGATED_COLLISION_BORDERS
+      };
 
+      bool renderAccretionPixels = false;
+      int collisionRenderMode = NO_COLLISION_BORDERS;
       bool renderHeight = true;
       bool renderWater = true;
       bool renderDirections = false;

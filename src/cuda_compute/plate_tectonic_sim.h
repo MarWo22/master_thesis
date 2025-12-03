@@ -86,6 +86,8 @@ class PlateTectonicSim
      */
     std::unique_ptr<CudaTextureHost<uint32_t> > m_plateCollisions;
     std::unique_ptr<CudaTextureHost<uint8_t>> m_accretionTexture;
+    std::unique_ptr<CudaTextureHost<UpliftData>> m_upliftData;
+    std::unique_ptr<CudaTextureHost<PropagatedUpliftData>> m_propagatedUpliftData;
 
 
 
@@ -153,7 +155,7 @@ private:
 
     void setupGUICallbacks();
 
-    void copyConstantTexturesInterop() const;
+    void copyConstantTexturesInterop();
 
     void copyDirectionGL() const;
 
@@ -170,6 +172,10 @@ private:
     void onRenderSettingChange();
 
     void copyPlateDataGui() const;
+
+    void copyCollisionsVisualization();
+
+    void copyPropagatedCollisionsVisualization();
 };
 
 

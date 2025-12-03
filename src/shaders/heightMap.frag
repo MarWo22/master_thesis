@@ -6,15 +6,16 @@ layout(binding = 1) uniform sampler2D platesTexture;
 layout(binding = 2) uniform sampler2D waterTexture;
 layout(binding = 3) uniform sampler2D arrowTexture;
 layout(binding = 4) uniform sampler2D directionTexture;
-layout(binding = 5) uniform usampler2D collisionTexture;
+layout(binding = 5) uniform sampler2D collisionTexture;
 layout(binding = 6) uniform sampler2D accretionTexture;
+
 
 uniform int borderRenderType;
 uniform bool showWater;
 uniform bool showDirectionArrows;
 uniform int shadingType;
 uniform float continentalCrustThreshold;
-uniform bool showCollisionBorder;
+uniform int collisionRenderType;
 uniform bool showAccretion;
 
 in vec2 texCoord;
@@ -96,12 +97,19 @@ void renderRawBorder() {
 
 void renderCollisionBorder() {
     ivec2 texelCoord = ivec2(texCoord * textureSize(collisionTexture, 0));
-    uint value = texelFetch(collisionTexture, texelCoord, 0).r;
+    float normalizedValue = texelFetch(collisionTexture, texelCoord, 0).r;
+    int value = int(normalizedValue * 255);
 
-    if (value == 0)
-    fragmentColor = vec4(1, 1, 1, 1);
-    else if (((value >> 8) & 0xFFu) != 0u)
-    fragmentColor = vec4(0, 0, 0, 1);
+    if (value == 1)
+    fragmentColor = vec4(1f, 1f, 1f, 1);
+    if (value == 2)
+    fragmentColor = vec4(0.5f, 0.5f, 0.5f, 1f);
+    if (value == 3)
+    fragmentColor = vec4(0f, 0f, 0f, 1f);
+    if (value == 4)
+    fragmentColor = vec4(0f, 0f, 1f, 1f);
+    if (value == 5)
+    fragmentColor = vec4(01, 1f, 0f, 1f);
 }
 
 void renderAccretionPixels() {
@@ -300,14 +308,14 @@ void main() {
         break;
     }
 
-    if (showCollisionBorder)
-    {
-        renderCollisionBorder();
-    }
+    if (collisionRenderType != 0)
+    renderCollisionBorder();
 
     if (showAccretion)
     {
         renderAccretionPixels();
     }
+
+
 
 }

@@ -118,7 +118,8 @@ void Gui::gui()
             ImGui::Text("Velocity: %.3f", guiPlateData[id].velocity);
             ImGui::Text("Velocity Smoothed: %.3f", guiPlateData[id].velocitySmoothed);
             ImGui::Text("Direction: (%.3f, %.3f)", guiPlateData[id].direction.x, guiPlateData[id].direction.y);
-            ImGui::Text("Direction Smoothed: (%.3f, %.3f)", guiPlateData[id].directionSmoothed.x, guiPlateData[id].directionSmoothed.y);
+            ImGui::Text("Direction Smoothed: (%.3f, %.3f)", guiPlateData[id].directionSmoothed.x,
+                        guiPlateData[id].directionSmoothed.y);
 
             std::ostringstream continental_ss;
             for (int i = 0; i < guiPlateData[id].continental_len; ++i)
@@ -142,7 +143,6 @@ void Gui::gui()
             ImGui::Text("Perimeter: (%d)", guiPlateData[id].perimeter);
             ImGui::Text("Circularity: (%.2f)", guiPlateData[id].circularity);
             ImGui::Text("Break score: (%.2f)", guiPlateData[id].break_score);
-
         }
     }
 
@@ -230,7 +230,14 @@ void Gui::renderSettingsSection()
                 if (ImGui::RadioButton("Render Raw Borders", &renderSettings.borderRenderMode,
                                        RenderSettings::BorderRenderMode::RAW_BORDER))
                     renderSettings.callCallback("renderSettingsChanged");
-                if (ImGui::Checkbox("Render Collision Borders", &renderSettings.renderCollisionBorders))
+                if (ImGui::RadioButton("No Collisions", &renderSettings.collisionRenderMode,
+                                       RenderSettings::CollisionRenderMode::NO_COLLISION_BORDERS))
+                    renderSettings.callCallback("renderSettingsChanged");
+                if (ImGui::RadioButton("Collision Borders", &renderSettings.collisionRenderMode,
+                                       RenderSettings::CollisionRenderMode::COLLISION_BORDERS))
+                    renderSettings.callCallback("renderSettingsChanged");
+                if (ImGui::RadioButton("Propagated Collision Borders", &renderSettings.collisionRenderMode,
+                                       RenderSettings::CollisionRenderMode::PROPAGATED_COLLISION_BORDERS))
                     renderSettings.callCallback("renderSettingsChanged");
                 if (ImGui::Checkbox("Render Accretion Pixels", &renderSettings.renderAccretionPixels))
                     renderSettings.callCallback("renderSettingsChanged");
@@ -298,11 +305,11 @@ void Gui::simulationSettingsSection()
 
             ImGui::SetNextItemWidth(250);
             ImGui::DragInt("Collision Type Update Cooldown", &newSettings.collisionTypeUpdateCooldown, 1,
-                             0, 14);
+                           0, 14);
 
             ImGui::SetNextItemWidth(250);
             ImGui::DragInt("Min Collision Size For Type", &newSettings.minCollisionSize, 1,
-                             0, 1000);
+                           0, 1000);
             // direction_threshold_merge
             // velocity_threshold_merge
             // min_size
@@ -346,7 +353,6 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Break Score Smoothing Factor", &newSettings.breakScoreSmoothingFactor, 0.001f,
                              0.f, 1.f, "%.3f");
-
         }
 
         if (ImGui::CollapsingHeader("Uplift Properties"))
@@ -354,11 +360,14 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragInt("Uplift range", &newSettings.upliftRange, 1, 0, 100);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Subduction Over Uplift Multiplier", &newSettings.subductionOverUpliftMultiplier, 0.001f, 0.0f, 1.f);
+            ImGui::DragFloat("Subduction Over Uplift Multiplier", &newSettings.subductionOverUpliftMultiplier, 0.001f,
+                             0.0f, 1.f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Subduction Under Uplift Multiplier", &newSettings.subductionUnderUpliftMultiplier, 0.001f, 0.0f, 1.f);
+            ImGui::DragFloat("Subduction Under Uplift Multiplier", &newSettings.subductionUnderUpliftMultiplier, 0.001f,
+                             0.0f, 1.f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragFloat("Continental Collision Uplift Multiplier", &newSettings.continentalUpliftMultiplier, 0.001f, 0.0f, 1.f);
+            ImGui::DragFloat("Continental Collision Uplift Multiplier", &newSettings.continentalUpliftMultiplier,
+                             0.001f, 0.0f, 1.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Uplift Height Min Clamp", &newSettings.minUpliftClamp, 1.f, 0.0f, 40000.f);
             ImGui::SetNextItemWidth(250);
@@ -406,7 +415,8 @@ void Gui::simulationSettingsSection()
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Stress Split Threshold", &newSettings.stressSplitThreshold, 1.0f, 1.0f, 200.0f);
             ImGui::SetNextItemWidth(250);
-            ImGui::DragIntRange2("Plate area target", &newSettings.targetMinimumPlateArea, &newSettings.targetMaximumPlateArea, 1.0f, 1, 300000);
+            ImGui::DragIntRange2("Plate area target", &newSettings.targetMinimumPlateArea,
+                                 &newSettings.targetMaximumPlateArea, 1.0f, 1, 300000);
         }
 
         ImGui::Unindent(15.0f);

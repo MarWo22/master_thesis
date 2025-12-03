@@ -71,13 +71,14 @@ void Terrain::render(const Camera &camera)
             m_heightmapShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapShader->setUniform("displaceHeight", renderSettings.renderHeight ? 1 : 0);
             m_heightmapShader->setUniform("borderRenderType", renderSettings.borderRenderMode);
-            m_heightmapShader->setUniform("showCollisionBorder", renderSettings.renderCollisionBorders);
+            m_heightmapShader->setUniform("collisionRenderType", renderSettings.collisionRenderMode);
             m_heightmapShader->setUniform("showAccretion", renderSettings.renderAccretionPixels);
             m_heightmapShader->setUniform("showWater", renderSettings.renderWater ? 1 : 0);
             m_heightmapShader->setUniform("heightMultiplier", renderSettings.heightMultiplier);
             m_heightmapShader->setUniform("showDirectionArrows", renderSettings.renderDirections ? 1 : 0);
             m_heightmapShader->setUniform("shadingType", renderSettings.shadingMode);
             m_heightmapShader->setUniform("continentalCrustThreshold", kernelSettingsHost.continentalCrustThreshold);
+
             m_heightmapTexture->bind(GL_TEXTURE0);
             m_platesTexture->bind(GL_TEXTURE1);
             m_waterTexture->bind(GL_TEXTURE2);

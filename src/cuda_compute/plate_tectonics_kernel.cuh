@@ -128,12 +128,12 @@ __global__ void applyAccretion(const CudaTexture<float> *r_heightMapPtr,
 
 __global__ void flipDivergedBitmap(uint32_t *divergenceBitmap, const uint32_t *hasDivergedBitmap);
 
-__global__ void VerticalBlur(const CudaTexture<uint32_t> *r_collisionsPtr,
+__global__ void VerticalBlur(const CudaTexture<PropagatedUpliftData> *r_propagatedUpliftData,
                              CudaTexture<DistanceFieldBuffer> *w_bufferPtr);
 
-__global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<uint32_t> *r_collisionsPtr,
+__global__ void HorizontalBlur(const CudaTexture<uint8_t> *r_plateIdsPtr, const CudaTexture<PropagatedUpliftData> *r_propagatedUpliftDataPtr,
                                const CudaTexture<DistanceFieldBuffer> *r_bufferPtr,
-                               const CudaTexture<UpliftData> *r_upliftDataPtr, const PlateData *r_plateDataLookup,
+                               const PlateData *r_plateDataLookup,
                                CudaTexture<float> *w_heightMapPtr);
 
 __device__ bool isPartOfCollision(uint32_t collision, uint8_t plateId);
@@ -205,7 +205,7 @@ __global__ void computeBreakScore(PlateData *w_plateData);
 __global__ void thermalErosionKernel(CudaTexture<float> *w_materialPtr);
 
 __global__ void computeCurl(const CudaTexture<float> *r_pressurePtr,
-                                          CudaTexture<Vec2<float> > *w_velocityPtr);
+                            CudaTexture<Vec2<float> > *w_velocityPtr);
 
 __global__ void mergeAndCountSizeMass(CudaTexture<uint8_t> *rw_plateIdsPtr,
                                       const CudaTexture<float> *r_heightTexturePtr, const int *r_plateMergeIds,
@@ -267,5 +267,22 @@ __global__ void postCClIdReassign(const CudaTexture<uint8_t> *r_labelIdLookupPtr
                                   CudaTexture<unsigned int> *w_unassignedIndicesPtr, int *unassignedIndicesCount);
 
 __global__ void resetPlateDataPreCount(PlateData *rw_plateData);
+
+__global__ void moveContinentalCollisions(const CudaTexture<UpliftData> *r_upliftData,
+                                          const CudaTexture<uint32_t> *r_collisionsPtr,
+                                          const CudaTexture<float> *r_heightMap,
+                                          CudaTexture<PropagatedUpliftData> *w_propagatedUpliftData,
+                                          const PlateData *r_plateData);
+
+__global__ void combinePropagatedCollisions(const CudaTexture<UpliftData> *r_upliftData,
+                                            const CudaTexture<uint32_t> *r_collisionTypes,
+                                            CudaTexture<PropagatedUpliftData> *rw_propagatedUpliftData);
+
+__global__ void createVisualizationCollisionTexture(const CudaTexture<UpliftData> *r_upliftData,
+                                                    const CudaTexture<uint32_t> *r_collisionTexture,
+                                                    CudaTexture<uint8_t> *w_collisionTypes);
+
+__global__ void createVisualizationPropagatedCollisionTexture(const CudaTexture<PropagatedUpliftData> *r_upliftData,
+                                                              CudaTexture<uint8_t> *w_collisionTypes);
 
 #endif //PLATE_TECTONICS_KERNEL_CUH
