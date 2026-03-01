@@ -152,9 +152,8 @@ void PlateTectonicSim::copyConstantTexturesInterop()
 
     if (renderSettings.collisionRenderMode == RenderSettings::CollisionRenderMode::COLLISION_BORDERS)
     {
-            copyCollisionsVisualization();
-    }
-    else if (renderSettings.collisionRenderMode == RenderSettings::CollisionRenderMode::PROPAGATED_COLLISION_BORDERS)
+        copyCollisionsVisualization();
+    } else if (renderSettings.collisionRenderMode == RenderSettings::CollisionRenderMode::PROPAGATED_COLLISION_BORDERS)
     {
         copyPropagatedCollisionsVisualization();
     }
@@ -190,16 +189,8 @@ void PlateTectonicSim::getPlateCollisions(CudaTextureHost<uint32_t> *plateCollis
     // This is followed by an exclusive prefix sum by key. The prefix sum output is stored in the exclusivePrefixSum texture
     // This texture will now contain the occurrence index of the pixel, aligned with the pixelIndicesCollision and
     // plateIdsCollisions texture
-    const auto exclusivePrefixSum = m_textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, 1);
-    const thrust::device_ptr<unsigned int> pixelIndicesThrust(pixelIndicesCollisions->getPointer());
-    const thrust::device_ptr<uint8_t> plateIdsThrust(plateIdsCollisions->getPointer());
-    const thrust::device_ptr<uint8_t> exclusivePrefixSumThrust(exclusivePrefixSum->getPointer());
 
-    sort_by_key(pixelIndicesThrust, pixelIndicesThrust + m_height * m_width, plateIdsThrust,
-                thrust::greater<unsigned int>());
-
-    exclusive_scan_by_key(pixelIndicesThrust, pixelIndicesThrust + m_width * m_height, exclusivePrefixSumThrust,
-                          exclusivePrefixSumThrust);
+    const auto plateCounts = m_textureManager.generateTextureAndReset<int>(m_width, m_height, 0);
 
 
     // Go through each pair of entries of the pixelIndices, exclusivePrefixSum and plateCollisions textures and register
@@ -209,7 +200,7 @@ void PlateTectonicSim::getPlateCollisions(CudaTextureHost<uint32_t> *plateCollis
     // specific byte. This allows for the detection of 0-4 plates in a pixel, any exceeds will be ignored.
     registerPlateCollisions<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsCollisions->deviceTexture(),
                                                                       pixelIndicesCollisions->deviceTexture(),
-                                                                      exclusivePrefixSum->deviceTexture(),
+                                                                      plateCounts->deviceTexture(),
                                                                       plateCollisions->deviceTexture());
     CUDA_ERROR_CHECK();
     // pixelIndicesCollisions, plateIdsCollisions, exclusivePrefixSum get released again
@@ -294,15 +285,45 @@ void PlateTectonicSim::processCollisionUplift(CudaTextureHost<float> *heightMapT
      * Perform uplift
      */
 
-    VerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_propagatedUpliftData->deviceTexture(),
-                                                           blurBuffer->deviceTexture());
-    CUDA_ERROR_CHECK();
+    auto jfaTextureA = m_textureManager.generateTexture<int>(m_width, m_height);
+    auto jfaTextureB = m_textureManager.generateTexture<int>(m_width, m_height);
 
-    HorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsTextureWrite->deviceTexture(),
-                                                             m_propagatedUpliftData->deviceTexture(),
-                                                             blurBuffer->deviceTexture(),
-                                                             m_plateDataLookup->getPointer(),
-                                                             heightMapTextureWrite->deviceTexture());
+    JFAInitialize<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_propagatedUpliftData->deviceTexture(),
+                                                            jfaTextureA->deviceTexture());
+
+    // Find largest power of two
+    int maxDim = max(m_width, m_height);
+    int step = 1;
+    while (step < maxDim) step <<= 1;
+    step >>= 1;
+
+    while (step > 0)
+    {
+        std::cout << "Executing with step " << step << "\n";
+        JFAPass<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(jfaTextureA->deviceTexture(), jfaTextureB->deviceTexture(),
+                                                          step);
+        std::swap(jfaTextureA, jfaTextureB);
+        step >>= 1;
+    }
+
+    JFAComputeDistance<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(jfaTextureA->deviceTexture(),
+                                                                 blurBuffer->deviceTexture());
+
+    applyUplift<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsTextureWrite->deviceTexture(),
+                m_propagatedUpliftData->deviceTexture(),
+                blurBuffer->deviceTexture(),
+                m_plateDataLookup->getPointer(),
+                heightMapTextureWrite->deviceTexture());
+
+    // VerticalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_propagatedUpliftData->deviceTexture(),
+    //                                                        blurBuffer->deviceTexture());
+    // CUDA_ERROR_CHECK();
+    //
+    // HorizontalBlur<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(plateIdsTextureWrite->deviceTexture(),
+    //                                                          m_propagatedUpliftData->deviceTexture(),
+    //                                                          blurBuffer->deviceTexture(),
+    //                                                          m_plateDataLookup->getPointer(),
+    //                                                          heightMapTextureWrite->deviceTexture());
     CUDA_ERROR_CHECK();
 }
 
@@ -498,7 +519,7 @@ void PlateTectonicSim::processPlateSplitting()
             std::cout << "Plate " << i << " has break score " << h_plateData[i].breakScore
                     << ", splitting at center (" << splitPoint.x << ", " << splitPoint.y << ")\n";
 
-            //SplitPlateV2(splitPoint, static_cast<uint8_t>(i));
+            SplitPlateV2(splitPoint, static_cast<uint8_t>(i));
             return; // Only split one plate per iteration
         }
     }
@@ -573,6 +594,7 @@ void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPl
 {
     m_seed = seed;
     m_heightMapTexture.reset();
+    m_iterations = 0;
 
     // Plate tectonic sim specific device arrays
     m_plateIdsTexture.reset();
@@ -586,6 +608,7 @@ void PlateTectonicSim::resetSim(const unsigned int seed, const int numStartingPl
     m_iterationStats.reset();
 
     initializeTextures();
+    std::cout << "Num startin plates: " <<  numStartingPlates << "\n";
     initializeTectonics(numStartingPlates, numVoronoiSeeds);
 
     if (m_interopManager)
@@ -809,28 +832,28 @@ std::vector<PlateData> PlateTectonicSim::generatePlateData(std::default_random_e
 
 void PlateTectonicSim::initializeTextures()
 {
-    m_heightMapTexture = m_textureManager.generateTexture<float>(m_width, m_height);
-    m_plateIdsTexture = m_textureManager.generateTexture<uint8_t>(m_width, m_height);
+    m_heightMapTexture = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
+    m_plateIdsTexture = m_textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, 0);
     m_plateCollisions = m_textureManager.generateTextureAndReset<uint32_t>(m_width, m_height, 0);
-    m_hydrationLevel = m_textureManager.generateTexture<float>(m_width, m_height);
-    m_hydrationFlux = m_textureManager.generateTexture<float4>(m_width, m_height);
-    m_hydrationVelocity = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
-    m_sedimentLevel = m_textureManager.generateTexture<float>(m_width, m_height);
+    m_hydrationLevel = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0.f);
+    m_hydrationFlux = m_textureManager.generateTextureAndReset<float4>(m_width, m_height, 0);
+    m_hydrationVelocity = m_textureManager.generateTextureAndReset<Vec2<float> >(m_width, m_height, 0);
+    m_sedimentLevel = m_textureManager.generateTextureAndReset<float>(m_width, m_height, 0);
 
-    m_plateDataLookup = m_textureManager.generateTexture<PlateData>(MAX_PLATE_COUNT, 1);
-    m_randStatesPlates = m_textureManager.generateTexture<curandState>(MAX_PLATE_COUNT, 1);
-    m_iterationStats = m_textureManager.generateTexture<IterationStatistics>(1, 1);
+    m_plateDataLookup = m_textureManager.generateTextureAndReset<PlateData>(MAX_PLATE_COUNT, 1, 0);
+    m_randStatesPlates = m_textureManager.generateTextureAndReset<curandState>(MAX_PLATE_COUNT, 1, 0);
+    m_iterationStats = m_textureManager.generateTextureAndReset<IterationStatistics>(1, 1, 0);
 
     m_divergenceBitmap = m_textureManager.generateTextureAndReset<uint32_t>(NUM_WORDS_TRIANGLE_SINGLE_BITS, 1, 0);
     m_collisionTypeBitmap = m_textureManager.generateTextureAndReset<uint8_t>(NUM_TRIANGLE_ENTRIES, 1, 0);
 
-    m_accretionTexture = m_textureManager.generateTexture<uint8_t>(m_width, m_height);
-    m_upliftData = m_textureManager.generateTexture<UpliftData>(m_width, m_height);
-    m_propagatedUpliftData = m_textureManager.generateTexture<PropagatedUpliftData>(m_width, m_height);
+    m_accretionTexture = m_textureManager.generateTextureAndReset<uint8_t>(m_width, m_height, 0);
+    m_upliftData = m_textureManager.generateTextureAndReset<UpliftData>(m_width, m_height, 0);
+    m_propagatedUpliftData = m_textureManager.generateTextureAndReset<PropagatedUpliftData>(m_width, m_height, 0);
 
     // Load noise texture from file
     auto temp = m_textureManager.loadTextureFromPNG<float>("../../../assets/textures/noiseTexture.png");
-    m_asthenosphere = m_textureManager.generateTexture<Vec2<float> >(m_width, m_height);
+    m_asthenosphere = m_textureManager.generateTextureAndReset<Vec2<float> >(m_width, m_height, 0);
 
     computeCurl<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(temp->deviceTexture(), m_asthenosphere->deviceTexture());
 
@@ -1010,14 +1033,15 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
 void PlateTectonicSim::copyCollisionsVisualization()
 {
     const auto texture = m_textureManager.generateTexture<uint8_t>(m_width, m_height);
-    createVisualizationCollisionTexture<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_upliftData->deviceTexture(), m_plateCollisions->deviceTexture(), texture->deviceTexture());
+    createVisualizationCollisionTexture<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(
+        m_upliftData->deviceTexture(), m_plateCollisions->deviceTexture(), texture->deviceTexture());
     m_interopManager->copyConnection("collisionMap", texture->getPointer());
 }
 
 void PlateTectonicSim::copyPropagatedCollisionsVisualization()
 {
     const auto texture = m_textureManager.generateTexture<uint8_t>(m_width, m_height);
-    createVisualizationPropagatedCollisionTexture<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_propagatedUpliftData->deviceTexture(), texture->deviceTexture());
+    createVisualizationPropagatedCollisionTexture<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(
+        m_propagatedUpliftData->deviceTexture(), texture->deviceTexture());
     m_interopManager->copyConnection("collisionMap", texture->getPointer());
 }
-

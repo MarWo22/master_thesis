@@ -372,6 +372,12 @@ void Gui::simulationSettingsSection()
             ImGui::DragFloat("Uplift Height Min Clamp", &newSettings.minUpliftClamp, 1.f, 0.0f, 40000.f);
             ImGui::SetNextItemWidth(250);
             ImGui::DragFloat("Uplift Height Max Clamp", &newSettings.maxUpliftClamp, 1.f, 0.0f, 40000.f);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Subduction Over Range", &newSettings.subductionOverRange, 1, 0, 100);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Continental Prop Iterations", &newSettings.continentalPropMaxIters, 1, 0, 250);
+            ImGui::SetNextItemWidth(250);
+            ImGui::DragFloat("Continental Prop Threshold", &newSettings.continentalPropThreshold, 1.f, 0.f, 20000.f);
         }
 
         if (ImGui::CollapsingHeader("Erosion Properties"))

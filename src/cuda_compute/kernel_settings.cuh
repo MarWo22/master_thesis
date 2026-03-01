@@ -33,12 +33,17 @@ struct KernelSettings
     int collisionTypeUpdateCooldown = 4;
     int minCollisionSize = 50;
 
-    float subductionOverUpliftMultiplier = 0.01f;
+    float subductionOverUpliftMultiplier = 0.005f;
     float subductionUnderUpliftMultiplier = 0.01f;
     float continentalUpliftMultiplier = 0.01f;
     float minUpliftClamp = 0.f;
     float maxUpliftClamp = 20000.f;
     int upliftRange = 50;
+
+    int subductionOverRange = 20;
+    int continentalPropMaxIters = 50;
+    float continentalPropThreshold = 13000;
+
 
     float hydrationPipeCrossSection = 1000; // 1000 m² cross-section for 1km² cell
     float hydrationPipeLength = 1000; // 1km pipe length matching cell size
