@@ -1701,7 +1701,7 @@ __global__ void applyUplift(const CudaTexture<uint8_t> *r_plateIdsPtr,
             // When the this plate is going over, the volcanism should appear based on the direction of the plate going under
             // The more the direction of that pixel is going towards this pixel, should determine the strength of the volcano areas
             // printf("Going over %d : %d\n", plateId, collisionSecondaryPlate);
-            const Vec2<int> otherTexIndex = (*r_bufferPtr).indexToCoordinate(buffer.origIndex);
+            const Vec2<int> otherTexIndex = r_bufferPtr->indexToCoordinate(buffer.origIndex);
             const Vec2<int> delta = center - otherTexIndex;
             const Vec2<float> sizeF = Vec2<float>(static_cast<float>(r_plateIds.size().x),
                                                   static_cast<float>(r_plateIds.size().y));

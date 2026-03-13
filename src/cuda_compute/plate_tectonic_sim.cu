@@ -621,7 +621,7 @@ void PlateTectonicSim::saveTexture() const
     switch (saveTextureGui.texture)
     {
         case SaveTextureGui::TextureType::HEIGHTMAP:
-            saveCudaTextureToDiskGrayscale(saveTextureGui.path.c_str(), *m_heightMapTexture);
+            saveFloatCudaTextureToDiskAsGray16(saveTextureGui.path.c_str(), *m_heightMapTexture, kernelSettingsHost.minUpliftClamp, kernelSettingsHost.maxUpliftClamp);
             break;
         case SaveTextureGui::TextureType::PLATE_IDS:
             saveGrayscale8BitCudaTextureToDiskAsRgb(saveTextureGui.path.c_str(), *m_plateIdsTexture);
