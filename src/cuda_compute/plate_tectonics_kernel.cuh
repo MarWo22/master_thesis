@@ -70,7 +70,8 @@ __global__ void statisticsPass(PlateData *w_plateData, IterationStatistics *w_st
 
 __global__ void initHeightmap(CudaTexture<float> *w_heightMapPtr, int seed, int octaves);
 
-__global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const CollisionVelocityChanges *r_velocityChanges);
+__global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const CollisionVelocityChanges *r_velocityChanges,
+                                          const CudaTexture<Vec2<float>> *r_asthenospherePtr);
 
 __global__ void updatePlateData(PlateData *plateLookup, const Vec2<float> *r_velocityChanges, const float *r_plateMass,
                                 const int *r_plateSize);
