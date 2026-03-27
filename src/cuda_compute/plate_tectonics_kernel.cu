@@ -1857,7 +1857,8 @@ __global__ void convertCollisionMapForGL(const CudaTexture<uint32_t> *r_textureP
         (*w_texturePtr)[invokeIndex] = 255;
 }
 
-__global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const CollisionVelocityChanges *r_velocityChanges)
+__global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const CollisionVelocityChanges *r_velocityChanges,
+                                          const CudaTexture<Vec2<float>> *r_asthenospherePtr)
 {
     if (threadIdx.x >= MAX_PLATE_COUNT)
         return;
@@ -1877,9 +1878,11 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
     const auto [inelasticDirectionalChange, frictionLoss] = r_velocityChanges[threadIdx.x];
 
     const Vec2<float> originalVelocityVector = current.direction * current.velocity;
-    const Vec2<float> asthenosphereVel = current.asthenosphereVelocity * kernelSettings.curlNoiseMultiplier;
-    if (current.size != 0)
-        printf(" %d - %f %f\n", threadIdx.x, asthenosphereVel.x, asthenosphereVel.y);
+    const Vec2<int> sampleCoord = Vec2<int>(
+        static_cast<int>(current.geometricCenter.x + 0.5f),
+        static_cast<int>(current.geometricCenter.y + 0.5f)
+    );
+    const Vec2<float> asthenosphereVel = (*r_asthenospherePtr)[sampleCoord] * kernelSettings.curlNoiseMultiplier;
     const Vec2<float> newVelocityVector = originalVelocityVector;
 
     // printf("asthenosphere velocity: (%.6f, %.6f), magnitude: %.6f \n", asthenosphereVel.x, asthenosphereVel.y, asthenosphereVel.magnitude());
