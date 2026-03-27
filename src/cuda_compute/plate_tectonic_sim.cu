@@ -85,7 +85,8 @@ void PlateTectonicSim::executeIteration()
 
 
     applyPlateMovementChanges << <NUM_BLOCKS_PLATES, THREADS_PER_BLOCK >> >(
-        m_plateDataLookup->getPointer(), plateVelocityChanges->getPointer());
+        m_plateDataLookup->getPointer(), plateVelocityChanges->getPointer(),
+        m_asthenosphere->deviceTexture());
 
     applyAccretion<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_heightMapTexture->deviceTexture(),
                                                              m_accretionTexture->deviceTexture(),
