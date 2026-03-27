@@ -1889,14 +1889,18 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
 
     const auto [norm, mag] = newVelocityVector.normalizedAndMagnitudeZeroSafe();
 
-    current.direction = norm;
     const float postCollisionVelocity = max(mag - frictionLoss, 0.f);
 
-    // Drag relative to the difference between plate velocity and asthenosphere velocity
-    const Vec2<float> relativeVelocity = (current.direction * postCollisionVelocity) - asthenosphereVel;
+    const Vec2<float> plateVelocity = current.direction * postCollisionVelocity;
+    const Vec2<float> relativeVelocity = asthenosphereVel - plateVelocity;
     const float relativeMagnitude = relativeVelocity.magnitude();
-    const float drag = kernelSettings.environmentalDragCoefficient * relativeMagnitude * relativeMagnitude;
-    current.velocity = max(postCollisionVelocity - drag, 0.f);
+    const float d = kernelSettings.environmentalDragCoefficient * relativeMagnitude * relativeMagnitude;
+    const Vec2<float> newVelocity = plateVelocity + relativeVelocity.normalizedZeroSafe() * d;
+
+    const auto [newNorm, newMag] = newVelocity.normalizedAndMagnitudeZeroSafe();
+
+    current.velocity = newMag;
+    current.direction = newNorm;
 
     // Apply smoothing
     current.velocitySmoothed = current.velocitySmoothed * kernelSettings.velocitySmoothingFactor + current.velocity * (
@@ -2205,7 +2209,6 @@ __global__ void calculatePlateCenters(const CudaTexture<uint8_t> *r_plateIdsPtr,
         if (centerX < 0) centerX += r_plateIds.size().x;
         if (centerY < 0) centerY += r_plateIds.size().y;
 
-        // Store in geometricCenter field
         w_plateData[plateId].geometricCenter = Vec2<float>(centerX, centerY);
     }
 }
@@ -2786,7 +2789,7 @@ __global__ void computeCurl(const CudaTexture<float> *r_gradientPtr, CudaTexture
 
     double xs = (double) sizeIn.x / (double) sizeOut.x;
     double ys = (double) sizeIn.y / (double) sizeOut.y;
-
+    
     const Vec2<int> scaledCoord = Vec2<int>(coord.x * xs, coord.y * ys);
 
     Vec2<float> dir = {0.0f, 0.0f};
