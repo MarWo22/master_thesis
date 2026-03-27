@@ -78,12 +78,17 @@ void loadTextures(CudaGlInteropManager &interopManager)
                                  heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
     Renderer::addTexture("velocityTexture", velocityTexture);
 
-    auto *asthenosphereTexture = new Texture();
-    asthenosphereTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
-    Renderer::addTexture("asthenosphereTexture", asthenosphereTexture);
-    interopManager.addConnection("asthenosphereTexture", asthenosphereTexture->id(), sizeof(float2), heightmapDimensions.x,
-                                 heightmapDimensions.y, GL_RG32F, GL_RG, GL_FLOAT);
-    Renderer::addTexture("asthenosphereTexture", asthenosphereTexture);
+    auto *asthenosphereTextureX = new Texture();
+    asthenosphereTextureX->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    Renderer::addTexture("asthenosphereTextureX", asthenosphereTextureX);
+    interopManager.addConnection("asthenosphereTextureX", asthenosphereTextureX->id(), sizeof(float), heightmapDimensions.x,
+                                 heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
+
+    auto *asthenosphereTextureY = new Texture();
+    asthenosphereTextureY->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
+    Renderer::addTexture("asthenosphereTextureY", asthenosphereTextureY);
+    interopManager.addConnection("asthenosphereTextureY", asthenosphereTextureY->id(), sizeof(float), heightmapDimensions.x,
+                                 heightmapDimensions.y, GL_R32F, GL_RED, GL_FLOAT);
 
     auto *waterTexture = new Texture();
     waterTexture->init2D(GL_CLAMP_TO_EDGE, GL_LINEAR);
