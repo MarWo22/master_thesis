@@ -27,7 +27,8 @@ class Terrain final : public RenderComponent
     Texture* m_waterTexture;
     Texture* m_arrowTexture;
     Texture *m_accretionTexture;
-    Texture *m_asthenosphereTexture;
+    Texture *m_asthenosphereTextureX;
+    Texture *m_asthenosphereTextureY;
 
     int m_sizeX;
     int m_sizeZ;

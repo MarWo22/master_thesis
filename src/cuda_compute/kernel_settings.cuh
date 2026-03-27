@@ -58,7 +58,7 @@ struct KernelSettings
     float pressureDecayRate = 0.8f;          // How fast pressure decays at fault lines
     int pressureBlurRange = 25;              // Range for pressure distance field propagation
     float pressureMultiplier = 1.0f;         // Final pressure application multiplier
-    float curlNoiseMultiplier = 0.01f;       // Multiplier for curl noise force on plate velocity
+    float curlNoiseMultiplier = 30.f;       // Multiplier for curl noise force on plate velocity
     float stressSplitThreshold = 30.0f;      // Stress threshold for plate splitting
     int targetMinimumPlateArea = 100;
     int targetMaximumPlateArea = 100000;

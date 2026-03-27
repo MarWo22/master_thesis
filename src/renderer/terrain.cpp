@@ -32,7 +32,8 @@ Terrain::Terrain(const int sizeX, const int sizeZ)
       , m_waterTexture(nullptr)
       , m_arrowTexture(nullptr)
       , m_accretionTexture(nullptr)
-      , m_asthenosphereTexture(nullptr)
+      , m_asthenosphereTextureX(nullptr)
+      , m_asthenosphereTextureY(nullptr)
       , m_sizeX(sizeX)
       , m_sizeZ(sizeZ)
       , m_vao(0)
@@ -57,7 +58,8 @@ void Terrain::init()
     m_waterTexture = getTexture("waterTexture");
     m_arrowTexture = getTexture("arrowTexture");
     m_accretionTexture = getTexture("accretionTexture");
-    m_asthenosphereTexture = getTexture("asthenosphereTexture");
+    m_asthenosphereTextureX = getTexture("asthenosphereTextureX");
+    m_asthenosphereTextureY = getTexture("asthenosphereTextureY");
     createGlState();
     populateBuffers();
 }
@@ -109,7 +111,8 @@ void Terrain::render(const Camera &camera)
             m_asthenosphereShader->bind();
             m_asthenosphereShader->setUniform("vpMat", camera.ProjectionMatrix() * camera.ViewMatrix());
             m_heightmapTexture->bind(GL_TEXTURE0);
-            m_asthenosphereTexture->bind(GL_TEXTURE1);
+            m_asthenosphereTextureX->bind(GL_TEXTURE1);
+            m_asthenosphereTextureY->bind(GL_TEXTURE2);
             break;
         default:
             std::cerr << "Undefined render mode" << std::endl;

@@ -301,4 +301,6 @@ __global__ void applyUplift(const CudaTexture<uint8_t> *r_plateIdsPtr,
                             const PlateData *r_plateDataLookup,
                             CudaTexture<float> *w_heightMapPtr);
 
+__global__ void splitAsthenosphere(const CudaTexture<Vec2<float> > *r_pressureSlopePtr, CudaTexture<float>*w_x, CudaTexture<float> *w_y);
+
 #endif //PLATE_TECTONICS_KERNEL_CUH
