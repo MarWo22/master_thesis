@@ -1882,7 +1882,16 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
         static_cast<int>(current.geometricCenter.x + 0.5f),
         static_cast<int>(current.geometricCenter.y + 0.5f)
     );
-    const Vec2<float> asthenosphereVel = (*r_asthenospherePtr)[sampleCoord] * kernelSettings.curlNoiseMultiplier;
+
+    Vec2<float> asthenoSphereSample = (*r_asthenospherePtr)[sampleCoord];
+    const Vec2<float> asthenosphereVel = {
+        clamp(asthenoSphereSample.x * kernelSettings.curlNoiseMultiplier + (asthenoSphereSample.x < 0 ? -0.2: 0.2), -1, 1),
+        clamp(asthenoSphereSample.y * kernelSettings.curlNoiseMultiplier + (asthenoSphereSample.y < 0 ? -0.2: 0.2), -1, 1)
+    };
+
+
+    if (current.size != 0)
+        printf("%d %f %f %f %f\n", threadIdx.x, current.geometricCenter.x, current.geometricCenter.y, asthenosphereVel.x, asthenosphereVel.y);
     const Vec2<float> newVelocityVector = originalVelocityVector;
 
     // printf("asthenosphere velocity: (%.6f, %.6f), magnitude: %.6f \n", asthenosphereVel.x, asthenosphereVel.y, asthenosphereVel.magnitude());
@@ -3199,12 +3208,7 @@ __global__ void resetPlateDataPreCount(PlateData *rw_plateData)
 
     PlateData current = rw_plateData[invokeIndex];
 
-    // Normalize asthenosphere velocity by plate size to get average
-    if (current.size > 0)
-    {
-        current.asthenosphereVelocity = current.asthenosphereVelocity / current.size;
-    }
-
+    current.asthenosphereVelocity = {0, 0};
     current.mass = 0;
     current.size = 0;
     current.perimeter = 0;
