@@ -19,18 +19,21 @@ struct PlateData
     float circularity;
     bool used;
     bool hasMoved;
+    int mergeWaitTime;
 
     __host__ __device__ PlateData()
         : velocity(0)
-        , velocitySmoothed(0)
-        , directionSmoothed({0.0f, 0.0f})
-        , size(0)
-        , mass(0)
-        , perimeter(0)
-        , breakScore(1.0f)
-        , asthenosphereVelocity({0.0f, 0.0f})
-        , used(false)
-        , hasMoved(false)
+          , velocitySmoothed(0)
+          , directionSmoothed({0.0f, 0.0f})
+          , size(0)
+          , mass(0)
+          , perimeter(0)
+          , breakScore(1.0f)
+          , circularity(0)
+          , asthenosphereVelocity({0.0f, 0.0f})
+          , used(false)
+          , hasMoved(false)
+          , mergeWaitTime(0)
     {}
 };
 

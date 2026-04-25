@@ -21,6 +21,7 @@ struct KernelSettings
     float mergeVelocityDiffThreshold = 0.01f;
 
     float mergeMinVelocity = 0.05f;
+    int mergeWaitAfterSplit = 10;
 
     int minPlateSize = 10;
 

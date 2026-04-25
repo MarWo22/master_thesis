@@ -270,6 +270,9 @@ __global__ void postCClIdReassign(const CudaTexture<uint8_t> *r_labelIdLookupPtr
 
 __global__ void resetPlateDataPreCount(PlateData *rw_plateData);
 
+__global__ void resetPlateDataPreCountPostSplit(PlateData *rw_plateData, uint8_t oldPlateId, uint8_t newPlateId);
+
+
 __global__ void moveContinentalCollisions(const CudaTexture<UpliftData> *r_upliftData,
                                           const CudaTexture<uint32_t> *r_collisionsPtr,
                                           const CudaTexture<float> *r_heightMap,

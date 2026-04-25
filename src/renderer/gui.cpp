@@ -288,6 +288,9 @@ void Gui::simulationSettingsSection()
             ImGui::DragFloat("Merge Min Velocity", &newSettings.mergeMinVelocity, 0.001f, 0.f,
                              1.f);
             ImGui::SetNextItemWidth(250);
+            ImGui::DragInt("Merge Wait After Split", &newSettings.mergeWaitAfterSplit, 1, 0,
+                             100);
+            ImGui::SetNextItemWidth(250);
             ImGui::DragInt("Min Plate Size", &newSettings.minPlateSize, 1, 1, 100);
 
             ImGui::SetNextItemWidth(250);

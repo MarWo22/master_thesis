@@ -1342,6 +1342,9 @@ __global__ void getPlateMerges(const CudaTexture<bool> *r_neighborMatrixPtr, con
         return;
     }
 
+    if (plateDataX.mergeWaitTime > 0 || plateDataY.mergeWaitTime > 0)
+        return;
+
     // Check if combined size would exceed maximum plate area
     const int combinedSize = plateDataX.size + plateDataY.size;
     if (combinedSize > kernelSettings.targetMaximumPlateArea)
@@ -1890,11 +1893,9 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
     };
 
 
-    if (current.size != 0)
-        printf("%d %f %f %f %f\n", threadIdx.x, current.geometricCenter.x, current.geometricCenter.y, asthenosphereVel.x, asthenosphereVel.y);
+
     const Vec2<float> newVelocityVector = originalVelocityVector;
 
-    // printf("asthenosphere velocity: (%.6f, %.6f), magnitude: %.6f \n", asthenosphereVel.x, asthenosphereVel.y, asthenosphereVel.magnitude());
 
     const auto [norm, mag] = newVelocityVector.normalizedAndMagnitudeZeroSafe();
 
@@ -1917,6 +1918,8 @@ __global__ void applyPlateMovementChanges(PlateData *rw_plateLookup, const Colli
     Vec2<float> smoothedDir = current.directionSmoothed * kernelSettings.directionSmoothingFactor + current.direction *
                               (1.0f - kernelSettings.directionSmoothingFactor);
     current.directionSmoothed = smoothedDir.normalizedZeroSafe();
+
+    current.mergeWaitTime = current.mergeWaitTime > 0 ? current.mergeWaitTime - 1 : 0;
 
     rw_plateLookup[threadIdx.x] = current;
 }
@@ -3220,6 +3223,29 @@ __global__ void resetPlateDataPreCount(PlateData *rw_plateData)
 
     rw_plateData[invokeIndex] = current;
 }
+
+__global__ void resetPlateDataPreCountPostSplit(PlateData *rw_plateData, uint8_t oldPlateId, uint8_t newPlateId)
+{
+    const unsigned int invokeIndex = getInvokeIndex();
+
+    if (invokeIndex >= MAX_PLATE_COUNT)
+        return;
+
+    PlateData current = rw_plateData[invokeIndex];
+
+    current.asthenosphereVelocity = {0, 0};
+    current.mass = 0;
+    current.size = 0;
+    current.perimeter = 0;
+    current.breakScore = 0;
+    current.used = false;
+
+    if (invokeIndex == oldPlateId || invokeIndex == newPlateId)
+        current.mergeWaitTime = kernelSettings.mergeWaitAfterSplit;
+
+    rw_plateData[invokeIndex] = current;
+}
+
 
 __global__ void createVisualizationCollisionTexture(const CudaTexture<UpliftData> *r_upliftData,
                                                     const CudaTexture<uint32_t> *r_collisionTexture,

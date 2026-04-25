@@ -333,7 +333,7 @@ void PlateTectonicSim::applyHydraulicErosion(CudaTextureHost<float> *heightMapTe
     const auto fluxBuffer = m_textureManager.generateTexture<float4>(m_width, m_height);
     const auto sedimentBuffer = m_textureManager.generateTexture<float>(m_width, m_height);
     const auto materialBuffer = m_textureManager.generateTexture<float>(m_width, m_height);
-    for (size_t i = 0; i < 100; i++)
+    for (size_t i = 0; i < 10; i++)
     {
         rain<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_hydrationLevel->deviceTexture(), 1.0, m_seed + m_iterations);
         CUDA_ERROR_CHECK();
@@ -520,6 +520,7 @@ void PlateTectonicSim::processPlateSplitting()
                     << ", splitting at center (" << splitPoint.x << ", " << splitPoint.y << ")\n";
 
             SplitPlateV2(splitPoint, static_cast<uint8_t>(i));
+
             return; // Only split one plate per iteration
         }
     }
@@ -1030,7 +1031,7 @@ void PlateTectonicSim::SplitPlateV2(Vec2<int> point, uint8_t oldPlateId)
         m_plateDataLookup->getPointer()
     );
 
-    resetPlateDataPreCount<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer());
+    resetPlateDataPreCountPostSplit<<<NUM_BLOCKS_PLATES, THREADS_PER_BLOCK>>>(m_plateDataLookup->getPointer(), oldPlateId, newPlateIdHost);
     countSizePostSplit<<<m_numBlocksPixels, THREADS_PER_BLOCK>>>(m_plateIdsTexture->deviceTexture(),
                                                                  m_heightMapTexture->deviceTexture(),
                                                                  m_plateDataLookup->getPointer());
