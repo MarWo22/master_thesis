@@ -15,6 +15,8 @@ find_package(GLEW REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(imgui REQUIRED)
 find_package(glm REQUIRED)
+find_package(nfd REQUIRED)
+
 
 add_executable(PlateTectonics
         src/main.cpp
@@ -45,13 +47,35 @@ add_executable(PlateTectonics
         src/renderer/imgui/imgui_impl_opengl3.cpp
         src/renderer/imgui/imgui_impl_opengl3.h
         src/renderer/imgui/imgui_impl_opengl3_loader.h
-        src/cuda_compute/plate_tectonic_sim.cpp
+        src/cuda_compute/plate_tectonic_sim.cu
         src/cuda_compute/plate_tectonic_sim.h
-        src/cuda_compute/random_texture.cu
-        src/cuda_compute/random_texture.h
-        src/cuda_compute/texture_save.cpp
-        src/cuda_compute/texture_save.h
+        src/cuda_compute/texture_save.cu
+        src/cuda_compute/texture_save.cuh
+        src/cuda_compute/cuda_noise.cuh
         src/config.h
+        src/cuda_compute/types/vec2.cuh
+        src/cuda_compute/types/plate_data.h
+        src/cuda_compute/types/iteration_statistics.h
+        src/cuda_compute/types/distance_field_buffer.h
+        src/cuda_compute/plate_tectonics_kernel.cu
+        src/cuda_compute/plate_tectonics_kernel.cuh
+        src/cuda_compute/cuda_helper.cuh
+        src/cuda_compute/cuda_gl_interop_manager.cpp
+        src/cuda_compute/cuda_gl_interop_manager.h
+        src/cuda_compute/types/cuda_texture.cuh
+        src/generation_settings.cpp
+        src/generation_settings.h
+        src/cuda_compute/ccl.cu
+        src/cuda_compute/ccl.cuh
+        src/cuda_compute/kernel_settings.cuh
+        src/cuda_compute/kernel_settings.cu
+        src/cuda_compute/types/voronoi_seed.h
+        src/cuda_compute/debug_logging/debug_logging_kernels.cu
+        src/cuda_compute/debug_logging/debug_logging_kernels.cuh
+        src/cuda_compute/debug_logging/debug_logging.cu
+        src/cuda_compute/debug_logging/debug_logging.cuh
+        src/cuda_compute/texture_manager.cuh
+        src/cuda_compute/types/upliftData.cuh
 )
 
 set_target_properties(PlateTectonics PROPERTIES
@@ -66,12 +90,14 @@ target_link_libraries(PlateTectonics PRIVATE
         imgui::imgui
         glm::glm
         OpenGL::GL
+        nfd::nfd
 )
 
 # Include directories (if needed)
 target_include_directories(PlateTectonics PRIVATE
         ${STB_INCLUDE_DIRS}
 )
+
 
 
 file(GLOB SHADER_FILES "src/shaders/*")

@@ -1,16 +1,31 @@
 #version 430
 
 layout(location = 0) in vec3 position;
-layout(location = 1) in vec2 texCoord;
+layout(location = 1) in vec2 texCoordIn;
 
 layout(binding = 0) uniform sampler2D heightMap;
+layout(binding = 2) uniform sampler2D waterTexture;
 
 uniform mat4 vpMat;
+uniform bool displaceHeight;
+uniform bool showWater;
+uniform float heightMultiplier;
 
 out vec4 color;
+out vec2 texCoord;
 
 void main() {
-    const float height = texture(heightMap, texCoord).r;
+    const float height = texture(heightMap, texCoordIn).r;
+    float hydration = 0;
+    if(showWater)
+        hydration = max(texture(waterTexture, texCoordIn).r - 20, 0);
+
+    texCoord = texCoordIn;
     color = vec4(vec3(height), 1);
-    gl_Position = vpMat * vec4(position.x, height * 200,  position.z, 1.0);
+
+    if (displaceHeight)
+        gl_Position = vpMat * vec4(position.x, (height + hydration) / 1000 * heightMultiplier, position.z, 1.0);
+    else
+        gl_Position = vpMat * vec4(position.x, 0, position.z, 1.0);
+
 }
